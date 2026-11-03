@@ -107,6 +107,15 @@ Settings: which monitor's taskbar, and which side — left or right of the taskb
    tokens ourselves. Unsupported/unavailable states shown explicitly.
 5. **Capability matrix:** Claude = alerts, sessions, approvals, usage. Codex = usage only
    (v1). Cursor removed from scope.
+   **Superseded 2026-11-03:** Codex CLI 0.166.0 has stable hooks (`codex features list`:
+   `hooks stable true`) with a blocking `PermissionRequest` event using the same stdout
+   contract as Claude (`hookSpecificOutput.decision.behavior` allow/deny; deny may carry
+   `message`). No decision = normal Codex prompt. Default timeout 600 s; timeout behaviour
+   not documented, so the spike must test it. Windows: use `commandWindows`. Source:
+   https://learn.chatgpt.com/docs/hooks. Codex therefore gets full parity in v1: alerts
+   (`Stop`), sessions (`SessionStart`/`SessionEnd`/`SubagentStart`/`SubagentStop`),
+   inline approvals (`PermissionRequest`) and usage. Our hook client tags the source
+   provider. Cursor stays out of v1.
 6. **Terminal jump:** best effort — activate the owning window; tab/pane focus only where
    the terminal exposes it.
 7. **settings.json edits:** atomic write, keep unrelated hooks, remove only our entries.
