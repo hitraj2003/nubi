@@ -13,6 +13,10 @@ pub const MAX_TOOL_INPUT: usize = 32 * 1024;
 pub const HOOK_TIMEOUT_SECS: u64 = 120;
 /// Client gives up before the provider kills the hook.
 pub const PERMISSION_DEADLINE_SECS: u64 = 100;
+/// Hook timeout for PreToolUse (covers AskUserQuestion, which waits for an answer).
+pub const QUESTION_HOOK_TIMEOUT_SECS: u64 = 300;
+/// How long a question waits for an answer in the overlay before the terminal asks instead.
+pub const QUESTION_DEADLINE_SECS: u64 = 240;
 
 pub fn pipe_name() -> String {
     let user: String = std::env::var("USERNAME")
@@ -45,9 +49,17 @@ pub struct HookMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Reply {
-    /// "allow" | "deny"
+    /// "allow" | "deny" | "answer"
     pub decision: String,
     pub message: Option<String>,
+    /// For "answer": question text -> chosen label(s), multi-select joined with ", ".
+    #[serde(default)]
+    pub answers: Option<serde_json::Map<String, Value>>,
+}
+
+/// True for a Claude Code AskUserQuestion the overlay can answer.
+pub fn is_question(provider: &str, event: &str, tool: Option<&str>) -> bool {
+    provider == "claude" && event == "PreToolUse" && tool == Some("AskUserQuestion")
 }
 
 fn s(v: &Value, k: &str) -> Option<String> {
@@ -66,7 +78,9 @@ pub fn build_msg(provider: &str, raw: &Value, pids: Vec<u32>) -> Option<HookMsg>
             oversize = true;
         }
     }
-    let wants_reply = event == "PermissionRequest" && !oversize;
+    let tool = s(raw, "tool_name");
+    let question = is_question(provider, &event, tool.as_deref());
+    let wants_reply = (event == "PermissionRequest" || question) && !oversize;
     Some(HookMsg {
         v: 1,
         provider: provider.to_string(),
@@ -81,7 +95,7 @@ pub fn build_msg(provider: &str, raw: &Value, pids: Vec<u32>) -> Option<HookMsg>
         notification_type: s(raw, "notification_type"),
         pids,
         wants_reply,
-        deadline_secs: PERMISSION_DEADLINE_SECS,
+        deadline_secs: if question { QUESTION_DEADLINE_SECS } else { PERMISSION_DEADLINE_SECS },
     })
 }
 
@@ -104,13 +118,36 @@ pub fn decision_json(r: &Reply) -> Option<String> {
     )
 }
 
+/// Hook stdout for an answered AskUserQuestion: allow + the original questions + answers.
+/// None = print nothing (the terminal asks).
+pub fn question_json(tool_input: &Value, r: &Reply) -> Option<String> {
+    if r.decision != "answer" {
+        return None;
+    }
+    let answers = r.answers.as_ref().filter(|a| !a.is_empty())?;
+    let questions = tool_input.get("questions")?.as_array()?;
+    // Every answer must name a question that was asked.
+    let asked: Vec<&str> = questions.iter().filter_map(|q| q["question"].as_str()).collect();
+    if !answers.keys().all(|k| asked.contains(&k.as_str())) {
+        return None;
+    }
+    Some(
+        json!({ "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": { "questions": questions, "answers": answers }
+        }})
+        .to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn allow_json_matches_contract() {
-        let out = decision_json(&Reply { decision: "allow".into(), message: None }).unwrap();
+        let out = decision_json(&Reply { decision: "allow".into(), message: None, answers: None }).unwrap();
         assert_eq!(
             out,
             r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
@@ -119,7 +156,7 @@ mod tests {
 
     #[test]
     fn deny_carries_message() {
-        let out = decision_json(&Reply { decision: "deny".into(), message: Some("no".into()) }).unwrap();
+        let out = decision_json(&Reply { decision: "deny".into(), message: Some("no".into()), answers: None }).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], "deny");
         assert_eq!(v["hookSpecificOutput"]["decision"]["message"], "no");
@@ -127,7 +164,7 @@ mod tests {
 
     #[test]
     fn unknown_decision_prints_nothing() {
-        assert!(decision_json(&Reply { decision: "maybe".into(), message: None }).is_none());
+        assert!(decision_json(&Reply { decision: "maybe".into(), message: None, answers: None }).is_none());
     }
 
     #[test]
@@ -146,6 +183,37 @@ mod tests {
         assert!(!build_msg("codex", &raw, vec![]).unwrap().wants_reply);
         let raw = json!({"hook_event_name":"PermissionRequest","session_id":"s","tool_input":{"command":"ls"}});
         assert!(build_msg("codex", &raw, vec![]).unwrap().wants_reply);
+    }
+
+    #[test]
+    fn question_answer_echoes_questions() {
+        let ti = json!({"questions":[{"question":"Which framework?","header":"F","options":[{"label":"React"},{"label":"Vue"}],"multiSelect":false}]});
+        let mut a = serde_json::Map::new();
+        a.insert("Which framework?".into(), json!("React"));
+        let out = question_json(&ti, &Reply { decision: "answer".into(), message: None, answers: Some(a) }).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+        assert_eq!(v["hookSpecificOutput"]["updatedInput"]["answers"]["Which framework?"], "React");
+        assert_eq!(v["hookSpecificOutput"]["updatedInput"]["questions"][0]["header"], "F");
+    }
+
+    #[test]
+    fn unknown_question_key_prints_nothing() {
+        let ti = json!({"questions":[{"question":"Q1","options":[]}]});
+        let mut a = serde_json::Map::new();
+        a.insert("Other".into(), json!("x"));
+        assert!(question_json(&ti, &Reply { decision: "answer".into(), message: None, answers: Some(a) }).is_none());
+        assert!(question_json(&ti, &Reply { decision: "skip".into(), message: None, answers: None }).is_none());
+    }
+
+    #[test]
+    fn only_claude_questions_wait() {
+        let raw = json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion","tool_input":{"questions":[]}});
+        assert!(build_msg("claude", &raw, vec![]).unwrap().wants_reply);
+        assert_eq!(build_msg("claude", &raw, vec![]).unwrap().deadline_secs, QUESTION_DEADLINE_SECS);
+        assert!(!build_msg("codex", &raw, vec![]).unwrap().wants_reply);
+        let raw = json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash"});
+        assert!(!build_msg("claude", &raw, vec![]).unwrap().wants_reply);
     }
 
     #[test]

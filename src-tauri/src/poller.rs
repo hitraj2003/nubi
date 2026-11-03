@@ -43,8 +43,10 @@ pub fn start(app: App) {
                 let (u, n): (Usage, i64) = crate::usage::apply(p, out, g.usage.get(p));
                 g.usage.insert(p.to_string(), u);
                 next.insert(p.to_string(), n);
+                let mut persisted = next.clone();
+                persisted.retain(|k, _| g.usage.get(k).map_or(false, |x| x.status == "backoff"));
                 drop(g);
-                crate::usage::save_backoff(&next);
+                crate::usage::save_backoff(&persisted);
             }
             emit_state(&app);
             for _ in 0..30 {

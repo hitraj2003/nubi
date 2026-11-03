@@ -5,9 +5,12 @@
 mod app;
 mod hook_client;
 mod hooks_config;
+mod notch;
 mod pipe;
 mod poller;
 mod protocol;
+mod ring;
+mod taskbar;
 mod settings;
 mod state;
 mod usage;
@@ -38,6 +41,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             app::get_state,
             app::answer_permission,
+            app::answer_question,
             app::jump_session,
             app::save_settings,
             app::set_dnd,
@@ -47,6 +51,12 @@ fn main() {
             app::hide_overlay,
             app::show_panel,
             app::monitors,
+            notch::report_hot,
+            notch::notch_drag,
+            notch::notch_drag_end,
+            ring::ring_move,
+            ring::ring_drop,
+            ring::ring_tip,
         ])
         .setup(|a| {
             app::setup(a.handle())?;

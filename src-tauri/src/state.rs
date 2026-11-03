@@ -40,6 +40,8 @@ pub struct Session {
 
 pub struct Pending {
     pub id: u64,
+    /// "permission" | "question"
+    pub kind: String,
     pub provider: String,
     pub session_key: String,
     pub folder: String,
@@ -155,6 +157,15 @@ impl Inner {
                 s.attention = false;
                 None
             }
+            "PreToolUse" if crate::protocol::is_question(&m.provider, &m.event, m.tool_name.as_deref()) => {
+                s.state = "waiting".into();
+                s.attention = true;
+                let q = m.tool_input.as_ref()
+                    .and_then(|t| t["questions"][0]["question"].as_str())
+                    .unwrap_or("Claude has a question")
+                    .to_string();
+                Some(mk("question", "Question for you", format!("{} · {q}", s.folder)))
+            }
             "UserPromptSubmit" | "PreToolUse" | "PostToolUse" => {
                 s.state = "working".into();
                 s.attention = false;
@@ -218,6 +229,7 @@ impl Inner {
             id,
             Pending {
                 id,
+                kind: if m.event == "PermissionRequest" { "permission".into() } else { "question".into() },
                 provider: m.provider.clone(),
                 session_key: key,
                 folder,
@@ -238,7 +250,7 @@ impl Inner {
             return Err("request expired".into());
         }
         if let Some(s) = self.sessions.get_mut(&p.session_key) {
-            s.state = if reply.decision == "allow" { "working".into() } else { "idle".into() };
+            s.state = if reply.decision == "deny" { "idle".into() } else { "working".into() };
             s.attention = false;
         }
         p.tx.ok_or("no waiter")?.send(reply).map_err(|_| "hook already gone".to_string())
@@ -268,6 +280,8 @@ impl Inner {
             "sessions": self.sessions.values().filter(|s| wants(&s.provider)).collect::<Vec<_>>(),
             "pending": pending.iter().filter(|p| wants(&p.provider)).map(|p| json!({
                 "id": p.id,
+                "kind": p.kind,
+                "questions": if p.kind == "question" { p.tool_input.as_ref().map(|t| t["questions"].clone()) } else { None },
                 "provider": p.provider,
                 "session_key": p.session_key,
                 "folder": p.folder,
@@ -346,9 +360,9 @@ mod tests {
         st.on_event(&m);
         let (tx, mut rx) = oneshot::channel();
         let id = st.add_pending(&m, tx, 60_000);
-        st.answer(id, Reply { decision: "allow".into(), message: None }).unwrap();
+        st.answer(id, Reply { decision: "allow".into(), message: None, answers: None }).unwrap();
         assert_eq!(rx.try_recv().unwrap().decision, "allow");
-        assert!(st.answer(id, Reply { decision: "deny".into(), message: None }).is_err());
+        assert!(st.answer(id, Reply { decision: "deny".into(), message: None, answers: None }).is_err());
     }
 
     #[test]
@@ -358,6 +372,6 @@ mod tests {
         let (tx, _rx) = oneshot::channel();
         let id = st.add_pending(&m, tx, 0);
         std::thread::sleep(std::time::Duration::from_millis(5));
-        assert!(st.answer(id, Reply { decision: "allow".into(), message: None }).is_err());
+        assert!(st.answer(id, Reply { decision: "allow".into(), message: None, answers: None }).is_err());
     }
 }

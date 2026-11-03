@@ -13,6 +13,14 @@ pub struct Settings {
     pub monitor: usize,
     /// Edge for notch mode: "top" | "bottom" | "left" | "right"
     pub edge: String,
+    /// Where the notch sits along its edge, 0..1 (centre = 0.5).
+    pub notch_along: f64,
+    /// Fold the notch to a small tab until the pointer reaches it.
+    pub notch_on_hover: bool,
+    /// Waiting approvals/questions beside the notch: "stack" | "side".
+    pub notch_requests_layout: String,
+    /// Floating ring position (physical px); None = default spot.
+    pub ring_pos: Option<(i32, i32)>,
     /// Taskbar mode: "left" | "right"
     pub taskbar_side: String,
     pub dnd_hotkey: String,
@@ -30,7 +38,11 @@ impl Default for Settings {
             providers: "both".into(),
             display_mode: "notch".into(),
             monitor: 0,
-            edge: "top".into(),
+            edge: "right".into(),
+            notch_along: 0.5,
+            notch_on_hover: true,
+            notch_requests_layout: "stack".into(),
+            ring_pos: None,
             taskbar_side: "right".into(),
             dnd_hotkey: "ctrl+alt+d".into(),
             quiet_start: None,
