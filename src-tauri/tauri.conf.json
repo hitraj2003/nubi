@@ -5,22 +5,32 @@
   "identifier": "dev.claude-overlay.app",
   "build": { "frontendDist": "../ui" },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "overlay",
-        "url": "index.html",
+        "url": "overlay.html",
         "width": 360,
-        "height": 48,
+        "height": 56,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
         "visible": false,
-        "shadow": false
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "panel",
+        "title": "claude-overlay",
+        "url": "panel.html",
+        "width": 460,
+        "height": 720,
+        "visible": false
       }
     ],
-    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'" }
+    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" }
   },
   "bundle": {
     "active": true,

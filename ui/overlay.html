@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>claude-overlay pill</title>
+<style>
+  html, body { margin: 0; background: transparent; font: 13px "Segoe UI", sans-serif; overflow: hidden; }
+  #pill { margin: 4px auto; width: 344px; height: 44px; border-radius: 22px; background: #000; color: #fff;
+          display: flex; align-items: center; gap: 10px; padding: 0 16px; box-sizing: border-box; cursor: pointer; }
+  #dot { width: 10px; height: 10px; border-radius: 50%; background: #3fb950; flex: none; }
+  #pill.permission #dot { background: #f0883e; }
+  #pill.idle #dot { background: #58a6ff; }
+  #text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #title { font-weight: 600; }
+</style>
+</head>
+<body>
+  <div id="pill"><span id="dot"></span><span id="text"><span id="title"></span> <span id="body"></span></span></div>
+  <script src="overlay.js"></script>
+</body>
+</html>

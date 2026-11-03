@@ -9,8 +9,28 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros", "rt"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+ureq = { version = "2", features = ["json"] }
+dirs = "5"
+chrono = "0.4"
+
+[dependencies.windows-sys]
+version = "0.59"
+features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_System_Pipes",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+]
 
 [profile.release]
 lto = true
