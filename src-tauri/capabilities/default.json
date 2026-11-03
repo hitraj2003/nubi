@@ -1,5 +1,14 @@
 {
   "identifier": "default",
-  "windows": ["overlay", "panel"],
-  "permissions": ["core:default"]
+  "windows": [
+    "notch",
+    "overlay",
+    "panel",
+    "ring",
+    "ringtip",
+    "taskbar"
+  ],
+  "permissions": [
+    "core:default"
+  ]
 }

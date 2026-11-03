@@ -1,7 +1,7 @@
 //! Enable/disable our hook entries in Claude Code (`~/.claude/settings.json`) and
 //! Codex (`$CODEX_HOME/hooks.json`). Our entries are found by the hook exe name in the
 //! command, so no extra marker field is written. Unrelated hooks are kept. Writes are atomic.
-use crate::protocol::HOOK_TIMEOUT_SECS;
+use crate::protocol::{HOOK_TIMEOUT_SECS, QUESTION_HOOK_TIMEOUT_SECS};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
@@ -17,7 +17,7 @@ const CLAUDE_EVENTS: &[EventSpec] = &[
     EventSpec { name: "SessionStart", matcher: None, timeout: Some(10) },
     EventSpec { name: "SessionEnd", matcher: None, timeout: Some(10) },
     EventSpec { name: "UserPromptSubmit", matcher: None, timeout: Some(10) },
-    EventSpec { name: "PreToolUse", matcher: Some("*"), timeout: Some(10) },
+    EventSpec { name: "PreToolUse", matcher: Some("*"), timeout: Some(QUESTION_HOOK_TIMEOUT_SECS) },
     EventSpec { name: "Notification", matcher: None, timeout: Some(10) },
     EventSpec { name: "Stop", matcher: None, timeout: Some(10) },
     EventSpec { name: "SubagentStop", matcher: None, timeout: Some(10) },

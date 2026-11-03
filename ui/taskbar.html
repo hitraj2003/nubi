@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>claude-overlay taskbar strip</title>
+<!-- Layout and colours from CodeZeno/Claude-Code-Usage-Monitor classic theme (MIT, commit dea72c9). -->
+<style>
+  :root{--div-a:#505050;--div-b:#282828;--label:#888888;--track:#444444;--fill:#D97757;--value:#F09A7A;--fill-x:#5B8DEF;--value-x:#8FB3F5}
+  body.light{--div-a:#A0A0A0;--div-b:#E6E6E6;--label:#404040;--track:#AAAAAA;--value:#A94F32;--value-x:#2F5FB8}
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;user-select:none;
+    font:500 12px "Segoe UI",system-ui,sans-serif;width:233px;height:46px;cursor:default}
+  #div{position:absolute;left:0;top:10px;width:2px;height:25px;background:var(--div-a)}
+  #div::after{content:"";position:absolute;left:2px;top:0;width:1px;height:25px;background:var(--div-b)}
+  .row{position:absolute;left:13px;height:13px;display:flex;align-items:center}
+  .row.r0{top:5px}.row.r1{top:28px}
+  .lab{width:34px;color:var(--label);line-height:13px;display:flex;align-items:center;gap:3px}
+  .lab svg{width:11px;height:11px;fill:currentColor}
+  .bar{display:flex;gap:1px;margin-left:2px}
+  .row{--f:var(--fill)}
+  .row.codex{--f:var(--fill-x)}
+  .seg{width:10px;height:13px;border-radius:2px;background:var(--track)}
+  .val{margin-left:4px;width:62px;color:var(--value);line-height:13px;white-space:nowrap}
+  .row.codex .val{color:var(--value-x)}
+  .dot{position:absolute;right:2px;top:19px;width:7px;height:7px;border-radius:50%;background:#F2FF00;display:none;animation:p 1.1s steps(6) infinite}
+  @keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
+  @media (prefers-reduced-motion: reduce){.dot{animation:none}}
+</style>
+</head>
+<body>
+  <div id="div"></div>
+  <div id="rows"></div>
+  <div class="dot" id="dot" title="Something is waiting for you"></div>
+  <script src="taskbar.js"></script>
+</body>
+</html>

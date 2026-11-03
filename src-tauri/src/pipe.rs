@@ -161,10 +161,12 @@ async fn handle(app: App, pipe: NamedPipeServer) {
         return;
     }
     app::on_hook(&app, &msg);
-    if !(msg.wants_reply && msg.event == "PermissionRequest") {
+    let question = is_question(&msg.provider, &msg.event, msg.tool_name.as_deref());
+    if !(msg.wants_reply && (msg.event == "PermissionRequest" || question)) {
         return;
     }
-    let wait = Duration::from_secs(msg.deadline_secs.min(PERMISSION_DEADLINE_SECS).saturating_sub(5));
+    let cap = if question { QUESTION_DEADLINE_SECS } else { PERMISSION_DEADLINE_SECS };
+    let wait = Duration::from_secs(msg.deadline_secs.min(cap).saturating_sub(5));
     let (tx, rx) = oneshot::channel();
     let id = app::add_pending(&app, &msg, tx, wait.as_millis() as u64);
     let mut probe = [0u8; 1];

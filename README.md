@@ -3,9 +3,30 @@
 Windows overlay for **Claude Code** and **Codex CLI**. One `claude-overlay.exe`, built with
 Tauri 2 and Rust.
 
-Status: basic functional build. The final visuals (edge notch with codenotch animations,
-floating ring, taskbar strip) come in the UI pass. Plan:
+Status: full build with all three display modes, awaiting the owner's review. Plan:
 [`docs/plans/2026-11-03-claude-overlay.md`](docs/plans/2026-11-03-claude-overlay.md).
+
+## Display modes (pick one in Settings)
+
+- **Edge notch** (from codenotch): pinned to any screen edge, folds to a small tab until the
+  pointer reaches it, one ring per provider (5h arc, 7d outer ring, spinning arc while working,
+  yellow pulse when something waits). Hover a ring for the card: limits, sessions, approvals and
+  Claude's questions. Approvals and questions pop out beside the notch on their own, stacked or
+  side by side (Settings). Drag the notch along its edge to move it; the spot is saved.
+- **Floating ring** (from claude-usage-meter): draggable, snaps to the nearest side edge. With
+  both providers on it is one ring split in half: left Claude, right Codex. Click toggles 5h/7d; hover shows the tooltip; right-click opens the panel.
+- **Taskbar strip** (from Claude-Code-Usage-Monitor): sits inside the taskbar, right beside the
+  tray or at the left. Claude + Codex on: row 1 Claude 5h, row 2 Codex 5h. Click opens the panel.
+- **Alert island** (from Navi): top-centre pill with sound for done / permission / question /
+  waiting, in every mode.
+
+## Answer Claude's questions from the overlay
+
+When Claude Code asks a multiple-choice question (`AskUserQuestion`), the question appears in the
+notch card and the panel Inbox. Pick an option (or type your own) and press **Send**. Claude
+receives it as your answer. **Answer in terminal**, or no answer within ~4 minutes, hands the
+question back to the terminal. Codex has no documented way to do this, so its questions stay in
+the terminal.
 
 ## What works now
 

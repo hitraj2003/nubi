@@ -60,12 +60,16 @@ pub fn on_hook(app: &App, m: &HookMsg) {
 
 pub fn add_pending(app: &App, m: &HookMsg, tx: oneshot::Sender<Reply>, ttl_ms: u64) -> u64 {
     let id = with(app, |i| i.add_pending(m, tx, ttl_ms));
+    let s = with(app, |i| i.settings.clone());
+    crate::notch::place(app, &s);
     emit_state(app);
     id
 }
 
 pub fn remove_pending(app: &App, id: u64) {
     with(app, |i| i.pending.remove(&id));
+    let s = with(app, |i| i.settings.clone());
+    crate::notch::place(app, &s);
     emit_state(app);
 }
 
@@ -77,10 +81,10 @@ pub fn show_alert(app: &App, mut a: Alert) {
     if dnd {
         return;
     }
-    if s.sounds {
-        crate::winutil::beep(&a.kind);
-    }
     if s.toast_when_fullscreen && crate::winutil::fullscreen_active() {
+        if s.sounds {
+            crate::winutil::beep(&a.kind);
+        }
         let _ = app
             .notification()
             .builder()
@@ -92,7 +96,9 @@ pub fn show_alert(app: &App, mut a: Alert) {
     if let Some(w) = app.get_webview_window("overlay") {
         place_overlay(app, &s);
         let _ = w.show();
-        let _ = w.emit("pill", &a);
+        let mut payload = serde_json::to_value(&a).unwrap_or_default();
+        payload["sound"] = serde_json::json!(s.sounds);
+        let _ = w.emit("pill", payload);
     }
 }
 
@@ -104,7 +110,7 @@ fn provider_name(p: &str) -> &'static str {
     }
 }
 
-/// Basic placement per display mode / monitor / edge / side. Final look comes with the UI pass.
+/// Alert island placement on the chosen monitor.
 pub fn place_overlay<R: Runtime>(app: &AppHandle<R>, s: &Settings) {
     let Some(w) = app.get_webview_window("overlay") else { return };
     let mons = app.available_monitors().unwrap_or_default();
@@ -112,29 +118,28 @@ pub fn place_overlay<R: Runtime>(app: &AppHandle<R>, s: &Settings) {
     let (mp, ms) = (m.position(), m.size());
     let ws = w.outer_size().unwrap_or_default();
     let (mw, mh, ww, wh) = (ms.width as i32, ms.height as i32, ws.width as i32, ws.height as i32);
-    let margin = (8.0 * m.scale_factor()) as i32;
-    let taskbar = (48.0 * m.scale_factor()) as i32;
-    let (x, y) = match s.display_mode.as_str() {
-        "ring" => (mw - ww - margin, mh - wh - taskbar - margin),
-        "taskbar" => {
-            let x = if s.taskbar_side == "left" { margin } else { mw - ww - margin * 30 };
-            (x, mh - taskbar - wh)
-        }
-        _ => match s.edge.as_str() {
-            "bottom" => ((mw - ww) / 2, mh - wh - taskbar),
-            "left" => (0, (mh - wh) / 2),
-            "right" => (mw - ww, (mh - wh) / 2),
-            _ => ((mw - ww) / 2, 0),
-        },
-    };
+    // Navi: the alert island sits at the top centre of the screen, whatever the display mode.
+    let _ = (mh, wh);
+    let (x, y) = ((mw - ww) / 2, 0);
     let _ = w.set_position(PhysicalPosition::new(mp.x + x, mp.y + y));
+}
+
+/// Place every display surface for the current settings.
+pub fn place_all(app: &App, s: &Settings) {
+    place_overlay(app, s);
+    crate::notch::place(app, s);
+    crate::ring::place(app);
+    crate::taskbar::place_now(app);
 }
 
 pub fn open_panel(app: &App) {
     if let Some(w) = app.get_webview_window("panel") {
         let _ = w.show();
         let _ = w.unminimize();
+        // Windows may refuse focus to a background app; a topmost flip still brings it to the front.
+        let _ = w.set_always_on_top(true);
         let _ = w.set_focus();
+        let _ = w.set_always_on_top(false);
     }
     emit_state(app);
 }
@@ -184,7 +189,16 @@ pub fn answer_permission(app: App, id: u64, decision: String) -> Result<(), Stri
         return Err("decision must be allow or deny".into());
     }
     let message = (decision == "deny").then(|| "Denied from claude-overlay".to_string());
-    let r = with(&app, |i| i.answer(id, Reply { decision, message }));
+    let r = with(&app, |i| i.answer(id, Reply { decision, message, answers: None }));
+    emit_state(&app);
+    r
+}
+
+/// Answer a Claude AskUserQuestion. Empty answers = "answer in terminal".
+#[tauri::command]
+pub fn answer_question(app: App, id: u64, answers: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let decision = if answers.is_empty() { "skip" } else { "answer" };
+    let r = with(&app, |i| i.answer(id, Reply { decision: decision.into(), message: None, answers: Some(answers) }));
     emit_state(&app);
     r
 }
@@ -200,7 +214,7 @@ pub fn save_settings(app: App, settings: Settings) -> Result<(), String> {
     register_hotkey(&app, &settings.dnd_hotkey)?;
     settings::save(&settings)?;
     with(&app, |i| i.settings = settings.clone());
-    place_overlay(&app, &settings);
+    place_all(&app, &settings);
     crate::poller::kick(&app);
     emit_state(&app);
     Ok(())
@@ -273,9 +287,14 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     let s = settings::load();
     with(app, |i| i.settings = s.clone());
     refresh_hooks(app);
-    // Keep the hook shim current with this build when any hooks are on.
-    if with(app, |i| i.hooks.values().any(|v| *v)) {
-        let _ = crate::hooks_config::install_shim();
+    // Hooks that are on get rewritten with this build's shim and event list, so an update
+    // (new events, longer question timeout) reaches settings that were written by an older build.
+    for p in ["claude", "codex"] {
+        if with(app, |i| i.hooks.get(p).copied().unwrap_or(false)) {
+            if let Err(e) = crate::hooks_config::set_enabled(p, true) {
+                eprintln!("[claude-overlay] refresh {p} hooks: {e}");
+            }
+        }
     }
 
     let open = MenuItem::with_id(app, "open", "Open panel", true, None::<&str>)?;
@@ -300,7 +319,9 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     if let Err(e) = register_hotkey(app, &s.dnd_hotkey) {
         eprintln!("[claude-overlay] {e}");
     }
-    place_overlay(app, &s);
+    place_all(app, &s);
+    crate::notch::start_watch(app.clone());
+    crate::taskbar::start(app.clone());
     if let Some(p) = app.get_webview_window("panel") {
         let p2 = p.clone();
         p.on_window_event(move |e| {

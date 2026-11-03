@@ -3,60 +3,84 @@
 <head>
 <meta charset="utf-8">
 <title>claude-overlay</title>
-<style>
-  body { font: 13px "Segoe UI", sans-serif; margin: 0; padding: 12px; background: #111; color: #ddd; }
-  h2 { font-size: 13px; text-transform: uppercase; color: #888; margin: 16px 0 6px; }
-  .row, .card { background: #1c1c1c; border-radius: 6px; padding: 8px; margin-bottom: 6px; }
-  .muted { color: #888; }
-  .warn { color: #f0883e; }
-  .err { color: #f85149; }
-  pre { white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; background: #000; padding: 6px; margin: 6px 0; }
-  button { margin-right: 6px; }
-  label { display: block; margin: 4px 0; }
-  .bar { display: inline-block; width: 120px; height: 8px; background: #333; vertical-align: middle; }
-  .bar > i { display: block; height: 100%; background: #e8704a; }
-</style>
+<link rel="stylesheet" href="panel.css">
 </head>
 <body>
-  <div id="status"></div>
+  <aside id="nav">
+    <div class="brand"><span class="logo"></span>claude-overlay</div>
+    <button data-view="inbox" class="on">Inbox <span class="count" id="n-inbox"></span></button>
+    <button data-view="sessions">Sessions <span class="count" id="n-sessions"></span></button>
+    <button data-view="usage">Usage</button>
+    <button data-view="alerts">Alerts</button>
+    <button data-view="settings">Settings</button>
+    <div class="grow"></div>
+    <div id="dndbox">
+      <div class="dnd-row"><span>Do Not Disturb</span><label class="switch"><input type="checkbox" id="dnd"><i></i></label></div>
+      <div class="hint" id="dnd-hint"></div>
+    </div>
+    <div id="pipe" class="err"></div>
+  </aside>
 
-  <h2>Approvals</h2>
-  <div id="pending"><span class="muted">none</span></div>
+  <main>
+    <section id="v-inbox" class="view on">
+      <header><h1>Inbox</h1><span class="sub">Approvals and questions waiting for you</span></header>
+      <div id="inbox"></div>
+    </section>
 
-  <h2>Usage</h2>
-  <div id="usage"></div>
-  <button id="refresh">Refresh usage</button>
+    <section id="v-sessions" class="view">
+      <header><h1>Sessions</h1><span class="sub">Running Claude Code and Codex sessions</span></header>
+      <table class="grid"><thead><tr><th></th><th>Project</th><th>Tool</th><th>State</th><th>Context</th><th>Last event</th><th></th></tr></thead>
+        <tbody id="sessions"></tbody></table>
+      <div class="empty" id="sessions-empty">No sessions yet. Turn on hooks in Settings, then start Claude Code or Codex.</div>
+    </section>
 
-  <h2>Sessions</h2>
-  <div id="sessions"></div>
+    <section id="v-usage" class="view">
+      <header><h1>Usage</h1><span class="sub">Limit windows from each CLI's own sign-in</span><button id="refresh" class="ghost">Refresh</button></header>
+      <div id="usage" class="cards"></div>
+    </section>
 
-  <h2>Alerts</h2>
-  <div id="alerts"></div>
+    <section id="v-alerts" class="view">
+      <header><h1>Alerts</h1><span class="sub">Last 50. Alerts during Do Not Disturb are marked.</span><button id="test" class="ghost">Test notification</button></header>
+      <div id="alerts" class="list"></div>
+    </section>
 
-  <h2>Hooks</h2>
-  <div id="hooks"></div>
-
-  <h2>Settings</h2>
-  <form id="settings">
-    <label>Providers
-      <select name="providers"><option value="both">Claude + Codex</option><option value="claude">Claude</option><option value="codex">Codex</option></select></label>
-    <label>Display mode
-      <select name="display_mode"><option value="notch">Edge notch</option><option value="ring">Floating ring</option><option value="taskbar">Taskbar strip</option></select></label>
-    <label>Monitor <select name="monitor" id="monitor"></select></label>
-    <label>Notch edge
-      <select name="edge"><option>top</option><option>bottom</option><option>left</option><option>right</option></select></label>
-    <label>Taskbar side
-      <select name="taskbar_side"><option>right</option><option>left</option></select></label>
-    <label>DND hotkey <input name="dnd_hotkey"></label>
-    <label>Quiet hours from <input name="quiet_start" type="number" min="0" max="23" style="width:50px">
-      to <input name="quiet_end" type="number" min="0" max="23" style="width:50px"> (empty = off)</label>
-    <label><input type="checkbox" name="follow_quiet_time"> Follow Windows quiet time</label>
-    <label><input type="checkbox" name="sounds"> Sounds</label>
-    <label><input type="checkbox" name="toast_when_fullscreen"> Windows toast when a full-screen app is open</label>
-    <button type="submit">Save settings</button> <span id="saved" class="muted"></span>
-  </form>
-  <p><button id="test">Test notification</button></p>
-
+    <section id="v-settings" class="view">
+      <header><h1>Settings</h1></header>
+      <form id="settings">
+        <fieldset><legend>Hooks</legend><div id="hooks"></div></fieldset>
+        <fieldset><legend>Providers</legend>
+          <div class="seg3" data-name="providers">
+            <label><input type="radio" name="providers" value="both"><span>Claude + Codex</span></label>
+            <label><input type="radio" name="providers" value="claude"><span>Claude</span></label>
+            <label><input type="radio" name="providers" value="codex"><span>Codex</span></label>
+          </div>
+        </fieldset>
+        <fieldset><legend>Display</legend>
+          <div class="seg3">
+            <label><input type="radio" name="display_mode" value="notch"><span>Edge notch</span></label>
+            <label><input type="radio" name="display_mode" value="ring"><span>Floating ring</span></label>
+            <label><input type="radio" name="display_mode" value="taskbar"><span>Taskbar strip</span></label>
+          </div>
+          <div class="field"><span>Monitor</span><select name="monitor" id="monitor"></select></div>
+          <div class="field mode-notch"><span>Notch edge</span><select name="edge"><option>right</option><option>left</option><option>top</option><option>bottom</option></select></div>
+          <div class="field mode-notch"><span>Waiting requests</span><select name="notch_requests_layout"><option value="stack">Stacked</option><option value="side">Side by side</option></select></div>
+          <div class="field mode-notch"><span>Position</span><span class="hint">Drag the notch along its edge; it stays where you leave it.</span></div>
+          <div class="field mode-notch"><span>Fold until hovered</span><label class="switch"><input type="checkbox" name="notch_on_hover"><i></i></label></div>
+          <div class="field mode-taskbar"><span>Taskbar side</span><select name="taskbar_side"><option value="right">Right, beside the tray</option><option value="left">Left</option></select></div>
+        </fieldset>
+        <fieldset><legend>Do Not Disturb</legend>
+          <div class="field"><span>Hotkey</span><input name="dnd_hotkey" placeholder="ctrl+alt+d"></div>
+          <div class="field"><span>Quiet hours</span><span><input name="quiet_start" type="number" min="0" max="23" class="num"> to <input name="quiet_end" type="number" min="0" max="23" class="num"> <small>(empty = off)</small></span></div>
+          <div class="field"><span>Follow Windows quiet time</span><label class="switch"><input type="checkbox" name="follow_quiet_time"><i></i></label></div>
+        </fieldset>
+        <fieldset><legend>Alerts</legend>
+          <div class="field"><span>Sounds</span><label class="switch"><input type="checkbox" name="sounds"><i></i></label></div>
+          <div class="field"><span>Windows notification when a full-screen app is open</span><label class="switch"><input type="checkbox" name="toast_when_fullscreen"><i></i></label></div>
+        </fieldset>
+        <div class="actions"><button type="submit">Save settings</button><span id="saved" class="hint"></span></div>
+      </form>
+    </section>
+  </main>
   <script src="panel.js"></script>
 </body>
 </html>

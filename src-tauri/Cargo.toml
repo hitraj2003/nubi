@@ -30,6 +30,8 @@ features = [
   "Win32_System_Diagnostics_Debug",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Shell",
+  "Win32_System_Registry",
+  "Win32_UI_Input_KeyboardAndMouse",
 ]
 
 [profile.release]

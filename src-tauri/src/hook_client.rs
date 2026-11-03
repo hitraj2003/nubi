@@ -16,6 +16,8 @@ pub fn run(provider: &str) -> i32 {
     }
     let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&buf) else { return 0 };
     let Some(msg) = build_msg(provider, &raw, crate::winutil::ancestors()) else { return 0 };
+    let question = is_question(provider, &msg.event, msg.tool_name.as_deref());
+    let tool_input = raw.get("tool_input").cloned().unwrap_or_default();
     let wants = msg.wants_reply;
     let wait = if wants { msg.deadline_secs } else { 3 };
     let (tx, rx) = mpsc::channel();
@@ -24,7 +26,8 @@ pub fn run(provider: &str) -> i32 {
     });
     if let Ok(Some(reply)) = rx.recv_timeout(Duration::from_secs(wait)) {
         if wants {
-            if let Some(out) = decision_json(&reply) {
+            let out = if question { question_json(&tool_input, &reply) } else { decision_json(&reply) };
+            if let Some(out) = out {
                 let mut so = std::io::stdout();
                 let _ = so.write_all(out.as_bytes());
                 let _ = so.flush();
