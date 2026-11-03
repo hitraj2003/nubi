@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>claude-overlay</title>
+<style>
+  body { font: 13px "Segoe UI", sans-serif; margin: 0; padding: 12px; background: #111; color: #ddd; }
+  h2 { font-size: 13px; text-transform: uppercase; color: #888; margin: 16px 0 6px; }
+  .row, .card { background: #1c1c1c; border-radius: 6px; padding: 8px; margin-bottom: 6px; }
+  .muted { color: #888; }
+  .warn { color: #f0883e; }
+  .err { color: #f85149; }
+  pre { white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; background: #000; padding: 6px; margin: 6px 0; }
+  button { margin-right: 6px; }
+  label { display: block; margin: 4px 0; }
+  .bar { display: inline-block; width: 120px; height: 8px; background: #333; vertical-align: middle; }
+  .bar > i { display: block; height: 100%; background: #e8704a; }
+</style>
+</head>
+<body>
+  <div id="status"></div>
+
+  <h2>Approvals</h2>
+  <div id="pending"><span class="muted">none</span></div>
+
+  <h2>Usage</h2>
+  <div id="usage"></div>
+  <button id="refresh">Refresh usage</button>
+
+  <h2>Sessions</h2>
+  <div id="sessions"></div>
+
+  <h2>Alerts</h2>
+  <div id="alerts"></div>
+
+  <h2>Hooks</h2>
+  <div id="hooks"></div>
+
+  <h2>Settings</h2>
+  <form id="settings">
+    <label>Providers
+      <select name="providers"><option value="both">Claude + Codex</option><option value="claude">Claude</option><option value="codex">Codex</option></select></label>
+    <label>Display mode
+      <select name="display_mode"><option value="notch">Edge notch</option><option value="ring">Floating ring</option><option value="taskbar">Taskbar strip</option></select></label>
+    <label>Monitor <select name="monitor" id="monitor"></select></label>
+    <label>Notch edge
+      <select name="edge"><option>top</option><option>bottom</option><option>left</option><option>right</option></select></label>
+    <label>Taskbar side
+      <select name="taskbar_side"><option>right</option><option>left</option></select></label>
+    <label>DND hotkey <input name="dnd_hotkey"></label>
+    <label>Quiet hours from <input name="quiet_start" type="number" min="0" max="23" style="width:50px">
+      to <input name="quiet_end" type="number" min="0" max="23" style="width:50px"> (empty = off)</label>
+    <label><input type="checkbox" name="follow_quiet_time"> Follow Windows quiet time</label>
+    <label><input type="checkbox" name="sounds"> Sounds</label>
+    <label><input type="checkbox" name="toast_when_fullscreen"> Windows toast when a full-screen app is open</label>
+    <button type="submit">Save settings</button> <span id="saved" class="muted"></span>
+  </form>
+  <p><button id="test">Test notification</button></p>
+
+  <script src="panel.js"></script>
+</body>
+</html>
