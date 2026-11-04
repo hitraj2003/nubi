@@ -36,6 +36,8 @@ pub struct Settings {
     pub follow_quiet_time: bool,
     pub sounds: bool,
     pub toast_when_fullscreen: bool,
+    /// Install new versions from GitHub releases automatically (release builds only).
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -59,6 +61,7 @@ impl Default for Settings {
             follow_quiet_time: true,
             sounds: true,
             toast_when_fullscreen: true,
+            auto_update: true,
         }
     }
 }

@@ -100,12 +100,25 @@
         <div class="group">
           <div class="row"><div><div class="rl">Sounds</div></div><span class="switch"><input type="checkbox" name="sounds"><i></i></span></div>
           <div class="row"><div><div class="rl">Windows notification in full screen</div></div><span class="switch"><input type="checkbox" name="toast_when_fullscreen"><i></i></span></div>
+          <div class="row"><div><div class="rl">Update automatically</div><div class="rd">Installs new versions from GitHub when they come out</div></div><span class="switch"><input type="checkbox" name="auto_update"><i></i></span></div>
         </div>
 
-        <div class="save"><span class="hint">Changes save automatically.</span><span id="saved" class="hint"></span></div>
+        <div class="draftbar" id="draftbar" hidden>
+          <span class="dt">Unsaved changes</span>
+          <button type="button" id="discard">Discard</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+        <span id="saved" class="hint"></span>
       </form>
     </section>
   </main>
+  <div class="modal" id="leave" hidden>
+    <div class="box" role="dialog" aria-modal="true" aria-labelledby="leave-t">
+      <div class="mt" id="leave-t">Save changes?</div>
+      <div class="md">You changed settings and have not saved them.</div>
+      <div class="ma"><button type="button" id="leave-discard">Discard</button><button type="button" id="leave-save" class="primary">Save</button></div>
+    </div>
+  </div>
   <script src="panel.js"></script>
 </body>
 </html>
