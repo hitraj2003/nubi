@@ -24,11 +24,20 @@ const prov = (p) => el("span", "prov " + p, NAME[p]);
 const LABEL = { "5h": "Session", "7d": "Week", "7d Opus": "Week, Opus", "7d Sonnet": "Week, Sonnet" };
 
 // ---- navigation ----
+function go(view) {
+  document.querySelectorAll("nav button[data-view]").forEach((x) => x.classList.toggle("on", x.dataset.view === view));
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.id === "v-" + view));
+}
+// Leaving Settings with unsaved changes asks first: Save or Discard (Esc or a click outside stays).
+let leavingTo = null;
 document.querySelectorAll("nav button[data-view]").forEach((b) =>
   b.addEventListener("click", () => {
-    document.querySelectorAll("nav button[data-view]").forEach((x) => x.classList.toggle("on", x === b));
-    document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.id === "v-" + b.dataset.view));
+    if (formDirty && b.dataset.view !== "settings") { leavingTo = b.dataset.view; $("leave").hidden = false; $("leave-save").focus(); return; }
+    go(b.dataset.view);
   }));
+const closeLeave = () => { $("leave").hidden = true; leavingTo = null; };
+$("leave").addEventListener("click", (e) => { if (e.target === $("leave")) closeLeave(); });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("leave").hidden) closeLeave(); });
 
 let snap = null, formDirty = false;
 const picks = {};
@@ -209,21 +218,17 @@ function modeFields() {
   document.querySelectorAll(".mode-notch").forEach((e) => (e.style.display = m === "island" ? "" : "none"));
   document.querySelectorAll(".mode-taskbar").forEach((e) => (e.style.display = m === "taskbar" ? "" : "none"));
 }
-// Settings save themselves. Switches, radios and selects save at once; typed fields (numbers,
-// hotkey, quiet hours) save 700 ms after the last keystroke or when the field loses focus.
-let autoTimer = 0;
-const autoSave = () => { clearTimeout(autoTimer); $("settings").requestSubmit(); };
-$("settings").addEventListener("input", (e) => {
-  formDirty = true; modeFields();
-  const t = e.target;
-  const typed = t.tagName === "INPUT" && !["checkbox", "radio"].includes(t.type);
-  clearTimeout(autoTimer);
-  if (typed) autoTimer = setTimeout(autoSave, 700); else autoSave();
-});
-$("settings").addEventListener("change", (e) => { if (formDirty && e.target.tagName === "INPUT" && !["checkbox", "radio"].includes(e.target.type)) autoSave(); });
-$("settings").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const f = e.target.elements;
+// Changes are a draft until Save. While there is a draft, state updates do not refill the form,
+// and the bar at the bottom offers Discard (back to the saved values) or Save.
+function setDirty(d) { formDirty = d; $("draftbar").hidden = !d; }
+$("settings").addEventListener("input", () => { setDirty(true); modeFields(); });
+function discard() { setDirty(false); if (snap) fillForm(snap.settings); }
+$("discard").addEventListener("click", discard);
+$("leave-discard").addEventListener("click", () => { const to = leavingTo; discard(); closeLeave(); if (to) go(to); });
+$("leave-save").addEventListener("click", async () => { const to = leavingTo; if (await saveSettings()) { closeLeave(); if (to) go(to); } });
+$("settings").addEventListener("submit", (e) => { e.preventDefault(); saveSettings(); });
+async function saveSettings() {
+  const f = $("settings").elements;
   const num = (v) => (v === "" ? null : Number(v));
   const settings = {
     ...snap.settings,
@@ -243,10 +248,15 @@ $("settings").addEventListener("submit", async (e) => {
     follow_quiet_time: f.follow_quiet_time.checked,
     sounds: f.sounds.checked,
     toast_when_fullscreen: f.toast_when_fullscreen.checked,
+    auto_update: f.auto_update.checked,
   };
-  try { await invoke("save_settings", { settings }); formDirty = false; $("saved").textContent = "Saved"; clearTimeout(savedTimer); savedTimer = setTimeout(() => ($("saved").textContent = ""), 1500); }
-  catch (err) { $("saved").textContent = String(err); }
-});
+  try {
+    await invoke("save_settings", { settings });
+    setDirty(false);
+    $("saved").textContent = "Saved"; clearTimeout(savedTimer); savedTimer = setTimeout(() => ($("saved").textContent = ""), 1500);
+    return true;
+  } catch (err) { $("saved").textContent = String(err); return false; }
+}
 
 let savedTimer = 0;
 

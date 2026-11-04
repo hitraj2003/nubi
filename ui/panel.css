@@ -122,5 +122,17 @@ pre{margin:0 0 12px;white-space:pre-wrap;word-break:break-all;max-height:200px;o
 .switch input:checked + i::after{transform:translateX(12px);background:#111113}
 .hook{display:flex;align-items:center;gap:12px}
 .on-off{font-size:12px;color:var(--t3)} .on-off.on{color:var(--ok)}
-.save{display:flex;align-items:center;gap:12px;margin-top:24px}
+/* Unsaved-changes bar: sticks to the bottom of the settings view while there is a draft. */
+.draftbar{position:sticky;bottom:12px;display:flex;align-items:center;gap:8px;margin-top:24px;padding:8px 8px 8px 14px;
+  background:var(--s2);border:1px solid var(--line-2);border-radius:12px;box-shadow:0 8px 24px -8px rgba(0,0,0,.6)}
+.draftbar[hidden]{display:none}
+.draftbar .dt{flex:1;font-size:13px}
+#saved{margin-top:8px}
+/* Save-or-discard pop-up */
+.modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:50}
+.modal[hidden]{display:none}
+.modal .box{width:320px;padding:18px;background:var(--s2);border:1px solid var(--line-2);border-radius:14px}
+.modal .mt{font-weight:600;font-size:14px;margin-bottom:6px}
+.modal .md{color:var(--t2);font-size:13px;margin-bottom:16px}
+.modal .ma{display:flex;justify-content:flex-end;gap:8px}
 @media (prefers-reduced-motion: reduce){*{transition:none !important}}
