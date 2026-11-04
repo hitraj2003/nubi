@@ -1,0 +1,30 @@
+name: Feature request
+description: An idea for something Nubi should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve
+      placeholder: "I miss approvals when the notch is on my second monitor."
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How you picture it working.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other ways you tried or considered
+
+  - type: input
+    id: nubi-version
+    attributes:
+      label: Nubi version
+      placeholder: "0.1.0"
