@@ -50,7 +50,8 @@ pub fn set_pipe_error(app: &App, e: String) {
     emit_state(app);
 }
 
-pub fn on_hook(app: &App, m: &HookMsg) {
+/// Returns true when a question must be released directly to the focused terminal.
+pub fn on_hook(app: &App, m: &HookMsg) -> bool {
     // Usage numbers from Claude Code's status line (see hook_client::statusline).
     if m.event == "StatusLine" {
         if let Some(rl) = &m.tool_input {
@@ -72,13 +73,34 @@ pub fn on_hook(app: &App, m: &HookMsg) {
                 emit_state(app);
             }
         }
-        return;
+        return false;
     }
+    let terminal_question = crate::protocol::is_question(&m.provider, &m.event, m.tool_name.as_deref())
+        && crate::protocol::question_in_terminal(m, crate::winutil::pids_focused(&m.pids));
     let (alert, wanted) = with(app, |i| (i.on_event(m), i.settings.wants(&m.provider)));
+    // A CLI can replace its logical conversation without changing its process. Old rows must
+    // not retain permission to close or compact the new conversation in that process.
+    let key = format!("{}:{}", m.provider, m.session_id);
+    with(app, |i| {
+        let target = i.sessions.get(&key).and_then(|s| s.action_target.clone());
+        if let Some(target) = target {
+            for s in i.sessions.values_mut().filter(|s| s.key != key) {
+                if s.action_target.as_ref() == Some(&target) {
+                    s.action_target = None;
+                    s.compact_queued = false;
+                }
+            }
+        }
+    });
     if let (Some(a), true) = (alert, wanted) {
-        show_alert(app, a);
+        if terminal_question {
+            with(app, |i| i.push_alert(a));
+        } else {
+            show_alert(app, a);
+        }
     }
     emit_state(app);
+    terminal_question
 }
 
 pub fn island_mode(app: &App) -> bool {
@@ -314,6 +336,117 @@ pub fn answer_question(app: App, id: u64, answers: serde_json::Map<String, serde
 pub fn jump_session(app: App, key: String) -> Result<bool, String> {
     let pids = with(&app, |i| i.sessions.get(&key).map(|s| s.pids.clone())).ok_or("unknown session")?;
     Ok(crate::winutil::focus_pids(&pids))
+}
+
+#[tauri::command]
+pub fn close_session(app: App, key: String) -> Result<(), String> {
+    let target = with(&app, |i| i.sessions.get(&key).and_then(|s| s.action_target.clone()))
+        .ok_or("Cannot identify this agent process. Use Jump to close it in the terminal.")?;
+    target.close()?;
+    with(&app, |i| {
+        i.sessions.remove(&key);
+        i.pending.retain(|_, p| p.session_key != key);
+        i.missed.retain(|p| p.session_key != key);
+    });
+    emit_state(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn new_session_terminal(app: App, key: String) -> Result<(), String> {
+    let cwd = with(&app, |i| i.sessions.get(&key).and_then(|s| s.cwd.clone()))
+        .ok_or("This session has no recorded folder.")?;
+    crate::session_actions::new_terminal(&cwd)
+}
+
+#[tauri::command]
+pub fn queue_session_compact(app: App, key: String, queued: bool) -> Result<(), String> {
+    let target = with(&app, |i| {
+        let s = i.sessions.get_mut(&key).ok_or("Unknown session")?;
+        if !queued {
+            s.compact_queued = false;
+            return Ok(None);
+        }
+        if s.compact_queued { return Ok(None); }
+        let target = s.action_target.clone().ok_or("Cannot identify this agent process. Use Jump and run /compact in the terminal.")?;
+        s.compact_queued = true;
+        s.action_error = None;
+        Ok::<_, String>(Some(target))
+    })?;
+    emit_state(&app);
+    let Some(target) = target else { return Ok(()) };
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if !target.available() {
+                with(&app, |i| {
+                    if let Some(s) = i.sessions.get_mut(&key) {
+                        if s.action_target.as_ref() == Some(&target) && s.compact_queued {
+                            s.compact_queued = false;
+                            s.action_error = Some("Queued compact cancelled: the session process has exited.".into());
+                        }
+                    }
+                });
+                emit_state(&app);
+                return;
+            }
+            let ready = with(&app, |i| {
+                let pending = i.pending.values().any(|p| p.session_key == key);
+                let Some(s) = i.sessions.get_mut(&key) else { return None };
+                if !s.compact_queued || s.action_target.as_ref() != Some(&target) { return None; }
+                if !pending && compact_ready(s, now_ms()) {
+                    s.compact_queued = false;
+                    Some(true)
+                } else { Some(false) }
+            });
+            match ready {
+                None => return,
+                Some(false) => continue,
+                Some(true) => break,
+            }
+        }
+        let result = target.compact();
+        with(&app, |i| {
+            if let Some(s) = i.sessions.get_mut(&key) {
+                if s.action_target.as_ref() == Some(&target) {
+                    s.action_error = result.err();
+                }
+            }
+        });
+        emit_state(&app);
+    });
+    Ok(())
+}
+
+fn compact_ready(s: &crate::state::Session, now: u64) -> bool {
+    matches!(s.state.as_str(), "idle" | "done")
+        && now.saturating_sub(s.last_event_ms) >= 500
+}
+
+#[cfg(test)]
+mod session_action_tests {
+    use super::*;
+    #[test]
+    fn compact_waits_through_work_and_permissions_for_both_providers() {
+        for provider in ["claude", "codex"] {
+            let mut i = Inner::default();
+            let mut m = HookMsg { provider: provider.into(), session_id: "queued".into(), event: "SessionStart".into(), ..Default::default() };
+            let key = format!("{provider}:queued");
+            i.on_event(&m);
+            i.sessions.get_mut(&key).unwrap().compact_queued = true;
+            for event in ["UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop"] {
+                m.event = event.into();
+                i.on_event(&m);
+                let s = &i.sessions[&key];
+                assert!(s.compact_queued, "Queue lost on {event}");
+                assert!(!compact_ready(s, s.last_event_ms + 499));
+                assert_eq!(compact_ready(s, s.last_event_ms + 500), event == "Stop");
+            }
+            m.event = "SessionEnd".into();
+            i.on_event(&m);
+            assert!(!i.sessions.contains_key(&key));
+        }
+    }
 }
 
 #[tauri::command]

@@ -159,12 +159,12 @@ async fn handle(app: App, pipe: NamedPipeServer) {
     if msg.provider != "claude" && msg.provider != "codex" {
         return;
     }
-    app::on_hook(&app, &msg);
+    let terminal_question = app::on_hook(&app, &msg);
     let question = is_question(&msg.provider, &msg.event, msg.tool_name.as_deref());
     if !(msg.wants_reply && (msg.event == "PermissionRequest" || question)) {
         return;
     }
-    if question && app::questions_mode(&app) == "off" {
+    if terminal_question || (question && app::questions_mode(&app) == "off") {
         return; // connection closes, the hook prints nothing, Claude asks in the terminal
     }
     let cap = if question { QUESTION_DEADLINE_SECS } else { PERMISSION_DEADLINE_SECS };
@@ -179,10 +179,14 @@ async fn handle(app: App, pipe: NamedPipeServer) {
     let hard_ms = crate::state::now_ms() + msg.deadline_secs.min(cap).saturating_sub(5) * 1000;
     let countdown = async {
         while !app::pending_tick(&app, id, 250, hard_ms) {
+            if question && question_in_terminal(&msg, crate::winutil::pids_focused(&msg.pids)) {
+                break; // user returned to this terminal; let its native question appear
+            }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
     };
     let reply = tokio::select! {
+        biased;
         r = rx => r.ok(),
         _ = countdown => { timed_out = true; None }
         _ = reader.read(&mut probe) => None, // provider moved on
@@ -222,9 +226,9 @@ pub fn start_sim(app: App) {
                 let app = app.clone();
                 let out = p.with_extension("reply");
                 tauri::async_runtime::spawn(async move {
-                    app::on_hook(&app, &msg);
+                    let terminal_question = app::on_hook(&app, &msg);
                     let question = is_question(&msg.provider, &msg.event, msg.tool_name.as_deref());
-                    if !msg.wants_reply || (question && app::questions_mode(&app) == "off") {
+                    if !msg.wants_reply || terminal_question || (question && app::questions_mode(&app) == "off") {
                         return;
                     }
                     let wait = Duration::from_secs(app::takeover_secs(&app).max(3));

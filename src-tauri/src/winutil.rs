@@ -12,7 +12,7 @@ use windows_sys::Win32::System::Console::GetConsoleWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOTOWNER};
 use windows_sys::Win32::UI::Shell::SHQueryUserNotificationState;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindow, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    EnumWindows, GetForegroundWindow, GetWindow, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
     SetForegroundWindow, ShowWindow, GW_OWNER, MB_ICONASTERISK, MB_ICONEXCLAMATION, SW_RESTORE,
 };
 
@@ -113,6 +113,80 @@ pub fn focus_pids(pids: &[u32]) -> bool {
         }
     }
     false
+}
+
+fn focused_host(pids: &[u32], windows: &[(usize, u32)], foreground: usize) -> bool {
+    if foreground == 0 {
+        return false;
+    }
+    for pid in pids {
+        let mut hosts = windows.iter().filter(|(_, owner)| owner == pid);
+        if let Some((window, _)) = hosts.next() {
+            // A shared process with several windows does not identify this session's window.
+            return hosts.next().is_none() && *window == foreground;
+        }
+    }
+    false
+}
+
+fn terminal_host(image: &str) -> bool {
+    let name = image.rsplit(['\\', '/']).next().unwrap_or("");
+    ["WindowsTerminal.exe", "WindowsTerminalPreview.exe", "OpenConsole.exe", "conhost.exe",
+        "cmd.exe", "powershell.exe", "pwsh.exe", "claude.exe"]
+        .iter().any(|terminal| name.eq_ignore_ascii_case(terminal))
+}
+
+/// Whether the nearest identifiable session host is foreground. Unknown/ambiguous hosts
+/// keep popup handling. Win32 identifies windows here, not tabs or panes inside a host.
+pub fn pids_focused(pids: &[u32]) -> bool {
+    if pids.is_empty() {
+        return false;
+    }
+    let mut windows: Vec<(HWND, u32)> = vec![];
+    unsafe {
+        let foreground = GetForegroundWindow();
+        if foreground.is_null() {
+            return false;
+        }
+        let mut owner = 0;
+        GetWindowThreadProcessId(foreground, &mut owner);
+        // An editor's foreground window does not prove its integrated terminal has focus.
+        if !process_image(owner).as_deref().is_some_and(terminal_host) {
+            return false;
+        }
+        EnumWindows(Some(collect), &mut windows as *mut _ as LPARAM);
+        let windows: Vec<_> = windows.into_iter().map(|(hwnd, pid)| (hwnd as usize, pid)).collect();
+        focused_host(pids, &windows, foreground as usize)
+    }
+}
+
+#[cfg(test)]
+mod focus_tests {
+    use super::{focused_host, terminal_host};
+
+    #[test]
+    fn editor_window_is_not_a_focused_terminal() {
+        assert!(terminal_host("C:/Windows/System32/conhost.exe"));
+        assert!(terminal_host("C:/Program Files/WindowsApps/WindowsTerminal.exe"));
+        assert!(!terminal_host("C:/Code.exe"));
+        assert!(!terminal_host("C:/explorer.exe"));
+    }
+
+    #[test]
+    fn only_the_nearest_session_host_counts_as_focused() {
+        let windows = [(100, 10), (200, 20), (300, 30)];
+        assert!(focused_host(&[1, 10, 20], &windows, 100));
+        assert!(!focused_host(&[1, 10, 20], &windows, 200));
+        assert!(!focused_host(&[1, 10, 20], &windows, 300));
+    }
+
+    #[test]
+    fn unknown_or_ambiguous_focus_keeps_popup_handling() {
+        assert!(!focused_host(&[], &[(100, 10)], 100));
+        assert!(!focused_host(&[10], &[], 100));
+        assert!(!focused_host(&[10], &[(100, 10)], 0));
+        assert!(!focused_host(&[10], &[(100, 10), (200, 10)], 100));
+    }
 }
 
 /// QUERY_USER_NOTIFICATION_STATE, or 0 when unknown.

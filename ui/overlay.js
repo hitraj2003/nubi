@@ -64,7 +64,7 @@ function pillWidth() {
   island.style.width = "max-content";
   const w = island.offsetWidth;
   island.style.width = old;
-  return Math.max(300, Math.min(480, w));
+  return Math.min(480, w);
 }
 function pillOpen() {
   island.classList.add("expanded");

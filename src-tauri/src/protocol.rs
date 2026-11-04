@@ -62,6 +62,11 @@ pub fn is_question(provider: &str, event: &str, tool: Option<&str>) -> bool {
     provider == "claude" && event == "PreToolUse" && tool == Some("AskUserQuestion")
 }
 
+/// Only native Claude questions bypass the popup when their terminal host is focused.
+pub fn question_in_terminal(msg: &HookMsg, host_focused: bool) -> bool {
+    host_focused && is_question(&msg.provider, &msg.event, msg.tool_name.as_deref())
+}
+
 fn s(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(|x| x.as_str()).map(|x| x.to_string())
 }
@@ -219,5 +224,18 @@ mod tests {
     #[test]
     fn missing_session_is_dropped() {
         assert!(build_msg("claude", &json!({"hook_event_name":"Stop"}), vec![]).is_none());
+    }
+
+    #[test]
+    fn focused_questions_use_terminal_but_permissions_keep_their_route() {
+        let question = json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion"});
+        let msg = build_msg("claude", &question, vec![]).unwrap();
+        assert!(question_in_terminal(&msg, true));
+        assert!(!question_in_terminal(&msg, false));
+        assert!(!question_in_terminal(&build_msg("codex", &question, vec![]).unwrap(), true));
+        let permission = json!({"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash"});
+        for provider in ["claude", "codex"] {
+            assert!(!question_in_terminal(&build_msg(provider, &permission, vec![]).unwrap(), true));
+        }
     }
 }

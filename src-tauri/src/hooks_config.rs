@@ -33,6 +33,9 @@ const CODEX_EVENTS: &[EventSpec] = &[
     EventSpec { name: "SessionEnd", matcher: None, timeout: Some(3) },
     EventSpec { name: "UserPromptSubmit", matcher: None, timeout: Some(10) },
     EventSpec { name: "PreToolUse", matcher: None, timeout: Some(10) },
+    EventSpec { name: "PostToolUse", matcher: None, timeout: Some(10) },
+    EventSpec { name: "Interrupt", matcher: None, timeout: Some(10) },
+    EventSpec { name: "PreModelRequest", matcher: None, timeout: Some(10) },
     EventSpec { name: "Stop", matcher: None, timeout: Some(10) },
     EventSpec { name: "SubagentStart", matcher: None, timeout: Some(10) },
     EventSpec { name: "SubagentStop", matcher: None, timeout: Some(10) },
@@ -284,6 +287,9 @@ mod tests {
         let windows_cmd = windows_command_for(Path::new("C:/x/nubi-hook.exe"), "codex");
         add(&mut root, CODEX_EVENTS, "\"C:/x/nubi-hook.exe\" --hook codex", Some(&windows_cmd));
         assert_eq!(root["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"], HOOK_TIMEOUT_SECS);
+        assert!(root["hooks"]["PostToolUse"][0]["hooks"][0]["commandWindows"].is_string());
+        assert!(root["hooks"]["Interrupt"][0]["hooks"][0]["commandWindows"].is_string());
+        assert!(root["hooks"]["PreModelRequest"][0]["hooks"][0]["commandWindows"].is_string());
         assert!(root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"].is_string());
         assert_eq!(root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"], windows_cmd);
         strip(&mut root);

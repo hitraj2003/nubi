@@ -39,6 +39,10 @@ pub struct Session {
     #[serde(skip)]
     pub pids: Vec<u32>,
     #[serde(skip)]
+    pub action_target: Option<crate::session_actions::Target>,
+    pub compact_queued: bool,
+    pub action_error: Option<String>,
+    #[serde(skip)]
     pub transcript_path: Option<String>,
 }
 
@@ -160,11 +164,12 @@ impl Inner {
     /// Update session state from a hook event. Returns an alert to show, if any.
     pub fn on_event(&mut self, m: &HookMsg) -> Option<Alert> {
         let key = format!("{}:{}", m.provider, m.session_id);
-        // Any later event from the session means the terminal got an answer. A Notification counts
-        // only when it is the idle prompt (after a deny or interrupt no other event arrives);
-        // the permission prompt Notification is the terminal still waiting.
-        if m.event != "Notification" || m.notification_type.as_deref() == Some("idle_prompt") {
+        // Clear requests on session progress, not unrelated subagent activity or
+        // a permission notification that means the terminal is still waiting.
+        if matches!(m.event.as_str(), "SessionStart" | "SessionEnd" | "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PreModelRequest" | "Stop" | "Interrupt")
+            || (m.event == "Notification" && m.notification_type.as_deref() == Some("idle_prompt")) {
             self.missed.retain(|x| x.session_key != key);
+            self.pending.retain(|_, p| p.session_key != key);
         }
         if m.event == "SessionEnd" {
             self.sessions.remove(&key);
@@ -186,6 +191,9 @@ impl Inner {
             subagents: 0,
             context_tokens: None,
             pids: vec![],
+            action_target: None,
+            compact_queued: false,
+            action_error: None,
             transcript_path: None,
         });
         if m.cwd.is_some() {
@@ -194,6 +202,9 @@ impl Inner {
         s.folder = folder_of(&s.cwd);
         if !m.pids.is_empty() {
             s.pids = m.pids.clone();
+            if s.action_target.is_none() {
+                s.action_target = crate::session_actions::find_target(&s.provider, &m.pids);
+            }
         }
         if m.transcript_path.is_some() {
             s.transcript_path = m.transcript_path.clone();
@@ -232,7 +243,7 @@ impl Inner {
                     .to_string();
                 Some(mk("question", "Question for you", format!("{label} · {q}")))
             }
-            "UserPromptSubmit" | "PreToolUse" | "PostToolUse" => {
+            "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PreModelRequest" => {
                 s.state = "working".into();
                 s.attention = false;
                 None
@@ -252,6 +263,11 @@ impl Inner {
                 let tool = m.tool_name.clone().unwrap_or_else(|| "tool".into());
                 let note = if m.tool_input_oversize { " (too large: answer in terminal)" } else { "" };
                 Some(mk("permission", "Permission needed", format!("{label} · {tool}{note}")))
+            }
+            "Interrupt" => {
+                s.state = "idle".into();
+                s.attention = false;
+                None
             }
             "Notification" => {
                 let nt = m.notification_type.clone().unwrap_or_default();
@@ -333,7 +349,8 @@ impl Inner {
                 s.state = "stale".into();
             }
         }
-        self.pending.retain(|_, p| p.expires_ms > now);
+        // The pipe countdown owns expiry and moves requests to the terminal list.
+        // Removing them here races that handoff and loses the Waiting entry.
     }
 
     pub fn snapshot(&self, dnd: bool) -> Value {
@@ -436,6 +453,80 @@ mod tests {
         st.answer(id, Reply { decision: "allow".into(), message: None, answers: None }).unwrap();
         assert_eq!(rx.try_recv().unwrap().decision, "allow");
         assert!(st.answer(id, Reply { decision: "deny".into(), message: None, answers: None }).is_err());
+    }
+
+    #[test]
+    fn native_question_remains_waiting_until_terminal_answer() {
+        let mut st = Inner::default();
+        let mut m = msg("PreToolUse");
+        m.tool_name = Some("AskUserQuestion".into());
+        m.tool_input = Some(json!({"questions":[{"question":"Which option?"}]}));
+        assert_eq!(st.on_event(&m).unwrap().kind, "question");
+        assert_eq!(st.sessions["claude:s1"].state, "waiting");
+        assert!(st.pending.is_empty());
+        m.event = "PostToolUse".into();
+        st.on_event(&m);
+        assert_eq!(st.sessions["claude:s1"].state, "working");
+        assert!(!st.sessions["claude:s1"].attention);
+    }
+
+    #[test]
+    fn terminal_answers_clear_waiting_for_both_providers() {
+        for provider in ["claude", "codex"] {
+            for event in ["PostToolUse", "PreToolUse", "PreModelRequest", "UserPromptSubmit", "Stop", "Interrupt", "SessionEnd"] {
+                let mut st = Inner::default();
+                let mut m = msg("PermissionRequest");
+                m.provider = provider.into();
+                st.on_event(&m);
+                let (tx, mut rx) = oneshot::channel();
+                let id = st.add_pending(&m, tx, 60_000);
+                let key = format!("{provider}:s1");
+                st.missed.push(Missed { id: id + 1, kind: "permission".into(), provider: provider.into(),
+                    session_key: key.clone(), folder: "proj".into(), name: String::new(), created_ms: now_ms() });
+                let mut other = m.clone();
+                other.session_id = "other".into();
+                let (other_tx, _other_rx) = oneshot::channel();
+                let other_id = st.add_pending(&other, other_tx, 60_000);
+                m.event = event.into();
+                st.on_event(&m);
+                assert!(!st.pending.contains_key(&id), "{provider}: {event}");
+                assert!(st.pending.contains_key(&other_id));
+                assert!(st.missed.is_empty(), "{provider}: {event}");
+                assert!(matches!(rx.try_recv(), Err(oneshot::error::TryRecvError::Closed)));
+                if event == "Interrupt" { assert_eq!(st.sessions[&key].state, "idle"); }
+            }
+        }
+    }
+
+    #[test]
+    fn unrelated_activity_keeps_terminal_requests_visible() {
+        let mut st = Inner::default();
+        let mut m = msg("PermissionRequest");
+        st.on_event(&m);
+        let (tx, _rx) = oneshot::channel();
+        let id = st.add_pending(&m, tx, 60_000);
+        st.missed.push(Missed { id: id + 1, kind: "permission".into(), provider: "claude".into(),
+            session_key: "claude:s1".into(), folder: "proj".into(), name: String::new(), created_ms: now_ms() });
+        for event in ["SubagentStart", "SubagentStop", "Notification"] {
+            m.event = event.into();
+            m.notification_type = Some("permission_prompt".into());
+            st.on_event(&m);
+            assert!(st.pending.contains_key(&id));
+            assert_eq!(st.missed.len(), 1);
+        }
+        m.notification_type = Some("idle_prompt".into());
+        st.on_event(&m);
+        assert!(st.pending.is_empty());
+        assert!(st.missed.is_empty());
+    }
+
+    #[test]
+    fn sweep_leaves_expiry_to_pipe_handoff() {
+        let mut st = Inner::default();
+        let (tx, _rx) = oneshot::channel();
+        let id = st.add_pending(&msg("PermissionRequest"), tx, 0);
+        st.sweep();
+        assert!(st.pending.contains_key(&id));
     }
 
     #[test]

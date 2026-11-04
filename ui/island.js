@@ -166,7 +166,7 @@ function targetSize(name) {
   const along = V ? v.offsetHeight : v.offsetWidth, depth = V ? v.offsetWidth : v.offsetHeight;
   if (name === "tab") return [56, 6, 3, 4];
   if (name === "compact") return [Math.max(V ? 60 : 120, along), Math.max(V ? 46 : 38, depth), V ? 18 : 16, 8];
-  if (name === "alert") return [Math.max(260, along), 56, 22, 14];
+  if (name === "alert") return [along, 56, 18, 12];
   const maxA = (V ? innerHeight : innerWidth) - 48, maxD = (V ? innerWidth : innerHeight) - 24;
   return [Math.min(maxA, along), Math.min(maxD, depth), 32, 20];
 }
@@ -211,12 +211,13 @@ let tab = "sessions";
 let folded = false, foldTimer2 = 0; // "fold until hovered": thin tab after a short grace
 let dragging = false;
 let clicked = false; // fold mode: hover shows the pill, a click opens it
+let sessionMenu = null;
 
 function decide() {
   const typing = document.activeElement && document.activeElement.classList.contains("other");
   if (dragging) { show("compact"); return; }
   const hoverOpens = hovering && (clicked || !(snap && snap.settings.notch_on_hover));
-  if (hoverOpens || requestsUp || typing) { folded = false; clearTimeout(foldTimer2); show("open"); return; }
+  if (hoverOpens || requestsUp || typing || sessionMenu) { folded = false; clearTimeout(foldTimer2); show("open"); return; }
   if (alertUp) { show("alert"); return; }
   const canFold = snap && snap.settings.notch_on_hover && !pending().length && !missed().length;
   if (!canFold) { folded = false; clearTimeout(foldTimer2); show("compact"); return; }
@@ -275,6 +276,7 @@ const tabs = $("tabs");
 const moveHl = slider($("tab-hl"));
 function setTab(t) {
   if (t === tab && $("pane").dataset.tab === t) return;
+  closeSessionMenu(false);
   tab = t;
   tabs.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
   moveHl(tabs.querySelector(`[data-tab="${t}"]`));
@@ -312,6 +314,7 @@ const wanted = (p) => { const w = snap.settings.providers; return w === "both" |
 const pending = () => (snap ? (snap.pending || []).filter(wanted) : []);
 // Requests whose takeover time ran out: they wait in the terminal until dismissed or answered there.
 const missed = () => (snap ? (snap.missed || []).filter(wanted) : []);
+const waiting = () => [...pending(), ...missed()];
 const mode = () => (snap && snap.settings.questions_mode) || "system";
 
 // Provider mark inside its rings: session usage (thick), week (thin, outside), and activity
@@ -381,17 +384,127 @@ function renderCompact() {
   right.replaceChildren(...R);
 }
 
+function closeSessionMenu(restore = true) {
+  if (!sessionMenu) return;
+  const { box, row } = sessionMenu;
+  sessionMenu = null;
+  box.remove();
+  views.open.classList.remove("has-session-menu");
+  if (restore && row.isConnected) row.focus();
+  decide();
+}
+
+function showSessionMenu(event, x, row) {
+  event.preventDefault();
+  event.stopPropagation();
+  closeSessionMenu(false);
+  const box = el("div", "session-menu");
+  box.setAttribute("role", "menu");
+  box.setAttribute("aria-label", `Actions for ${x.name || x.folder || NAME[x.provider]}`);
+  const status = el("div", "session-menu-status");
+  status.setAttribute("role", "status");
+  sessionMenu = { box, row, key: x.key };
+  views.open.classList.add("has-session-menu");
+  views.open.append(box);
+
+  function position() {
+    const bounds = views.open.getBoundingClientRect();
+    const keyboard = !Number.isFinite(event.clientX) || (event.clientX === 0 && event.clientY === 0);
+    const rect = row.getBoundingClientRect();
+    const px = keyboard ? rect.left + 12 : event.clientX;
+    const py = keyboard ? rect.bottom : event.clientY;
+    box.style.left = Math.max(8, Math.min(px - bounds.left, bounds.width - box.offsetWidth - 8)) + "px";
+    box.style.top = Math.max(8, Math.min(py - bounds.top, bounds.height - box.offsetHeight - 8)) + "px";
+  }
+  async function run(command, args = {}) {
+    const buttons = [...box.querySelectorAll("button")];
+    buttons.forEach((b) => { b.disabled = true; });
+    try {
+      const result = await invoke(command, { key: x.key, ...args });
+      if (command === "jump_session" && !result) throw new Error("Terminal window not found.");
+      closeSessionMenu();
+    } catch (error) {
+      if (!box.isConnected) return;
+      status.textContent = String(error.message || error);
+      buttons.forEach((b) => { b.disabled = false; });
+      buttons[0]?.focus();
+      position();
+    }
+  }
+  function confirm(kind) {
+    box.setAttribute("role", "alertdialog");
+    box.setAttribute("aria-labelledby", "session-action-title");
+    box.setAttribute("aria-describedby", "session-action-detail");
+    const title = el("b", null, kind === "close" ? "Close this session?" : "Compact context?");
+    title.id = "session-action-title";
+    const detail = el("p", null, kind === "close"
+      ? "Stops this agent and its running commands. The terminal window stays open."
+      : "Sends /compact when this session is idle. Keep the terminal prompt empty until it runs.");
+    detail.id = "session-action-detail";
+    const actions = el("div", "session-menu-actions");
+    const cancel = btn("Cancel", "", () => closeSessionMenu());
+    actions.append(cancel, btn(kind === "close" ? "Close session" : "Queue compact", kind === "close" ? "danger" : "", () => run(kind === "close" ? "close_session" : "queue_session_compact", { queued: true })));
+    box.replaceChildren(title, detail, status, actions);
+    position();
+    cancel.focus();
+  }
+  function item(label, fn, cls = "") {
+    const b = btn(label, cls, fn);
+    b.setAttribute("role", "menuitem");
+    box.append(b);
+    return b;
+  }
+  item("Jump", () => run("jump_session"));
+  item("New terminal", () => run("new_session_terminal"));
+  item(x.compact_queued ? "Cancel queued compact" : "Compact context", () => x.compact_queued ? run("queue_session_compact", { queued: false }) : confirm("compact"));
+  item("Close", () => confirm("close"), "danger");
+  box.append(status);
+  box.addEventListener("keydown", (e) => {
+    const buttons = [...box.querySelectorAll("button:not(:disabled)")];
+    const index = buttons.indexOf(document.activeElement);
+    let next;
+    if (e.key === "ArrowDown") next = (index + 1) % buttons.length;
+    else if (e.key === "ArrowUp") next = (index + buttons.length - 1) % buttons.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = buttons.length - 1;
+    else if (e.key === "Tab" && box.getAttribute("role") === "alertdialog") next = (index + (e.shiftKey ? buttons.length - 1 : 1)) % buttons.length;
+    else if (e.key === "Tab") { closeSessionMenu(); return; }
+    if (next !== undefined && buttons.length) { e.preventDefault(); buttons[next].focus(); }
+  });
+  decide();
+  position();
+  requestAnimationFrame(() => { if (box.isConnected) position(); });
+  box.querySelector("button").focus();
+}
+
+// The notch is an app surface; WebView navigation/print actions do not belong here.
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+document.addEventListener("pointerdown", (e) => {
+  if (sessionMenu && !sessionMenu.box.contains(e.target)) closeSessionMenu(false);
+}, true);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && sessionMenu) { e.preventDefault(); closeSessionMenu(); }
+});
+window.addEventListener("blur", () => closeSessionMenu(false));
+window.addEventListener("resize", () => closeSessionMenu());
+
 function renderSessions(pane) {
   if (!snap.sessions.length) { pane.append(el("div", "empty", "No sessions yet. Start Claude Code or Codex.")); return; }
   const list = [...snap.sessions].sort((a, b) => b.last_event_ms - a.last_event_ms).slice(0, 8);
   list.forEach((x, i) => {
     const r = el("button", "srow");
     r.type = "button";
+    r.dataset.sessionKey = x.key;
+    r.setAttribute("aria-haspopup", "menu");
     r.title = "Open terminal";
     r.style.setProperty("--i", i);
     r.addEventListener("click", () => invoke("jump_session", { key: x.key }).catch(() => {}));
+    r.addEventListener("contextmenu", (e) => showSessionMenu(e, x, r));
+    r.addEventListener("keydown", (e) => {
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) showSessionMenu(e, x, r);
+    });
     const s = el("span", "s");
-    const extra = x.subagents ? ` · ${x.subagents} agents` : "";
+    const extra = (x.subagents ? ` · ${x.subagents} agents` : "") + (x.compact_queued ? " · Compact queued" : "");
     if (x.state === "working") { const eq = el("span", "eq p-" + x.provider); eq.append(el("i"), el("i"), el("i")); s.append(eq, document.createTextNode("Working" + extra)); }
     else s.append(el("span", "dot " + x.state), document.createTextNode((x.attention ? "Needs you" : x.state === "done" ? "Done" : x.state[0].toUpperCase() + x.state.slice(1)) + extra));
     const ctx = el("span", "ctx", x.context_tokens ? Math.round(x.context_tokens / 1000) + "k" : "");
@@ -406,44 +519,28 @@ function renderSessions(pane) {
     go.append(path);
     r.append(glyph(x.provider), el("span", "f", x.name || x.folder), s, ctx, t, go);
     pane.append(r);
+    if (x.action_error) {
+      const error = el("div", "session-action-error", x.action_error);
+      error.setAttribute("role", "status");
+      pane.append(error);
+    }
   });
 }
 
 const usageMeters = new Map();
 const usageValues = new Map();
-let usageRefresh = null, usageFailed = false, updatedStamp = 0;
+let usageRefresh = null;
 const newestUsage = () => Math.max(0, ...(snap?.usage || []).map((u) => Number(u.fetched_ms) || 0));
 function updateUsageLine() {
-  const line = $("usage-updated");
-  if (!line) return;
-  const known = (snap?.usage || []).filter((u) => u.windows.length && u.fetched_ms);
-  const oldest = known.reduce((a, u) => !a || u.fetched_ms < a.fetched_ms ? u : a, null);
-  const stamp = oldest?.fetched_ms || 0;
-  const text = oldest ? UsageStatus.age(oldest) : usageFailed ? "Couldn't refresh, try again" : "Not updated yet";
   document.querySelectorAll("[data-usage-provider]").forEach((node) => {
     node.textContent = UsageStatus.text(snap.usage.find((u) => u.provider === node.dataset.usageProvider));
   });
-  if (line.dataset.text !== text || updatedStamp !== stamp) {
-    const previous = line.dataset.text || "";
-    line.dataset.text = text;
-    line.textContent = text;
-    line.classList.toggle("failed", usageFailed && !oldest);
-    if (previous) {
-      const old = el("span", "usage-previous", previous);
-      line.append(old);
-      const duration = Motion.reduced.matches ? 100 : PRESET.snappy.response * 1000;
-      old.animate([{ opacity: 1 }, { opacity: 0 }], { duration }).finished.finally(() => old.remove());
-      line.animate([{ opacity: 0 }, { opacity: 1 }], { duration });
-    }
-    updatedStamp = stamp;
-  }
 }
 function stopUsageRefresh(failed) {
   const loading = usageRefresh;
   if (!loading || loading.stopping) return;
   loading.stopping = true;
   clearTimeout(loading.timeout);
-  usageFailed = failed;
   updateUsageLine();
   const finish = () => {
     if (usageRefresh !== loading) return;
@@ -462,7 +559,6 @@ function stopUsageRefresh(failed) {
 $("refresh-usage").addEventListener("click", () => {
   if (usageRefresh) return;
   const button = $("refresh-usage");
-  usageFailed = false;
   usageRefresh = { stamp: newestUsage() };
   button.disabled = true;
   button.classList.add("loading");
@@ -510,34 +606,52 @@ function renderUsage(pane) {
         const key = pv + ":" + w.label;
         const pct = usageValues.get(key) ?? Math.round(w.used_percent);
         const it = el("div", "mi");
+        const label = LABEL[w.label] || w.label;
         const txt = el("div");
-        txt.append(el("b", null, pct + "%"), el("span", null, LABEL[w.label] || w.label), el("small", null, resetIn(w.resets_at)));
-        const big = document.createElementNS(SVGNS, "svg");
-        big.setAttribute("class", "big-ring"); big.setAttribute("viewBox", "0 0 44 44");
-        const tr = document.createElementNS(SVGNS, "circle");
-        tr.setAttribute("cx", 22); tr.setAttribute("cy", 22); tr.setAttribute("r", 20); tr.setAttribute("class", "tr");
-        const arc = gradArc(22, 20, 4, pct, !w.label.startsWith("7d"));
-        big.append(tr, arc);
+        const value = el("b", null, Math.round(pct) + "%");
+        const pie = document.createElementNS(SVGNS, "svg");
+        pie.setAttribute("class", "usage-pie");
+        pie.setAttribute("viewBox", "0 0 44 44");
+        const remainder = document.createElementNS(SVGNS, "circle");
+        remainder.setAttribute("cx", "22");
+        remainder.setAttribute("cy", "22");
+        remainder.setAttribute("r", "21.5");
+        remainder.setAttribute("fill", "var(--notch-ink-10)");
+        const wedge = document.createElementNS(SVGNS, "path");
+        pie.append(remainder, wedge);
+        pie.setAttribute("role", "meter");
+        pie.setAttribute("aria-label", NAME[pv] + " " + label + " usage");
+        pie.setAttribute("aria-valuemin", "0");
+        pie.setAttribute("aria-valuemax", "100");
+        const reset = el("small", null, resetIn(w.resets_at));
+        txt.append(value, el("span", null, label), reset);
         const spring = new Spring(pct, PRESET.content);
-        const meterAnim = new Animator({ pct: spring }, (value) => {
-          const percent = Math.max(0, Math.min(100, value.pct));
+        const paint = (percent) => {
+          const angle = percent / 100 * 2 * Math.PI;
+          const x = 22 + 21.5 * Math.sin(angle), y = 22 - 21.5 * Math.cos(angle);
+          const path = percent <= 0 ? "" : percent >= 100
+            ? "M22 .5 A21.5 21.5 0 1 1 22 43.5 A21.5 21.5 0 1 1 22 .5 Z"
+            : `M22 22 L22 .5 A21.5 21.5 0 ${percent > 50 ? 1 : 0} 1 ${x} ${y} Z`;
+          wedge.setAttribute("d", path);
+          wedge.setAttribute("fill", usageColor(percent, !w.label.startsWith("7d")));
+          pie.setAttribute("aria-valuenow", String(Math.round(percent)));
+          value.textContent = Math.round(percent) + "%";
+        };
+        paint(Math.max(0, Math.min(100, pct)));
+        const meterAnim = new Animator({ pct: spring }, (values) => {
+          const percent = Math.max(0, Math.min(100, values.pct));
           usageValues.set(key, percent);
-          arc.setAttribute("stroke-dasharray", `${2 * Math.PI * 20 * percent / 100} ${2 * Math.PI * 20}`);
-          arc.setAttribute("stroke-opacity", percent > 0 ? "1" : "0");
-          arc.setAttribute("stroke", usageColor(percent, !w.label.startsWith("7d")));
-          txt.querySelector("b").textContent = Math.round(percent) + "%";
+          paint(percent);
         });
-        usageMeters.set(key, { spring, anim: meterAnim, reset: txt.querySelector("small") });
-        it.append(big, txt);
+        usageMeters.set(key, { spring, anim: meterAnim, reset });
+        it.append(pie, txt);
         ws.append(it);
       }
       m.append(ws);
     }
     g.append(m);
   });
-  const line = el("div", "usage-updated");
-  line.id = "usage-updated"; line.setAttribute("role", "status");
-  pane.append(g, line);
+  pane.append(g);
   updateUsageMeters();
 }
 
@@ -676,6 +790,23 @@ function makeReq(a) {
   bar.append(fill); c.append(bar);
   return { el: c, left, a, clock: requestClock(c, a) };
 }
+function renderTerminalRequests(pane) {
+  const items = missed();
+  let list = pane.querySelector(".terminal-requests");
+  if (!items.length) { list?.remove(); return; }
+  if (!list) { list = el("div", "terminal-requests"); pane.append(list); }
+  const sig = JSON.stringify(items);
+  if (list.dataset.sig === sig) return;
+  list.dataset.sig = sig;
+  list.replaceChildren(...items.map((a) => {
+    const row = el("div", "req slim");
+    row.append(glyph(a.provider), el("span", "st", a.kind === "question" ? "Question waiting in terminal" : "Permission waiting in terminal"),
+      el("span", "w", a.name || a.folder || "session"),
+      btn("Open terminal", "btn primary", () => invoke("jump_session", { key: a.session_key }).catch(() => {})),
+      btn("Dismiss", "btn quiet", () => invoke("dismiss_missed", { id: a.id }).catch(() => {})));
+    return row;
+  }));
+}
 function renderRequests(pane, fresh) {
   const live = pending();
   const ids = new Set(live.map((a) => a.id));
@@ -690,14 +821,16 @@ function renderRequests(pane, fresh) {
     cards.get(a.id).a = a; cards.get(a.id).clock.a = a;
   }
   if (fresh) {
-    if (!live.length) { pane.append(el("div", "empty", "Nothing is waiting for you.")); return; }
+    if (!waiting().length) { pane.append(el("div", "empty", "Nothing is waiting for you.")); return; }
     live.forEach((a, i) => { const x = cards.get(a.id); x.el.style.setProperty("--i", i); x.el.style.animation = ""; x.el.style.transform = x.el.style.opacity = x.el.style.filter = ""; pane.append(x.el); });
+    renderTerminalRequests(pane);
     return;
   }
   // In place: add new cards at the end, drop the empty note.
   pane.querySelector(".empty")?.remove();
   for (const a of live) { const x = cards.get(a.id); if (!x.el.isConnected) pane.append(x.el); }
-  if (!live.length && !pane.querySelector(".empty")) setTimeout(() => { if (!pending().length && tab === "requests") renderPane(true); }, 320);
+  renderTerminalRequests(pane);
+  if (!waiting().length && !pane.querySelector(".empty")) setTimeout(() => { if (!waiting().length && tab === "requests") renderPane(true); }, 320);
 }
 function tickCountdowns() {
   for (const x of cards.values()) x.clock.tick();
@@ -710,7 +843,7 @@ let paneSig = "";
 function renderPane(fresh) {
   const pane = $("pane");
   if (tab === "requests" && !fresh && pane.dataset.tab === "requests") { renderRequests(pane, false); tickCountdowns(); return; }
-  const sig = tab === "sessions" ? JSON.stringify(snap.sessions.map((s) => [s.key, s.state, s.attention, s.name, s.folder, s.subagents, s.context_tokens]))
+  const sig = tab === "sessions" ? JSON.stringify(snap.sessions.map((s) => [s.key, s.state, s.attention, s.name, s.folder, s.subagents, s.context_tokens, s.compact_queued, s.action_error]))
     : tab === "usage" ? JSON.stringify([snap.settings.providers, snap.usage.map((u) => [u.provider, u.status, u.message, u.windows.slice(0, 2).map((w) => w.label)])]) : "";
   if (!fresh && pane.dataset.tab === tab && sig === paneSig) { if (tab === "usage") updateUsageMeters(); return; }
   paneSig = sig;
@@ -720,6 +853,11 @@ function renderPane(fresh) {
   if (tab === "requests") renderRequests(pane, true);
   else if (tab === "sessions") renderSessions(pane);
   else renderUsage(pane);
+  if (sessionMenu) {
+    const row = [...pane.querySelectorAll(".srow")].find((r) => r.dataset.sessionKey === sessionMenu.key);
+    if (row) sessionMenu.row = row;
+    else closeSessionMenu(false);
+  }
   tickCountdowns();
 }
 
@@ -739,10 +877,8 @@ function setEdge(e) {
   requestAnimationFrame(() => snapTo(current));
 }
 function onState(s) {
-  const previousStamp = newestUsage();
   snap = s;
   if (usageRefresh && newestUsage() > usageRefresh.stamp) stopUsageRefresh(false);
-  else if (newestUsage() > previousStamp) usageFailed = false;
   const liveIds = new Set((s.pending || []).map((a) => a.id));
   for (const [id, card] of cards) {
     const data = (s.pending || []).find((a) => a.id === id);
@@ -752,7 +888,7 @@ function onState(s) {
   // The page can load before the app has read its settings; every update carries the edge.
   setEdge(s.settings.edge);
   fetchOffset();
-  const p = pending();
+  const p = waiting();
   const ids = new Set(p.map((a) => a.id));
   const fresh = p.some((a) => !seen.has(a.id));
   seen = ids;

@@ -36,7 +36,7 @@ pub struct Settings {
     pub follow_quiet_time: bool,
     pub sounds: bool,
     pub toast_when_fullscreen: bool,
-    /// Install new versions from GitHub releases automatically (release builds only).
+    /// Install at idle startup; later checks offer updates. Off still checks and notifies.
     pub auto_update: bool,
     /// Start Nubi at Windows sign-in (HKCU Run key).
     pub auto_start: bool,

@@ -15,6 +15,7 @@ mod report;
 mod ring;
 mod taskbar;
 mod settings;
+mod session_actions;
 mod state;
 mod usage;
 mod winutil;
@@ -23,6 +24,9 @@ use std::sync::Mutex;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--compact-session") {
+        std::process::exit(if session_actions::compact_helper(&args).is_ok() { 0 } else { 1 });
+    }
     // Hook mode runs before any Tauri/WebView start-up.
     if args.get(1).map(String::as_str) == Some("--hook") {
         let provider = args.get(2).map(String::as_str).unwrap_or("claude");
@@ -50,6 +54,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app::Shared(Mutex::new(state::Inner::default())))
+        .manage(updater::UpdateState::default())
         .invoke_handler(tauri::generate_handler![
             app::get_state,
             app::answer_permission,
@@ -57,6 +62,9 @@ fn main() {
             app::dismiss_missed,
             app::hold_pending,
             app::jump_session,
+            app::close_session,
+            app::new_session_terminal,
+            app::queue_session_compact,
             app::save_settings,
             app::set_dnd,
             app::set_hooks,
@@ -66,6 +74,11 @@ fn main() {
             app::show_panel,
             app::monitors,
             updater::check_update,
+            updater::get_update_notice,
+            updater::update_notice_ready,
+            updater::dismiss_update,
+            updater::hold_update,
+            updater::install_update,
             updater::app_version,
             app::open_release_notes,
             notch::report_overlay_hot,
