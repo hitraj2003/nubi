@@ -6,3 +6,11 @@ p.json
 
 # Signing key backup (never commit)
 secrets/
+
+# Local project tracking and design working files
+/TODO.md
+/WORKLOG.md
+/DECISIONS.md
+/docs/plans/
+/docs/concepts/
+/docs/references/
