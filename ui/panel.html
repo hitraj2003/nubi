@@ -2,82 +2,107 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>claude-overlay</title>
+<title>Nubi</title>
 <link rel="stylesheet" href="panel.css">
 </head>
 <body>
   <aside id="nav">
-    <div class="brand"><span class="logo"></span>claude-overlay</div>
-    <button data-view="inbox" class="on">Inbox <span class="count" id="n-inbox"></span></button>
-    <button data-view="sessions">Sessions <span class="count" id="n-sessions"></span></button>
-    <button data-view="usage">Usage</button>
-    <button data-view="alerts">Alerts</button>
-    <button data-view="settings">Settings</button>
+    <div class="brand"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 0 0 0 14z" fill="#D97757"/><path d="M8 1a7 7 0 0 1 0 14z" fill="#6E9BEF"/></svg>Nubi</div>
+    <nav>
+      <button data-view="inbox" class="on">
+        <svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+        <span>Inbox</span><span class="n" id="n-inbox"></span></button>
+      <button data-view="sessions">
+        <svg viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>
+        <span>Sessions</span><span class="n" id="n-sessions"></span></button>
+      <button data-view="usage">
+        <svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
+        <span>Usage</span></button>
+      <button data-view="alerts">
+        <svg viewBox="0 0 24 24"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></svg>
+        <span>Alerts</span></button>
+      <button data-view="settings">
+        <svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Settings</span></button>
+    </nav>
     <div class="grow"></div>
-    <div id="dndbox">
-      <div class="dnd-row"><span>Do Not Disturb</span><label class="switch"><input type="checkbox" id="dnd"><i></i></label></div>
-      <div class="hint" id="dnd-hint"></div>
-    </div>
+    <label class="dnd"><span><span class="dl">Do not disturb</span><span class="hint" id="dnd-hint"></span></span>
+      <span class="switch"><input type="checkbox" id="dnd"><i></i></span></label>
     <div id="pipe" class="err"></div>
   </aside>
 
   <main>
     <section id="v-inbox" class="view on">
-      <header><h1>Inbox</h1><span class="sub">Approvals and questions waiting for you</span></header>
+      <header><h1>Inbox</h1><span class="meta" id="inbox-meta"></span></header>
       <div id="inbox"></div>
     </section>
 
     <section id="v-sessions" class="view">
-      <header><h1>Sessions</h1><span class="sub">Running Claude Code and Codex sessions</span></header>
-      <table class="grid"><thead><tr><th></th><th>Project</th><th>Tool</th><th>State</th><th>Context</th><th>Last event</th><th></th></tr></thead>
-        <tbody id="sessions"></tbody></table>
-      <div class="empty" id="sessions-empty">No sessions yet. Turn on hooks in Settings, then start Claude Code or Codex.</div>
+      <header><h1>Sessions</h1><span class="meta" id="sessions-meta"></span></header>
+      <div id="sessions" class="rows"></div>
     </section>
 
     <section id="v-usage" class="view">
-      <header><h1>Usage</h1><span class="sub">Limit windows from each CLI's own sign-in</span><button id="refresh" class="ghost">Refresh</button></header>
-      <div id="usage" class="cards"></div>
+      <header><h1>Usage</h1><span class="meta" id="usage-meta"></span><button id="refresh" class="quiet">Refresh</button></header>
+      <div id="usage" class="meters"></div>
     </section>
 
     <section id="v-alerts" class="view">
-      <header><h1>Alerts</h1><span class="sub">Last 50. Alerts during Do Not Disturb are marked.</span><button id="test" class="ghost">Test notification</button></header>
-      <div id="alerts" class="list"></div>
+      <header><h1>Alerts</h1><span class="meta">Last 50</span><button id="test" class="quiet">Send a test alert</button></header>
+      <div id="alerts" class="rows"></div>
     </section>
 
     <section id="v-settings" class="view">
       <header><h1>Settings</h1></header>
       <form id="settings">
-        <fieldset><legend>Hooks</legend><div id="hooks"></div></fieldset>
-        <fieldset><legend>Providers</legend>
-          <div class="seg3" data-name="providers">
-            <label><input type="radio" name="providers" value="both"><span>Claude + Codex</span></label>
-            <label><input type="radio" name="providers" value="claude"><span>Claude</span></label>
-            <label><input type="radio" name="providers" value="codex"><span>Codex</span></label>
-          </div>
-        </fieldset>
-        <fieldset><legend>Display</legend>
-          <div class="seg3">
-            <label><input type="radio" name="display_mode" value="notch"><span>Edge notch</span></label>
-            <label><input type="radio" name="display_mode" value="ring"><span>Floating ring</span></label>
-            <label><input type="radio" name="display_mode" value="taskbar"><span>Taskbar strip</span></label>
-          </div>
-          <div class="field"><span>Monitor</span><select name="monitor" id="monitor"></select></div>
-          <div class="field mode-notch"><span>Notch edge</span><select name="edge"><option>right</option><option>left</option><option>top</option><option>bottom</option></select></div>
-          <div class="field mode-notch"><span>Waiting requests</span><select name="notch_requests_layout"><option value="stack">Stacked</option><option value="side">Side by side</option></select></div>
-          <div class="field mode-notch"><span>Position</span><span class="hint">Drag the notch along its edge; it stays where you leave it.</span></div>
-          <div class="field mode-notch"><span>Fold until hovered</span><label class="switch"><input type="checkbox" name="notch_on_hover"><i></i></label></div>
-          <div class="field mode-taskbar"><span>Taskbar side</span><select name="taskbar_side"><option value="right">Right, beside the tray</option><option value="left">Left</option></select></div>
-        </fieldset>
-        <fieldset><legend>Do Not Disturb</legend>
-          <div class="field"><span>Hotkey</span><input name="dnd_hotkey" placeholder="ctrl+alt+d"></div>
-          <div class="field"><span>Quiet hours</span><span><input name="quiet_start" type="number" min="0" max="23" class="num"> to <input name="quiet_end" type="number" min="0" max="23" class="num"> <small>(empty = off)</small></span></div>
-          <div class="field"><span>Follow Windows quiet time</span><label class="switch"><input type="checkbox" name="follow_quiet_time"><i></i></label></div>
-        </fieldset>
-        <fieldset><legend>Alerts</legend>
-          <div class="field"><span>Sounds</span><label class="switch"><input type="checkbox" name="sounds"><i></i></label></div>
-          <div class="field"><span>Windows notification when a full-screen app is open</span><label class="switch"><input type="checkbox" name="toast_when_fullscreen"><i></i></label></div>
-        </fieldset>
-        <div class="actions"><button type="submit">Save settings</button><span id="saved" class="hint"></span></div>
+        <h2>Hooks</h2>
+        <div class="group" id="hooks"></div>
+
+        <h2>Providers</h2>
+        <div class="group">
+          <div class="row"><div><div class="rl">Show</div></div>
+            <div class="seg"><label><input type="radio" name="providers" value="both"><span>Claude and Codex</span></label><label><input type="radio" name="providers" value="claude"><span>Claude</span></label><label><input type="radio" name="providers" value="codex"><span>Codex</span></label></div></div>
+        </div>
+
+        <h2>Questions and approvals</h2>
+        <div class="group">
+          <div class="row"><div><div class="rl">Claude questions</div><div class="rd">Off leaves them in the terminal. System prompts shows only the question's own options.</div></div>
+            <div class="seg"><label><input type="radio" name="questions_mode" value="off"><span>Off</span></label><label><input type="radio" name="questions_mode" value="system"><span>System prompts</span></label><label><input type="radio" name="questions_mode" value="full"><span>Full</span></label></div></div>
+          <div class="row"><div><div class="rl">Several waiting</div><div class="rd">Cards under the notification island</div></div>
+            <div class="seg"><label><input type="radio" name="request_layout" value="stack"><span>Stacked</span></label><label><input type="radio" name="request_layout" value="list"><span>Side by side</span></label></div></div>
+          <div class="row"><div><div class="rl">Terminal takes over after</div><div class="rd">If you have not answered, Claude or Codex asks in the terminal</div></div>
+            <span class="unit"><input name="takeover_secs" type="number" min="3" max="95" class="num"> s</span></div>
+          <div class="row"><div><div class="rl">Fold cards after</div><div class="rd">They stay in the Inbox. 0 keeps them open.</div></div>
+            <span class="unit"><input name="request_popup_secs" type="number" min="0" max="120" class="num"> s</span></div>
+        </div>
+
+        <h2>Display</h2>
+        <div class="group">
+          <div class="row"><div><div class="rl">Mode</div></div>
+            <div class="seg"><label><input type="radio" name="display_mode" value="island"><span>Notch</span></label><label><input type="radio" name="display_mode" value="ring"><span>Floating ring</span></label><label><input type="radio" name="display_mode" value="taskbar"><span>Taskbar strip</span></label></div></div>
+          <div class="row"><div><div class="rl">Monitor</div></div><select name="monitor" id="monitor"></select></div>
+          <div class="row mode-notch"><div><div class="rl">Edge</div><div class="rd">Drag the notch along its edge to move it. On the top edge it also shows alerts and requests; on other edges they show as a toast at the top.</div></div>
+            <select name="edge"><option value="top">Top</option><option value="right">Right</option><option value="left">Left</option><option value="bottom">Bottom</option></select></div>
+          <div class="row mode-notch"><div><div class="rl">Fold until hovered</div></div><span class="switch"><input type="checkbox" name="notch_on_hover"><i></i></span></div>
+          <div class="row mode-taskbar"><div><div class="rl">Taskbar side</div></div>
+            <select name="taskbar_side"><option value="right">Right, beside the tray</option><option value="left">Left</option></select></div>
+        </div>
+
+        <h2>Do not disturb</h2>
+        <div class="group">
+          <div class="row"><div><div class="rl">Shortcut</div></div><input name="dnd_hotkey" placeholder="ctrl+alt+d" class="key"></div>
+          <div class="row"><div><div class="rl">Quiet hours</div><div class="rd">Leave empty to turn off</div></div>
+            <span class="unit"><input name="quiet_start" type="number" min="0" max="23" class="num"> to <input name="quiet_end" type="number" min="0" max="23" class="num"></span></div>
+          <div class="row"><div><div class="rl">Follow Windows quiet time</div></div><span class="switch"><input type="checkbox" name="follow_quiet_time"><i></i></span></div>
+        </div>
+
+        <h2>Alerts</h2>
+        <div class="group">
+          <div class="row"><div><div class="rl">Sounds</div></div><span class="switch"><input type="checkbox" name="sounds"><i></i></span></div>
+          <div class="row"><div><div class="rl">Windows notification in full screen</div></div><span class="switch"><input type="checkbox" name="toast_when_fullscreen"><i></i></span></div>
+        </div>
+
+        <div class="save"><span class="hint">Changes save automatically.</span><span id="saved" class="hint"></span></div>
       </form>
     </section>
   </main>

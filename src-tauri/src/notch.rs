@@ -16,6 +16,10 @@ pub const NOTCH_LONG: f64 = 650.0;
 
 /// Interactive area reported by the page, in physical px relative to the window: x, y, w, h.
 static HOT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
+/// Same for the notification island window.
+static OVL_HOT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
+/// Same for the top island (display mode "island").
+static ISL_HOT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
 
 pub fn edge_is_vertical(edge: &str) -> bool {
     matches!(edge, "left" | "right")
@@ -64,17 +68,7 @@ pub fn place(app: &App, s: &Settings) {
     let Some(m) = mons.get(s.monitor).or(mons.first()) else { return };
     let edge = edge_or_right(&s.edge);
     let scale = m.scale_factor();
-    let (mut lw, mut lh) = window_size(&edge);
-    // Side-by-side request cards need room: 256 per card beyond the first (max 3 across).
-    let waiting = {
-        let st = app.state::<Shared>();
-        let g = st.0.lock().unwrap_or_else(|e| e.into_inner());
-        g.pending.values().filter(|p| g.settings.wants(&p.provider)).count()
-    };
-    if s.notch_requests_layout == "side" && waiting > 1 {
-        let extra = 256.0 * (waiting.min(3) - 1) as f64;
-        if edge_is_vertical(&edge) { lw += extra } else { lw = lw.max(256.0 * waiting.min(3) as f64 + 40.0); lh += 0.0 }
-    }
+    let (lw, lh) = window_size(&edge);
     let (ww, wh) = ((lw * scale).round() as i32, (lh * scale).round() as i32);
     let wa = m.work_area();
     let mut area = (wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32);
@@ -85,8 +79,9 @@ pub fn place(app: &App, s: &Settings) {
     let _ = w.set_size(PhysicalSize::new(ww as u32, wh as u32));
     let _ = w.set_position(PhysicalPosition::new(x, y));
     let _ = w.set_ignore_cursor_events(true);
+    let _ = w.set_shadow(false);
     let _ = w.show();
-    let _ = w.emit("notch_edge", &edge);
+    let _ = w.emit_to(w.label(), "notch_edge", &edge);
 }
 
 /// Drag along the edge: the pointer's screen position (physical px) becomes the notch's centre.
@@ -105,6 +100,7 @@ pub fn notch_drag(app: App, x: f64, y: f64) {
         g.settings.clone()
     };
     place(&app, &s);
+    crate::island::place(&app, &s);
 }
 
 /// End of a drag: save where the notch was left.
@@ -113,6 +109,18 @@ pub fn notch_drag_end(app: App) {
     let st = app.state::<Shared>();
     let g = st.0.lock().unwrap_or_else(|e| e.into_inner());
     let _ = crate::settings::save(&g.settings);
+}
+
+/// Island page reports its interactive rect (pill and request cards), or None when empty.
+#[tauri::command]
+pub fn report_overlay_hot(rect: Option<[f64; 4]>) {
+    *OVL_HOT.lock().unwrap() = rect;
+}
+
+/// Top island page reports its interactive rect (the shape at its current size).
+#[tauri::command]
+pub fn report_island_hot(rect: Option<[f64; 4]>) {
+    *ISL_HOT.lock().unwrap() = rect;
 }
 
 /// Page reports its interactive rect (pill, plus card when open).
@@ -124,35 +132,43 @@ pub fn report_hot(rect: Option<[f64; 4]>) {
 /// Watch the system cursor: over the hot rect the window takes clicks, elsewhere it lets them
 /// through. Tells the page when the pointer arrives or leaves (fold on hover).
 pub fn start_watch(app: App) {
+    watch(app.clone(), "notch", &HOT, "notch_pointer", Some("notch"));
+    watch(app.clone(), "island", &ISL_HOT, "island_pointer", Some("island"));
+    watch(app, "overlay", &OVL_HOT, "overlay_pointer", None);
+}
+
+/// Watch the system cursor for one window: over its hot rect the window takes clicks, elsewhere
+/// they pass through. Tells the page when the pointer arrives or leaves.
+fn watch(app: App, label: &'static str, hot: &'static Mutex<Option<[f64; 4]>>, event: &'static str, only_mode: Option<&'static str>) {
     std::thread::spawn(move || {
         let mut inside = false;
         loop {
-            std::thread::sleep(Duration::from_millis(50));
-            let Some(w) = app.get_webview_window("notch") else { continue };
+            std::thread::sleep(Duration::from_millis(if only_mode == Some("island") { 16 } else { 50 }));
+            let Some(w) = app.get_webview_window(label) else { continue };
             if !w.is_visible().unwrap_or(false) {
+                inside = false;
                 continue;
             }
-            let mode_ok = {
+            if let Some(m) = only_mode {
                 let st = app.state::<Shared>();
                 let g = st.0.lock().unwrap_or_else(|e| e.into_inner());
-                g.settings.display_mode == "notch"
-            };
-            if !mode_ok {
-                continue;
+                if g.settings.display_mode != m {
+                    continue;
+                }
             }
             let mut p = POINT { x: 0, y: 0 };
             if unsafe { GetCursorPos(&mut p) } == 0 {
                 continue;
             }
             let Ok(pos) = w.outer_position() else { continue };
-            let now = HOT.lock().unwrap().map_or(false, |[x, y, ww, hh]| {
+            let now = hot.lock().unwrap().map_or(false, |[x, y, ww, hh]| {
                 let (cx, cy) = ((p.x - pos.x) as f64, (p.y - pos.y) as f64);
                 cx >= x - 4.0 && cy >= y - 4.0 && cx < x + ww + 4.0 && cy < y + hh + 4.0
             });
             if now != inside {
                 inside = now;
                 let _ = w.set_ignore_cursor_events(!now);
-                let _ = w.emit("notch_pointer", now);
+                let _ = w.emit_to(w.label(), event, now);
             }
         }
     });

@@ -4,7 +4,7 @@ use crate::settings::{self, Settings};
 use crate::state::{now_ms, Alert, Inner};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -45,7 +45,7 @@ pub fn emit_state(app: &App) {
 }
 
 pub fn set_pipe_error(app: &App, e: String) {
-    eprintln!("[claude-overlay] {e}");
+    eprintln!("[nubi] {e}");
     with(app, |i| i.pipe_error = Some(e));
     emit_state(app);
 }
@@ -58,18 +58,41 @@ pub fn on_hook(app: &App, m: &HookMsg) {
     emit_state(app);
 }
 
+pub fn island_mode(app: &App) -> bool {
+    with(app, |i| i.settings.display_mode == "island" && i.settings.edge == "top")
+}
+
+pub fn takeover_secs(app: &App) -> u64 {
+    with(app, |i| i.settings.takeover_secs as u64)
+}
+
+pub fn questions_mode(app: &App) -> String {
+    with(app, |i| i.settings.questions_mode.clone())
+}
+
+/// Show the notification island (it hides itself when it has nothing left to show).
+pub fn show_island(app: &App) {
+    if island_mode(app) {
+        return; // the top island is always shown and draws requests itself
+    }
+    if let Some(w) = app.get_webview_window("overlay") {
+        let s = with(app, |i| i.settings.clone());
+        place_overlay(app, &s);
+        let _ = w.show();
+    }
+}
+
 pub fn add_pending(app: &App, m: &HookMsg, tx: oneshot::Sender<Reply>, ttl_ms: u64) -> u64 {
     let id = with(app, |i| i.add_pending(m, tx, ttl_ms));
-    let s = with(app, |i| i.settings.clone());
-    crate::notch::place(app, &s);
+    if !with(app, |i| dnd_active(i)) {
+        show_island(app);
+    }
     emit_state(app);
     id
 }
 
 pub fn remove_pending(app: &App, id: u64) {
     with(app, |i| i.pending.remove(&id));
-    let s = with(app, |i| i.settings.clone());
-    crate::notch::place(app, &s);
     emit_state(app);
 }
 
@@ -93,12 +116,20 @@ pub fn show_alert(app: &App, mut a: Alert) {
             .show();
         return;
     }
+    if s.display_mode == "island" && s.edge == "top" {
+        if let Some(w) = app.get_webview_window("island") {
+            let mut payload = serde_json::to_value(&a).unwrap_or_default();
+            payload["sound"] = serde_json::json!(s.sounds);
+            let _ = w.emit_to(w.label(), "pill", payload);
+        }
+        return;
+    }
     if let Some(w) = app.get_webview_window("overlay") {
         place_overlay(app, &s);
         let _ = w.show();
         let mut payload = serde_json::to_value(&a).unwrap_or_default();
         payload["sound"] = serde_json::json!(s.sounds);
-        let _ = w.emit("pill", payload);
+        let _ = w.emit_to(w.label(), "pill", payload);
     }
 }
 
@@ -128,6 +159,7 @@ pub fn place_overlay<R: Runtime>(app: &AppHandle<R>, s: &Settings) {
 pub fn place_all(app: &App, s: &Settings) {
     place_overlay(app, s);
     crate::notch::place(app, s);
+    crate::island::place(app, s);
     crate::ring::place(app);
     crate::taskbar::place_now(app);
 }
@@ -149,10 +181,9 @@ pub fn toggle_dnd(app: &App) {
         i.dnd_manual = !i.dnd_manual;
         i.dnd_manual
     });
-    if !on {
-        // Leaving DND: flush nothing loud, the queued alerts stay in the panel list.
-    }
+    let _ = on; // queued alerts stay in the panel list
     emit_state(app);
+    refresh_menu(app);
 }
 
 pub fn register_hotkey(app: &App, combo: &str) -> Result<(), String> {
@@ -188,7 +219,7 @@ pub fn answer_permission(app: App, id: u64, decision: String) -> Result<(), Stri
     if decision != "allow" && decision != "deny" {
         return Err("decision must be allow or deny".into());
     }
-    let message = (decision == "deny").then(|| "Denied from claude-overlay".to_string());
+    let message = (decision == "deny").then(|| "Denied from Nubi".to_string());
     let r = with(&app, |i| i.answer(id, Reply { decision, message, answers: None }));
     emit_state(&app);
     r
@@ -217,6 +248,7 @@ pub fn save_settings(app: App, settings: Settings) -> Result<(), String> {
     place_all(&app, &settings);
     crate::poller::kick(&app);
     emit_state(&app);
+    refresh_menu(&app);
     Ok(())
 }
 
@@ -224,6 +256,7 @@ pub fn save_settings(app: App, settings: Settings) -> Result<(), String> {
 pub fn set_dnd(app: App, on: bool) {
     with(&app, |i| i.dnd_manual = on);
     emit_state(&app);
+    refresh_menu(&app);
 }
 
 #[tauri::command]
@@ -234,6 +267,7 @@ pub fn set_hooks(app: App, provider: String, enable: bool) -> Result<(), String>
     crate::hooks_config::set_enabled(&provider, enable)?;
     refresh_hooks(&app);
     emit_state(&app);
+    refresh_menu(&app);
     Ok(())
 }
 
@@ -259,6 +293,27 @@ pub fn refresh_usage(app: App) {
     crate::poller::kick(&app);
 }
 
+/// Re-open request cards in the island (from the notch, ring or strip).
+#[tauri::command]
+pub fn show_requests(app: App) {
+    if island_mode(&app) {
+        if let Some(w) = app.get_webview_window("island") {
+            let _ = w.emit_to(w.label(), "show_requests", ());
+        }
+        return;
+    }
+    show_island(&app);
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.emit_to(w.label(), "show_requests", ());
+    }
+}
+
+/// Page errors end up in the app log.
+#[tauri::command]
+pub fn log_js(msg: String) {
+    eprintln!("[page] {}", msg.chars().take(500).collect::<String>());
+}
+
 #[tauri::command]
 pub fn hide_overlay(app: App) {
     if let Some(w) = app.get_webview_window("overlay") {
@@ -281,6 +336,124 @@ pub fn monitors(app: App) -> Vec<String> {
         .collect()
 }
 
+// ---------- tray menu: the common settings, one click away ----------
+
+/// (setting key, submenu title, [(value, label)])
+const CHOICES: &[(&str, &str, &[(&str, &str)])] = &[
+    ("display_mode", "Display", &[("island", "Notch"), ("ring", "Floating ring"), ("taskbar", "Taskbar strip")]),
+    ("providers", "Providers", &[("both", "Claude and Codex"), ("claude", "Claude"), ("codex", "Codex")]),
+    ("questions_mode", "Claude questions", &[("off", "Off, answer in terminal"), ("system", "System prompts only"), ("full", "Full")]),
+    ("request_layout", "Waiting cards", &[("stack", "Stacked"), ("list", "Side by side")]),
+    ("edge", "Notch edge", &[("right", "Right"), ("left", "Left"), ("top", "Top"), ("bottom", "Bottom")]),
+    ("taskbar_side", "Taskbar side", &[("right", "Right, beside the tray"), ("left", "Left")]),
+];
+
+fn setting_value(s: &Settings, key: &str) -> String {
+    serde_json::to_value(s).ok().and_then(|v| v.get(key).and_then(|x| x.as_str()).map(String::from)).unwrap_or_default()
+}
+
+pub fn build_menu(app: &App) -> tauri::Result<Menu<tauri::Wry>> {
+    let (s, dnd, hooks) = with(app, |i| (i.settings.clone(), i.dnd_manual, i.hooks.clone()));
+    let menu = Menu::new(app)?;
+    menu.append(&MenuItem::with_id(app, "open", "Open panel", true, None::<&str>)?)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    for (key, title, opts) in CHOICES {
+        let cur = setting_value(&s, key);
+        let sub = Submenu::new(app, *title, true)?;
+        for (val, label) in *opts {
+            let id = format!("set:{key}:{val}");
+            sub.append(&CheckMenuItem::with_id(app, id, *label, true, cur == *val, None::<&str>)?)?;
+        }
+        menu.append(&sub)?;
+    }
+    let take = Submenu::new(app, "Terminal takes over after", true)?;
+    for n in [5u32, 10, 20, 30, 60, 90] {
+        take.append(&CheckMenuItem::with_id(app, format!("takeover:{n}"), format!("{n} seconds"), true, s.takeover_secs == n, None::<&str>)?)?;
+    }
+    menu.append(&take)?;
+    let hooks_menu = Submenu::new(app, "Hooks", true)?;
+    for p in ["claude", "codex"] {
+        let on = hooks.get(p).copied().unwrap_or(false);
+        let label = if p == "claude" { "Claude Code" } else { "Codex" };
+        hooks_menu.append(&CheckMenuItem::with_id(app, format!("hooks:{p}"), label, true, on, None::<&str>)?)?;
+    }
+    menu.append(&hooks_menu)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&CheckMenuItem::with_id(app, "dnd", "Do not disturb", true, dnd, None::<&str>)?)?;
+    menu.append(&CheckMenuItem::with_id(app, "sounds", "Sounds", true, s.sounds, None::<&str>)?)?;
+    menu.append(&CheckMenuItem::with_id(app, "fold", "Fold notch until hovered", true, s.notch_on_hover, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "refresh", "Refresh usage", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "test", "Send a test alert", true, None::<&str>)?)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
+    Ok(menu)
+}
+
+/// Rebuild the tray menu so its check marks follow the current settings.
+pub fn refresh_menu(app: &App) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), build_menu(app)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+fn apply_settings(app: &App, s: Settings) {
+    if let Err(e) = settings::save(&s) {
+        eprintln!("[nubi] save settings: {e}");
+    }
+    with(app, |i| i.settings = s.clone());
+    place_all(app, &s);
+    crate::poller::kick(app);
+    emit_state(app);
+    refresh_menu(app);
+}
+
+fn on_menu(app: &App, id: &str) {
+    if let Some(rest) = id.strip_prefix("set:") {
+        let Some((key, val)) = rest.split_once(':') else { return };
+        let s = with(app, |i| i.settings.clone());
+        let Ok(mut v) = serde_json::to_value(&s) else { return };
+        v[key] = serde_json::json!(val);
+        if let Ok(ns) = serde_json::from_value::<Settings>(v) {
+            apply_settings(app, ns);
+        }
+        return;
+    }
+    if let Some(n) = id.strip_prefix("takeover:").and_then(|n| n.parse::<u32>().ok()) {
+        let mut s = with(app, |i| i.settings.clone());
+        s.takeover_secs = n;
+        apply_settings(app, s);
+        return;
+    }
+    if let Some(p) = id.strip_prefix("hooks:") {
+        let on = with(app, |i| i.hooks.get(p).copied().unwrap_or(false));
+        if let Err(e) = crate::hooks_config::set_enabled(p, !on) {
+            eprintln!("[nubi] hooks {p}: {e}");
+        }
+        refresh_hooks(app);
+        emit_state(app);
+        refresh_menu(app);
+        return;
+    }
+    match id {
+        "open" => open_panel(app),
+        "dnd" => toggle_dnd(app),
+        "sounds" => {
+            let mut s = with(app, |i| i.settings.clone());
+            s.sounds = !s.sounds;
+            apply_settings(app, s);
+        }
+        "fold" => {
+            let mut s = with(app, |i| i.settings.clone());
+            s.notch_on_hover = !s.notch_on_hover;
+            apply_settings(app, s);
+        }
+        "refresh" => crate::poller::kick(app),
+        "test" => test_alert(app.clone()),
+        "quit" => app.exit(0),
+        _ => {}
+    }
+}
+
 // ---------- setup ----------
 
 pub fn setup(app: &App) -> tauri::Result<()> {
@@ -292,35 +465,34 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     for p in ["claude", "codex"] {
         if with(app, |i| i.hooks.get(p).copied().unwrap_or(false)) {
             if let Err(e) = crate::hooks_config::set_enabled(p, true) {
-                eprintln!("[claude-overlay] refresh {p} hooks: {e}");
+                eprintln!("[nubi] refresh {p} hooks: {e}");
             }
         }
     }
 
-    let open = MenuItem::with_id(app, "open", "Open panel", true, None::<&str>)?;
-    let dnd = MenuItem::with_id(app, "dnd", "Toggle Do Not Disturb", true, None::<&str>)?;
-    let test = MenuItem::with_id(app, "test", "Test notification", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &dnd, &test, &sep, &quit])?;
+    let menu = build_menu(app)?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("claude-overlay")
+        .tooltip("Nubi")
         .menu(&menu)
-        .on_menu_event(|app, ev| match ev.id.as_ref() {
-            "open" => open_panel(app),
-            "dnd" => toggle_dnd(app),
-            "test" => test_alert(app.clone()),
-            "quit" => app.exit(0),
-            _ => {}
-        })
+        .on_menu_event(|app, ev| on_menu(app, ev.id.as_ref()))
         .build(app)?;
 
     if let Err(e) = register_hotkey(app, &s.dnd_hotkey) {
-        eprintln!("[claude-overlay] {e}");
+        eprintln!("[nubi] {e}");
+    }
+    for l in ["notch", "island", "overlay", "ring", "ringtip", "taskbar"] {
+        if let Some(w) = app.get_webview_window(l) {
+            let _ = w.set_shadow(false);
+        }
+    }
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.set_ignore_cursor_events(true);
     }
     place_all(app, &s);
     crate::notch::start_watch(app.clone());
+    #[cfg(debug_assertions)]
+    crate::pipe::start_sim(app.clone());
     crate::taskbar::start(app.clone());
     if let Some(p) = app.get_webview_window("panel") {
         let p2 = p.clone();

@@ -1,4 +1,4 @@
-//! User settings, stored in %APPDATA%\claude-overlay\settings.json.
+//! User settings, stored in %APPDATA%\nubi\settings.json (moved from %APPDATA%\claude-overlay).
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub struct Settings {
     /// "claude" | "codex" | "both"
     pub providers: String,
-    /// "notch" | "ring" | "taskbar"
+    /// "island" | "ring" | "taskbar" (old "notch" is read as "island")
     pub display_mode: String,
     /// Index into the monitor list.
     pub monitor: usize,
@@ -17,8 +17,14 @@ pub struct Settings {
     pub notch_along: f64,
     /// Fold the notch to a small tab until the pointer reaches it.
     pub notch_on_hover: bool,
-    /// Waiting approvals/questions beside the notch: "stack" | "side".
-    pub notch_requests_layout: String,
+    /// Waiting approvals/questions in the notification island: "stack" (deck) | "list" (side by side).
+    pub request_layout: String,
+    /// Seconds a request card stays open before folding away (0 = until answered).
+    pub request_popup_secs: u32,
+    /// Seconds an approval or question waits in the overlay before the terminal asks instead.
+    pub takeover_secs: u32,
+    /// Claude questions in the overlay: "off" | "system" (the prompt's own options only) | "full".
+    pub questions_mode: String,
     /// Floating ring position (physical px); None = default spot.
     pub ring_pos: Option<(i32, i32)>,
     /// Taskbar mode: "left" | "right"
@@ -36,12 +42,15 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             providers: "both".into(),
-            display_mode: "notch".into(),
+            display_mode: "island".into(),
             monitor: 0,
-            edge: "right".into(),
+            edge: "top".into(),
             notch_along: 0.5,
             notch_on_hover: true,
-            notch_requests_layout: "stack".into(),
+            request_layout: "stack".into(),
+            request_popup_secs: 8,
+            questions_mode: "system".into(),
+            takeover_secs: 10,
             ring_pos: None,
             taskbar_side: "right".into(),
             dnd_hotkey: "ctrl+alt+d".into(),
@@ -61,7 +70,7 @@ impl Settings {
 }
 
 pub fn data_dir() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("claude-overlay")
+    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("nubi")
 }
 
 fn path() -> PathBuf {
@@ -69,9 +78,19 @@ fn path() -> PathBuf {
 }
 
 pub fn load() -> Settings {
+    // Before the rename to Nubi, settings lived in %APPDATA%\claude-overlay.
+    let legacy = dirs::config_dir().map(|d| d.join("claude-overlay").join("settings.json"));
     std::fs::read_to_string(path())
         .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
+        .or_else(|| legacy.and_then(|p| std::fs::read_to_string(p).ok()))
+        .and_then(|t| serde_json::from_str::<Settings>(&t).ok())
+        .map(|mut s| {
+            // The edge notch became the island (same edges, new shape).
+            if s.display_mode == "notch" {
+                s.display_mode = "island".into();
+            }
+            s
+        })
         .unwrap_or_default()
 }
 

@@ -5,7 +5,10 @@ use crate::protocol::{HOOK_TIMEOUT_SECS, QUESTION_HOOK_TIMEOUT_SECS};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
-pub const HOOK_EXE: &str = "claude-overlay-hook.exe";
+pub const HOOK_EXE: &str = "nubi-hook.exe";
+/// Hook exe name used before the rename to Nubi. Entries with it are treated as ours, so they are
+/// replaced on the next hook refresh.
+const LEGACY_HOOK_EXE: &str = "claude-overlay-hook.exe";
 
 struct EventSpec {
     name: &'static str,
@@ -55,7 +58,7 @@ pub fn codex_hooks_path() -> Option<PathBuf> {
 
 /// Stable copy of our exe that hooks call, so moving the app does not break hooks.
 pub fn shim_path() -> Option<PathBuf> {
-    Some(dirs::data_local_dir()?.join("claude-overlay").join(HOOK_EXE))
+    Some(dirs::data_local_dir()?.join("nubi").join(HOOK_EXE))
 }
 
 /// Copy the running exe to the shim path. A locked shim (hook running) is left as is.
@@ -66,7 +69,7 @@ pub fn install_shim() -> std::io::Result<PathBuf> {
     match std::fs::copy(&src, &dst) {
         Ok(_) => Ok(dst),
         Err(e) if dst.exists() => {
-            eprintln!("[claude-overlay] shim copy skipped: {e}");
+            eprintln!("[nubi] shim copy skipped: {e}");
             Ok(dst)
         }
         Err(e) => Err(e),
@@ -80,7 +83,7 @@ fn command_for(shim: &Path, provider: &str) -> String {
 fn is_ours(h: &Value) -> bool {
     ["command", "commandWindows"]
         .iter()
-        .any(|k| h.get(*k).and_then(|c| c.as_str()).map_or(false, |c| c.contains(HOOK_EXE)))
+        .any(|k| h.get(*k).and_then(|c| c.as_str()).map_or(false, |c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE)))
 }
 
 /// Remove our entries. Returns true when anything was removed.
@@ -161,11 +164,11 @@ fn write_atomic(path: &Path, v: &Value) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let bak = path.with_extension("json.claude-overlay.bak");
+    let bak = path.with_extension("json.nubi.bak");
     if path.exists() && !bak.exists() {
         let _ = std::fs::copy(path, &bak);
     }
-    let tmp = path.with_extension("json.claude-overlay.tmp");
+    let tmp = path.with_extension("json.nubi.tmp");
     let text = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;
     std::fs::write(&tmp, text + "\n").map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
@@ -209,7 +212,7 @@ mod tests {
             "model": "x",
             "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "other.exe" } ] } ] }
         });
-        add(&mut root, CLAUDE_EVENTS, "\"C:/x/claude-overlay-hook.exe\" --hook claude", false);
+        add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", false);
         assert!(has_ours(&root));
         assert_eq!(root["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
         assert!(strip(&mut root));
@@ -222,7 +225,7 @@ mod tests {
     #[test]
     fn strip_removes_empty_hooks_key() {
         let mut root = json!({});
-        add(&mut root, CODEX_EVENTS, "\"C:/x/claude-overlay-hook.exe\" --hook codex", true);
+        add(&mut root, CODEX_EVENTS, "\"C:/x/nubi-hook.exe\" --hook codex", true);
         assert_eq!(root["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"], HOOK_TIMEOUT_SECS);
         assert!(root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"].is_string());
         strip(&mut root);
@@ -234,7 +237,7 @@ mod tests {
         let mut root = json!({});
         for _ in 0..2 {
             strip(&mut root);
-            add(&mut root, CLAUDE_EVENTS, "\"C:/x/claude-overlay-hook.exe\" --hook claude", false);
+            add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", false);
         }
         assert_eq!(root["hooks"]["Stop"].as_array().unwrap().len(), 1);
     }

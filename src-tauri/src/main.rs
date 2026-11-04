@@ -1,10 +1,12 @@
-// claude-overlay: Claude Code + Codex overlay for Windows.
+// Nubi: Claude Code + Codex overlay for Windows.
 // One exe, two modes: GUI (default) and `--hook <claude|codex>` (short-lived hook client).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod updater;
 mod hook_client;
 mod hooks_config;
+mod island;
 mod notch;
 mod pipe;
 mod poller;
@@ -37,6 +39,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(app::shortcut_plugin())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app::Shared(Mutex::new(state::Inner::default())))
         .invoke_handler(tauri::generate_handler![
             app::get_state,
@@ -52,6 +55,11 @@ fn main() {
             app::show_panel,
             app::monitors,
             notch::report_hot,
+            notch::report_overlay_hot,
+            notch::report_island_hot,
+            island::island_offset,
+            app::show_requests,
+            app::log_js,
             notch::notch_drag,
             notch::notch_drag_end,
             ring::ring_move,
@@ -60,8 +68,9 @@ fn main() {
         ])
         .setup(|a| {
             app::setup(a.handle())?;
+            updater::start(a.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("failed to run claude-overlay");
+        .expect("failed to run Nubi");
 }

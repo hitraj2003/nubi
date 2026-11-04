@@ -165,7 +165,7 @@ fn place_once(app: &App) {
     unsafe {
         SetWindowPos(hwnd, HWND_TOP, x - bar.left, y - bar.top, ww, wh, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
     }
-    let _ = w.emit("taskbar_theme", if taskbar_is_light() { "light" } else { "dark" });
+    let _ = w.emit_to(w.label(), "taskbar_theme", if taskbar_is_light() { "light" } else { "dark" });
 }
 
 /// Watchdog every 2 s (CodeZeno TASKBAR_WATCH_INTERVAL_SECS).
@@ -192,7 +192,12 @@ pub fn start(app: App) {
                 if unsafe { GetCursorPos(&mut p) } != 0 {
                     if let Some(r) = rect_of(hwnd) {
                         if p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom {
-                            crate::app::open_panel(&a2);
+                            let waiting = {
+                                let st = a2.state::<Shared>();
+                                let g = st.0.lock().unwrap_or_else(|e| e.into_inner());
+                                !g.pending.is_empty()
+                            };
+                            if waiting { crate::app::show_requests(a2.clone()) } else { crate::app::open_panel(&a2) }
                         }
                     }
                 }

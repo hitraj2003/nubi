@@ -1,6 +1,6 @@
-# claude-overlay
+# Nubi
 
-Windows overlay for **Claude Code** and **Codex CLI**. One `claude-overlay.exe`, built with
+Windows overlay for **Claude Code** and **Codex CLI**. One `nubi.exe`, built with
 Tauri 2 and Rust.
 
 Status: full build with all three display modes, awaiting the owner's review. Plan:
@@ -55,7 +55,7 @@ cd src-tauri
 cargo test
 cargo tauri dev        # run
 cargo tauri build      # installer in target/release/bundle/nsis
-claude-overlay.exe --diag   # print usage and hook status (no tokens)
+nubi.exe --diag   # print usage and hook status (no tokens)
 ```
 
 ## Turn on hooks
@@ -67,13 +67,13 @@ Open the panel from the tray icon, then **Hooks › Enable** for Claude and/or C
   `/hooks` once inside Codex to trust them; Codex does not run new hooks until you do.
 
 Hooks call a stable copy of the app at
-`%LOCALAPPDATA%\claude-overlay\claude-overlay-hook.exe`, so moving the app is safe.
+`%LOCALAPPDATA%\nubi\nubi-hook.exe`, so moving the app is safe.
 **Disable** removes only our entries. A backup of each file is kept as
-`*.json.claude-overlay.bak` the first time we change it.
+`*.json.nubi.bak` the first time we change it.
 
 ## Security notes
 
-- The pipe `\\.\pipe\claude-overlay-<user>` only allows the current user and SYSTEM,
+- The pipe `\\.\pipe\nubi-<user>` only allows the current user and SYSTEM,
   rejects network clients, refuses to start if another process already owns the name,
   and only accepts clients running this exe or the hook copy.
 - Tool input larger than 32 KB is not shown and cannot be approved from the overlay.
