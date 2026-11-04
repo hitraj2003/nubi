@@ -81,6 +81,11 @@
             <div class="row"><div><div class="rl">Start with Windows</div><div class="rd">Opens Nubi when you sign in</div></div><span class="switch"><input type="checkbox" name="auto_start"><i></i></span></div>
             <div class="row"><div><div class="rl">Update automatically</div><div class="rd">Updates at startup when idle. During use, asks first. When off, still notifies you about updates.</div></div><span class="switch"><input type="checkbox" name="auto_update"><i></i></span></div>
           </div>
+          <h2>Launcher</h2>
+          <div class="card">
+            <div class="row"><div><div class="rl">Open Claude or Codex from Explorer</div><div class="rd">Press the shortcut in a File Explorer window to open a terminal in that folder</div></div><span class="switch"><input type="checkbox" name="launcher_enabled"><i></i></span></div>
+            <div class="row"><div><div class="rl">Launcher shortcut</div><div class="rd">Click the box and press the keys. Backspace clears.</div></div><input name="launch_hotkey" placeholder="ctrl+shift+t" class="key" readonly></div>
+          </div>
         </div>
 
         <div class="pane" data-pane="appearance">
@@ -160,7 +165,7 @@
           </div>
           <h2>Do not disturb</h2>
           <div class="card">
-            <div class="row"><div><div class="rl">Keyboard shortcut</div><div class="rd">Turns Do not disturb on or off</div></div><input name="dnd_hotkey" placeholder="ctrl+alt+d" class="key"></div>
+            <div class="row"><div><div class="rl">Keyboard shortcut</div><div class="rd">Turns Do not disturb on or off. Click the box and press the keys.</div></div><input name="dnd_hotkey" placeholder="ctrl+alt+d" class="key" readonly></div>
             <div class="row"><div><div class="rl">Quiet hours</div><div class="rd">From hour to hour, 0–23. Leave empty to turn off.</div></div>
               <span class="unit"><input name="quiet_start" type="number" min="0" max="23" class="num"> to <input name="quiet_end" type="number" min="0" max="23" class="num"></span></div>
             <div class="row"><div><div class="rl">Follow Windows Focus</div><div class="rd">Stay quiet while Windows Focus or Do not disturb is on</div></div><span class="switch"><input type="checkbox" name="follow_quiet_time"><i></i></span></div>

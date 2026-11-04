@@ -30,6 +30,9 @@ pub struct Settings {
     /// Taskbar mode: "left" | "right"
     pub taskbar_side: String,
     pub dnd_hotkey: String,
+    /// Opens the Claude/Codex launcher for the focused File Explorer folder. Empty = off.
+    pub launch_hotkey: String,
+    pub launcher_enabled: bool,
     /// Quiet hours, local hour 0-23. Both set = active.
     pub quiet_start: Option<u8>,
     pub quiet_end: Option<u8>,
@@ -68,6 +71,8 @@ impl Default for Settings {
             ring_pos: None,
             taskbar_side: "right".into(),
             dnd_hotkey: "ctrl+alt+d".into(),
+            launch_hotkey: "ctrl+shift+t".into(),
+            launcher_enabled: true,
             quiet_start: None,
             quiet_end: None,
             follow_quiet_time: true,

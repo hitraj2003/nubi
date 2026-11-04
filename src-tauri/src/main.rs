@@ -7,6 +7,7 @@ mod updater;
 mod hook_client;
 mod hooks_config;
 mod island;
+mod launcher;
 mod notch;
 mod pipe;
 mod poller;
@@ -57,6 +58,8 @@ fn main() {
         .manage(updater::UpdateState::default())
         .invoke_handler(tauri::generate_handler![
             app::get_state,
+            launcher::launcher_run,
+            launcher::launcher_cancel,
             app::answer_permission,
             app::answer_question,
             app::dismiss_missed,

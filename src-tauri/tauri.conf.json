@@ -104,6 +104,22 @@
         "url": "taskbar.html",
         "width": 233,
         "height": 46
+      },
+      {
+        "label": "launcher",
+        "title": "Nubi launcher",
+        "url": "launcher.html",
+        "width": 340,
+        "height": 176,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false,
+        "focus": true,
+        "center": true
       }
     ],
     "security": {

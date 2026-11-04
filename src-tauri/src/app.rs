@@ -284,14 +284,28 @@ pub fn toggle_dnd(app: &App) {
     refresh_menu(app);
 }
 
-pub fn register_hotkey(app: &App, combo: &str) -> Result<(), String> {
+static LAUNCH_SHORTCUT: Mutex<Option<Shortcut>> = Mutex::new(None);
+
+fn parse_hotkey(combo: &str) -> Result<Option<Shortcut>, String> {
+    if combo.trim().is_empty() {
+        return Ok(None);
+    }
+    combo.parse().map(Some).map_err(|e| format!("bad hotkey '{combo}': {e}"))
+}
+
+pub fn register_hotkey(app: &App, s: &Settings) -> Result<(), String> {
+    let dnd = parse_hotkey(&s.dnd_hotkey)?;
+    let launch = if s.launcher_enabled { parse_hotkey(&s.launch_hotkey)? } else { None };
+    if dnd.is_some() && dnd == launch {
+        return Err("The two keyboard shortcuts must differ.".into());
+    }
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
-    if combo.trim().is_empty() {
-        return Ok(());
+    *LAUNCH_SHORTCUT.lock().unwrap() = launch;
+    for sc in [dnd, launch].into_iter().flatten() {
+        gs.register(sc).map_err(|e| e.to_string())?;
     }
-    let sc: Shortcut = combo.parse().map_err(|e| format!("bad hotkey '{combo}': {e}"))?;
-    gs.register(sc).map_err(|e| e.to_string())
+    Ok(())
 }
 
 pub fn refresh_hooks(app: &App) {
@@ -451,7 +465,7 @@ mod session_action_tests {
 
 #[tauri::command]
 pub fn save_settings(app: App, settings: Settings) -> Result<(), String> {
-    register_hotkey(&app, &settings.dnd_hotkey)?;
+    register_hotkey(&app, &settings)?;
     settings::apply_auto_start(settings.auto_start)?;
     settings::save(&settings)?;
     with(&app, |i| i.settings = settings.clone());
@@ -767,7 +781,7 @@ pub fn setup(app: &App) -> tauri::Result<()> {
         .on_menu_event(|app, ev| on_menu(app, ev.id.as_ref()))
         .build(app)?;
 
-    if let Err(e) = register_hotkey(app, &s.dnd_hotkey) {
+    if let Err(e) = register_hotkey(app, &s) {
         eprintln!("[nubi] {e}");
     }
     for l in ["island", "overlay", "ring", "ringtip", "taskbar"] {
@@ -801,8 +815,13 @@ pub fn setup(app: &App) -> tauri::Result<()> {
 
 pub fn shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new()
-        .with_handler(|app, _sc, ev| {
-            if ev.state() == ShortcutState::Pressed {
+        .with_handler(|app, sc, ev| {
+            if ev.state() != ShortcutState::Pressed {
+                return;
+            }
+            if Some(*sc) == *LAUNCH_SHORTCUT.lock().unwrap() {
+                crate::launcher::trigger(app);
+            } else {
                 toggle_dnd(app);
             }
         })

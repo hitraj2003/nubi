@@ -353,6 +353,7 @@ function fillForm(cfg) {
   }
   syncDropdowns();
   modeFields();
+  f.elements.launch_hotkey.disabled = !f.elements.launcher_enabled.checked;
   window.nubiTheme.apply({ theme: cfg.theme, accent: cfg.accent, reduce_motion: cfg.reduce_motion });
   requestAnimationFrame(syncThumbs);
 }
@@ -395,6 +396,8 @@ async function saveSettings() {
     notch_on_hover: f.notch_on_hover.checked,
     taskbar_side: f.taskbar_side.value,
     dnd_hotkey: f.dnd_hotkey.value,
+    launch_hotkey: f.launch_hotkey.value,
+    launcher_enabled: f.launcher_enabled.checked,
     quiet_start: num(f.quiet_start.value),
     quiet_end: num(f.quiet_end.value),
     follow_quiet_time: f.follow_quiet_time.checked,
@@ -526,3 +529,21 @@ setInterval(() => {
   const oldest = known.reduce((a, u) => !a || u.fetched_ms < a.fetched_ms ? u : a, null);
   $("usage-meta").textContent = oldest ? UsageStatus.age(oldest) : "";
 }, 30000);
+
+// Shortcut boxes record the pressed combination instead of free text.
+const KEY_NAMES = { " ": "space", arrowup: "up", arrowdown: "down", arrowleft: "left", arrowright: "right", escape: "esc" };
+for (const input of document.querySelectorAll("input.key")) {
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") return;
+    e.preventDefault();
+    const k = e.key.toLowerCase();
+    if (k === "backspace" || k === "delete") { input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true })); return; }
+    if (["control", "shift", "alt", "meta"].includes(k)) return;
+    const mods = [e.ctrlKey && "ctrl", e.shiftKey && "shift", e.altKey && "alt", e.metaKey && "super"].filter(Boolean);
+    if (!mods.length) return; // a bare key would fire in every app
+    const code = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.code.startsWith("Digit") ? e.code.slice(5) : KEY_NAMES[k] || k;
+    input.value = [...mods, code].join("+");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+$("settings").elements.launcher_enabled.addEventListener("change", (e) => { $("settings").elements.launch_hotkey.disabled = !e.target.checked; });

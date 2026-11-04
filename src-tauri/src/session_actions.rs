@@ -146,9 +146,18 @@ fn system_exe(name: &str) -> Result<std::path::PathBuf, String> {
 }
 
 pub fn new_terminal(cwd: &str) -> Result<(), String> {
+    open_terminal(cwd, None)
+}
+
+/// Opens a terminal in `cwd`; `run` is a CLI name started inside PowerShell so npm shims resolve.
+pub fn open_terminal(cwd: &str, run: Option<&str>) -> Result<(), String> {
+    let mut ps: Vec<&str> = vec!["-NoLogo", "-NoExit"];
+    if let Some(cli) = run {
+        ps.extend(["-Command", cli]);
+    }
     let path = std::path::Path::new(cwd);
     if !path.is_absolute() || !path.is_dir() {
-        return Err("The session folder is no longer available.".into());
+        return Err("The folder is no longer available.".into());
     }
     // Argument arrays preserve spaces and shell metacharacters in the directory.
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
@@ -156,6 +165,8 @@ pub fn new_terminal(cwd: &str) -> Result<(), String> {
         if wt.is_file()
             && Command::new(wt)
                 .args(["-w", "new", "-d", cwd])
+                .args(if run.is_some() { vec!["powershell.exe"] } else { vec![] })
+                .args(if run.is_some() { ps.clone() } else { vec![] })
                 .current_dir(path)
                 .creation_flags(CREATE_NO_WINDOW)
                 .spawn()
@@ -166,7 +177,7 @@ pub fn new_terminal(cwd: &str) -> Result<(), String> {
     }
     // A visible window is intentional: the user explicitly requested a new terminal.
     Command::new(system_exe("WindowsPowerShell/v1.0/powershell.exe")?)
-        .args(["-NoLogo", "-NoExit"])
+        .args(&ps)
         .current_dir(path)
         .creation_flags(0x00000010)
         .spawn()
