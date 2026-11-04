@@ -331,6 +331,34 @@ pub fn show_requests(app: App) {
     }
 }
 
+/// Open a new GitHub issue in the browser, with the app version and Windows build filled in.
+#[tauri::command]
+pub fn report_issue(app: App) {
+    let ver = app.package_info().version.to_string();
+    let os = std::process::Command::new("cmd").args(["/C", "ver"]).output().ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+    let body = format!("**What happened**
+
+
+**What you expected**
+
+
+**Steps to reproduce**
+1. 
+
+---
+Nubi {ver}
+{os}
+");
+    let enc: String = body.bytes().map(|b| match b {
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+        _ => format!("%{b:02X}"),
+    }).collect();
+    let url = format!("https://github.com/hitraj2003/nubi/issues/new?body={enc}");
+    // explorer opens a URL in the default browser without a console window.
+    let _ = std::process::Command::new("explorer").arg(url).spawn();
+}
+
 /// Page errors end up in the app log.
 #[tauri::command]
 pub fn log_js(msg: String) {
