@@ -6,6 +6,23 @@ Tauri 2 and Rust.
 Status: full build with all three display modes, awaiting the owner's review. Plan:
 [`docs/plans/2026-11-03-claude-overlay.md`](docs/plans/2026-11-03-claude-overlay.md).
 
+## Download
+
+- **Latest:** [latest release](https://github.com/hitraj2003/nubi/releases/latest), file
+  `Nubi_<version>_x64-setup.exe`. Installs per user, no admin needed. Windows SmartScreen may warn
+  because the installer is not code-signed yet: choose More info, then Run anyway.
+- **Older versions:** [all releases](https://github.com/hitraj2003/nubi/releases). Every version
+  stays there with its own installer.
+- Installed copies update themselves from the latest release (checked at start and every 6 hours).
+
+## Releasing a new version
+
+1. Bump `version` in `src-tauri/tauri.conf.json` (and `src-tauri/Cargo.toml`).
+2. Commit, then tag and push: `git tag v0.1.1 && git push origin main v0.1.1`.
+3. GitHub Actions (`.github/workflows/build.yml`) builds, signs the update, and publishes the
+   release with the installer and `latest.json`. Needs the repo secret
+   `TAURI_SIGNING_PRIVATE_KEY` (contents of `~/.tauri/nubi.key`).
+
 ## Display modes (pick one in Settings)
 
 - **Edge notch** (from codenotch): pinned to any screen edge, folds to a small tab until the
