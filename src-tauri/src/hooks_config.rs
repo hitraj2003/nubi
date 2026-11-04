@@ -186,6 +186,51 @@ pub fn is_enabled(provider: &str) -> bool {
     path_for(provider).and_then(|p| read_json(&p).ok()).map_or(false, |v| has_ours(&v))
 }
 
+// ---- Claude Code status line ----
+// Nubi takes the `statusLine` slot so it gets Claude's usage numbers without calling the API.
+// The user's previous status line is saved in %APPDATA%\nubi\statusline_prev.json and still
+// runs (Nubi prints its output), and comes back when Claude hooks are turned off.
+
+fn prev_statusline_path() -> PathBuf {
+    crate::settings::data_dir().join("statusline_prev.json")
+}
+
+fn statusline_is_ours(v: &Value) -> bool {
+    v.get("command").and_then(|c| c.as_str()).map_or(false, |c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE))
+}
+
+/// Command of the status line Nubi replaced, if there was one.
+pub fn previous_statusline() -> Option<String> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(prev_statusline_path()).ok()?).ok()?;
+    v.get("command").and_then(|c| c.as_str()).map(String::from).filter(|c| !c.trim().is_empty())
+}
+
+fn take_statusline(root: &mut Value, shim: &Path) {
+    let cur = root.get("statusLine").cloned().unwrap_or(Value::Null);
+    if !statusline_is_ours(&cur) {
+        let _ = std::fs::create_dir_all(crate::settings::data_dir());
+        let _ = std::fs::write(prev_statusline_path(), serde_json::to_string_pretty(&cur).unwrap_or_default());
+    }
+    let padding = cur.get("padding").cloned().unwrap_or(json!(0));
+    let cmd = format!("\"{}\" --statusline", shim.display().to_string().replace('\\', "/"));
+    root["statusLine"] = json!({ "type": "command", "command": cmd, "padding": padding });
+}
+
+fn give_back_statusline(root: &mut Value) {
+    let ours = root.get("statusLine").map_or(false, statusline_is_ours);
+    if !ours {
+        return;
+    }
+    let prev = std::fs::read_to_string(prev_statusline_path()).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    match prev {
+        Some(v) if v.is_object() => root["statusLine"] = v,
+        _ => {
+            root.as_object_mut().map(|o| o.remove("statusLine"));
+        }
+    }
+    let _ = std::fs::remove_file(prev_statusline_path());
+}
+
 pub fn set_enabled(provider: &str, enable: bool) -> Result<(), String> {
     let path = path_for(provider).ok_or("no home directory")?;
     let mut root = read_json(&path)?;
@@ -197,7 +242,10 @@ pub fn set_enabled(provider: &str, enable: bool) -> Result<(), String> {
             add(&mut root, CODEX_EVENTS, &cmd, true);
         } else {
             add(&mut root, CLAUDE_EVENTS, &cmd, false);
+            take_statusline(&mut root, &shim);
         }
+    } else if provider == "claude" {
+        give_back_statusline(&mut root);
     }
     write_atomic(&path, &root)
 }

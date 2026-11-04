@@ -27,6 +27,10 @@ fn main() {
         let provider = args.get(2).map(String::as_str).unwrap_or("claude");
         std::process::exit(hook_client::run(provider));
     }
+    // `--statusline`: Claude Code status line (usage numbers without an API call).
+    if args.get(1).map(String::as_str) == Some("--statusline") {
+        std::process::exit(hook_client::statusline());
+    }
     // `--diag`: print usage and hook status (never prints tokens).
     if args.get(1).map(String::as_str) == Some("--diag") {
         for p in ["claude", "codex"] {

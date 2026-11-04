@@ -37,11 +37,22 @@ pub fn start(app: App) {
                 if now < due && !(kicked && !backing_off) {
                     continue;
                 }
+                // Claude numbers arrive from the status line while a session is open; the API is
+                // only a fallback when none has reported for 30 minutes.
+                if p == "claude" {
+                    let st = app.state::<Shared>();
+                    let live = st.0.lock().unwrap_or_else(|e| e.into_inner()).claude_live_ms;
+                    if live > 0 && crate::state::now_ms().saturating_sub(live) < 30 * 60 * 1000 {
+                        continue;
+                    }
+                }
                 let out = crate::usage::fetch(p);
                 let st = app.state::<Shared>();
                 let mut g = st.0.lock().unwrap_or_else(|e| e.into_inner());
                 let (u, n): (Usage, i64) = crate::usage::apply(p, out, g.usage.get(p));
                 g.usage.insert(p.to_string(), u);
+                // Claude's API is only a fallback now: ask it at most every 30 minutes.
+                let n = if p == "claude" { n.max(now + 30 * 60) } else { n };
                 next.insert(p.to_string(), n);
                 let mut persisted = next.clone();
                 persisted.retain(|k, _| g.usage.get(k).map_or(false, |x| x.status == "backoff"));

@@ -75,6 +75,17 @@ fn get(url: &str, headers: &[(&str, &str)]) -> Result<Value, Outcome> {
     }
 }
 
+/// Windows from the `rate_limits` object Claude Code gives its status line command.
+pub fn parse_statusline(v: &Value) -> Vec<Window> {
+    let mut out = vec![];
+    for (key, label) in [("five_hour", "5h"), ("seven_day", "7d")] {
+        if let Some(u) = v[key]["used_percentage"].as_f64() {
+            out.push(Window { id: key.into(), label: label.into(), used_percent: u, resets_at: parse_time(&v[key]["resets_at"]) });
+        }
+    }
+    out
+}
+
 pub fn parse_claude(v: &Value) -> Vec<Window> {
     let mut out: Vec<Window> = vec![];
     for (key, label) in [
@@ -205,6 +216,15 @@ pub fn apply(provider: &str, out: Outcome, prev: Option<&Usage>) -> (Usage, i64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn statusline_rate_limits() {
+        let w = parse_statusline(&json!({"five_hour":{"used_percentage":42.5,"resets_at":1800000000},"seven_day":{"used_percentage":7,"resets_at":1800500000}}));
+        assert_eq!(w.len(), 2);
+        assert_eq!((w[0].label.as_str(), w[0].used_percent, w[0].resets_at), ("5h", 42.5, Some(1800000000)));
+        assert_eq!(w[1].label, "7d");
+        assert!(parse_statusline(&json!({})).is_empty());
+    }
     use serde_json::json;
 
     #[test]

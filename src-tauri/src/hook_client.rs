@@ -68,3 +68,75 @@ fn exchange(msg: &HookMsg) -> Option<Reply> {
     BufReader::new(f).take(4096).read_line(&mut resp).ok()?;
     serde_json::from_str(resp.trim()).ok()
 }
+
+/// `--statusline` mode: Claude Code's status line command. Claude Code passes a JSON blob on
+/// stdin that includes `rate_limits` (5-hour and weekly usage) for subscribers. We forward that
+/// to the GUI (no network call, so no rate limit), then run the user's previous status line
+/// command with the same stdin and print its output, so their status line looks as before.
+pub fn statusline() -> i32 {
+    let mut buf = Vec::new();
+    let _ = std::io::stdin().take(MAX_STDIN as u64 + 1).read_to_end(&mut buf);
+    if let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&buf) {
+        if let Some(rl) = raw.get("rate_limits").filter(|v| v.is_object()) {
+            let msg = HookMsg {
+                v: 1,
+                provider: "claude".into(),
+                event: "StatusLine".into(),
+                session_id: raw.get("session_id").and_then(|s| s.as_str()).unwrap_or_default().into(),
+                tool_input: Some(rl.clone()),
+                ..Default::default()
+            };
+            // Never hold up the status line: give the GUI 300 ms at most.
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = exchange(&msg);
+                let _ = tx.send(());
+            });
+            let _ = rx.recv_timeout(Duration::from_millis(300));
+        }
+    }
+    if let Some(cmd) = crate::hooks_config::previous_statusline() {
+        if let Some(out) = run_shell(&cmd, &buf) {
+            let mut so = std::io::stdout();
+            let _ = so.write_all(&out);
+            let _ = so.flush();
+        }
+    }
+    0
+}
+
+/// Run a status line command the way Claude Code would: Git Bash when present, else cmd.
+fn run_shell(cmd: &str, stdin: &[u8]) -> Option<Vec<u8>> {
+    use std::process::{Command, Stdio};
+    let bash = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists())
+        .or_else(|| {
+            ["C:/Program Files/Git/bin/bash.exe", "C:/Program Files (x86)/Git/bin/bash.exe"]
+                .iter()
+                .map(std::path::PathBuf::from)
+                .find(|p| p.exists())
+        });
+    let mut c = match bash {
+        Some(b) => {
+            let mut c = Command::new(b);
+            c.arg("-c").arg(cmd);
+            c
+        }
+        None => {
+            use std::os::windows::process::CommandExt;
+            let mut c = Command::new("cmd");
+            c.arg("/C").raw_arg(cmd);
+            c
+        }
+    };
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut child = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    if let Some(mut si) = child.stdin.take() {
+        let _ = si.write_all(stdin);
+    }
+    child.wait_with_output().ok().map(|o| o.stdout)
+}

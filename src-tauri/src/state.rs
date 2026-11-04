@@ -92,6 +92,8 @@ pub struct Usage {
 #[derive(Default)]
 pub struct Inner {
     pub settings: Settings,
+    /// Last time Claude usage came from the status line (ms). While recent, the API is not polled.
+    pub claude_live_ms: u64,
     pub sessions: BTreeMap<String, Session>,
     pub pending: HashMap<u64, Pending>,
     pub alerts: VecDeque<Alert>,
