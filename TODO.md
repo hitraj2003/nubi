@@ -12,6 +12,7 @@
 - [ ] Commit (nothing since cd9c4d5 is committed). Release build after Part B.
 
 ## Needs manual check (not yet verified)
+- [ ] Bug (owner, 2026-11-04): Settings > "Fold until hovered" switch is not clickable, and it saved automatically. Seen on the build before the draft/Save change (d33cb55); check whether it still happens.
 - [ ] Codex approvals after `/hooks` trust.
 - [ ] What Claude Code and Codex do when the hook times out (expect native prompt).
 - [ ] Jump to terminal in Windows Terminal and VS Code (session rows in the notch are clickable).
