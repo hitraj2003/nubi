@@ -22,6 +22,7 @@
 - [ ] Context size column in the notch Sessions tab with real sessions.
 
 ## Next
+- [ ] Later (owner, 2026-11-04): agent-drafted bug reports. Report dialog in Settings: user writes a sentence; Nubi collects version, Windows, display mode/edge, providers, hook and usage status, Claude/Codex versions (no tokens); "Draft with Claude/Codex" runs the local CLI (`claude -p --bare --tools "" --no-session-persistence`, or `codex exec --ephemeral --skip-git-repo-check -o <file>`, prompt on stdin, temp cwd) and gets JSON for every bug-form field; user edits, then the prefilled `bug_report.yml` form opens and they only press Submit. Keep the URL under ~7.5k chars.
 - [ ] Taskbar strip: recreate the window after Explorer restarts (CodeZeno listens for `TaskbarCreated`).
 - [ ] Taskbar strip hover tooltip (web view inside the taskbar gets no mouse input).
 - [ ] Check on screen: Claude usage from the status line (`--statusline`), owner's status line still shows, turning Claude hooks off restores it.
