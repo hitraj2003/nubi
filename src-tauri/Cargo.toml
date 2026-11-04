@@ -18,6 +18,7 @@ ureq = { version = "2", features = ["json"] }
 dirs = "5"
 chrono = "0.4"
 tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
 
 [dependencies.windows-sys]
 version = "0.59"

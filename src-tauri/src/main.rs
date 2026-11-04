@@ -37,6 +37,10 @@ fn main() {
     }
 
     tauri::Builder::default()
+        // Only one copy runs: the pipe can have one owner. A second launch opens the running
+        // copy's panel and exits. Must be the first plugin. Hook mode returned above, so hook
+        // calls never reach this.
+        .plugin(tauri_plugin_single_instance::init(|a, _args, _cwd| app::show_panel(a.clone())))
         .plugin(app::shortcut_plugin())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
