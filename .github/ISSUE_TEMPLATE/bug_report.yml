@@ -1,0 +1,129 @@
+name: Bug report
+description: Something in Nubi does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The **Report an issue** button in Nubi's Settings fills in the version fields for you.
+        Please do not paste tokens, API keys or private code.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see? Include any error text exactly as shown.
+      placeholder: "The notch stays open after I answer a question."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: "The notch folds back to the pill."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest list of steps that makes it happen.
+      placeholder: |
+        1. Set display mode to Notch, top edge
+        2. Start a Claude session and ask it to run a command
+        3. Click Allow on the card
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Part of Nubi
+      multiple: true
+      options:
+        - Notch
+        - Toast (notification pill and request cards)
+        - Floating ring or its tooltip
+        - Taskbar strip
+        - Settings panel
+        - Approvals (Allow / Deny)
+        - Claude questions
+        - Usage numbers
+        - Sounds
+        - Updates or installer
+        - Hooks or status line in Claude Code / Codex
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which agent
+      options:
+        - Claude Code
+        - Codex
+        - Both
+        - Not related to an agent
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often
+      options:
+        - Every time
+        - Sometimes
+        - Once
+    validations:
+      required: true
+
+  - type: input
+    id: nubi-version
+    attributes:
+      label: Nubi version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Microsoft Windows [Version 10.0.26100.1234]"
+    validations:
+      required: true
+
+  - type: input
+    id: agent-versions
+    attributes:
+      label: Claude Code / Codex version
+      description: Run `claude --version` or `codex --version`.
+      placeholder: "Claude Code 2.1.318"
+
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: Anything that might matter.
+      placeholder: |
+        Display mode and edge: Notch, top
+        Monitors and scaling: 2 monitors, 150 %
+        Terminal: Windows Terminal / VS Code
+        Other usage tools or status lines running:
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recording
+      description: Drag images or a short video here.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or `nubi.exe --diag` output
+      description: "`--diag` prints hook and usage status, never tokens."
+      render: text
