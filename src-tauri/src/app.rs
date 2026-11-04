@@ -335,7 +335,8 @@ pub fn show_requests(app: App) {
 #[tauri::command]
 pub fn report_issue(app: App) {
     let ver = app.package_info().version.to_string();
-    let os = std::process::Command::new("cmd").args(["/C", "ver"]).output().ok()
+    use std::os::windows::process::CommandExt;
+    let os = std::process::Command::new("cmd").args(["/C", "ver"]).creation_flags(0x0800_0000).output().ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
     let body = format!("**What happened**
 
