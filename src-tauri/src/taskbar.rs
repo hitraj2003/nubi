@@ -131,7 +131,12 @@ pub fn taskbar_is_light() -> bool {
     rc == 0 && data == 1
 }
 
+/// One placement at a time. Without it the 2 s watchdog could read the old mode, then show the
+/// strip again right after a mode switch hid it.
+static PLACE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn place_once(app: &App) {
+    let _guard = PLACE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let Some(w) = app.get_webview_window("taskbar") else { return };
     let s = {
         let st = app.state::<Shared>();
@@ -139,6 +144,10 @@ fn place_once(app: &App) {
         g.settings.clone()
     };
     if s.display_mode != "taskbar" {
+        // The strip is a child of Explorer's taskbar: hide it natively so it does not linger there.
+        if let Some(hwnd) = w.hwnd().ok().map(|h| h.0 as HWND) {
+            unsafe { ShowWindow(hwnd, SW_HIDE) };
+        }
         let _ = w.hide();
         return;
     }

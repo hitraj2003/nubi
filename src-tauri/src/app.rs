@@ -266,6 +266,7 @@ pub fn jump_session(app: App, key: String) -> Result<bool, String> {
 #[tauri::command]
 pub fn save_settings(app: App, settings: Settings) -> Result<(), String> {
     register_hotkey(&app, &settings.dnd_hotkey)?;
+    settings::apply_auto_start(settings.auto_start)?;
     settings::save(&settings)?;
     with(&app, |i| i.settings = settings.clone());
     place_all(&app, &settings);
@@ -381,11 +382,16 @@ pub fn show_panel(app: App) {
 
 #[tauri::command]
 pub fn monitors(app: App) -> Vec<String> {
+    let names = crate::winutil::monitor_names();
     app.available_monitors()
         .unwrap_or_default()
         .iter()
         .enumerate()
-        .map(|(n, m)| format!("{}: {} ({}x{})", n, m.name().cloned().unwrap_or_default(), m.size().width, m.size().height))
+        .map(|(n, m)| {
+            let gdi = m.name().cloned().unwrap_or_default();
+            let friendly = names.get(&gdi).cloned().unwrap_or_else(|| format!("{}x{}", m.size().width, m.size().height));
+            format!("Display {}: {}", n + 1, friendly)
+        })
         .collect()
 }
 

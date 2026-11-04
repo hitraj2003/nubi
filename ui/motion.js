@@ -4,7 +4,10 @@
 // (response 0.5, damping 0.70 for content, 0.75 for expanding); only the numbers are used, no code.
 // Springs keep their velocity when retargeted, so an animation interrupted midway turns smoothly.
 (function () {
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  // Less motion when Windows asks for it, or when Settings > Appearance > Reduce motion is on
+  // (theme.js sets data-motion on <html>).
+  const mq = matchMedia("(prefers-reduced-motion: reduce)");
+  const reduced = { get matches() { return mq.matches || document.documentElement.dataset.motion === "reduce"; } };
 
   const PRESET = {
     open: { response: 0.5, damping: 0.75 },   // shape growing
@@ -109,5 +112,19 @@
     };
   }
 
-  window.Motion = { PRESET, Spring, Animator, tween, enter, leave, pressable, slider, reduced };
+  // Same as slider, on the vertical axis (rail tile, settings list).
+  function vslider(hl) {
+    const sy = new Spring(0, PRESET.snappy), sh = new Spring(0, PRESET.snappy);
+    const a = new Animator({ sy, sh }, (v) => { hl.style.transform = `translateY(${v.sy}px)`; hl.style.height = v.sh + "px"; });
+    let first = true;
+    return (item) => {
+      if (!item) { hl.style.opacity = "0"; first = true; return; }
+      hl.style.opacity = "1";
+      const y = item.offsetTop, h = item.offsetHeight;
+      if (first) { sy.jump(y); sh.jump(h); first = false; a.draw(a.values()); return; }
+      sy.to(y); sh.to(h); a.kick();
+    };
+  }
+
+  window.Motion = { PRESET, Spring, Animator, tween, enter, leave, pressable, slider, vslider, reduced };
 })();

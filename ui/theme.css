@@ -1,0 +1,43 @@
+/* Shared theme for every Nubi surface (panel, notch, toast, ring, taskbar strip).
+   html[data-theme=light|dark], html[data-accent=...], html[data-motion=reduce] are set by theme.js
+   from Settings > Appearance. Warm neutrals; provider colours only mark Claude and Codex. */
+:root,html[data-theme=light]{
+  color-scheme:light;
+  --canvas:#f4f2ee; --dot:rgba(60,50,30,.10);
+  --card:#fdfcfa; --card-2:#f6f4ef; --card-3:#ece8e0; --rail:#ffffff;
+  --line:rgba(40,30,10,.07); --line-2:rgba(40,30,10,.13);
+  --t1:#1d1b17; --t2:#6b665d; --t3:#a39d92;
+  --sh:0 1px 0 rgba(255,255,255,.9) inset,0 1px 2px rgba(40,30,10,.04),0 8px 24px -10px rgba(40,30,10,.14);
+  --sh-pop:0 16px 40px -12px rgba(40,30,10,.28),0 0 0 1px var(--line);
+  --switch-off:#e3dfd6;
+  --tint-warn-ink:#8a6a00; --tint-ok-ink:#24865a;
+}
+html[data-theme=dark]{
+  color-scheme:dark;
+  --canvas:#121110; --dot:rgba(255,240,210,.06);
+  --card:#1e1d1b; --card-2:#252421; --card-3:#2f2d2a; --rail:#1b1a18;
+  --line:rgba(255,240,210,.07); --line-2:rgba(255,240,210,.13);
+  --t1:#f3efe7; --t2:#a7a094; --t3:#6d675d;
+  --sh:0 1px 0 rgba(255,255,255,.04) inset,0 10px 30px -12px rgba(0,0,0,.7);
+  --sh-pop:0 18px 44px -12px rgba(0,0,0,.8),0 0 0 1px var(--line-2);
+  --switch-off:#3a3834;
+  --tint-warn-ink:#F5C842; --tint-ok-ink:#5fd39b;
+}
+:root{
+  --claude:#D97757; --codex:#5B8DEF; --ok:#3FB37A; --warn:#E0A526; --bad:#EF5A4C;
+  --acc:#F5C842; --acc-ink:#3a2e05;
+  --font:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --display:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace;
+  --ease:cubic-bezier(.2,.9,.25,1);
+  --spring:cubic-bezier(.34,1.4,.5,1);
+}
+html[data-accent=terracotta]{--acc:#D97757; --acc-ink:#fff}
+html[data-accent=blue]{--acc:#5B8DEF; --acc-ink:#fff}
+html[data-accent=green]{--acc:#3FB37A; --acc-ink:#fff}
+html[data-accent=violet]{--acc:#9B7BF3; --acc-ink:#fff}
+html[data-accent=black]{--acc:#1d1b17; --acc-ink:#fff}
+html[data-theme=dark][data-accent=black]{--acc:#f3efe7; --acc-ink:#1d1b17}
+:root{--acc-soft:color-mix(in srgb,var(--acc) 16%,transparent)}
+html[data-motion=reduce] *,html[data-motion=reduce] *::before,html[data-motion=reduce] *::after{transition-timing-function:ease !important;animation-duration:.01ms !important}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{transition-timing-function:ease !important;animation-duration:.01ms !important}}

@@ -38,6 +38,14 @@ pub struct Settings {
     pub toast_when_fullscreen: bool,
     /// Install new versions from GitHub releases automatically (release builds only).
     pub auto_update: bool,
+    /// Start Nubi at Windows sign-in (HKCU Run key).
+    pub auto_start: bool,
+    /// Panel theme: "system" | "dark" | "light"
+    pub theme: String,
+    /// Accent everywhere: "yellow" | "terracotta" | "blue" | "green" | "violet" | "black"
+    pub accent: String,
+    /// Fades only, no springs (also on when Windows asks for less motion).
+    pub reduce_motion: bool,
 }
 
 impl Default for Settings {
@@ -62,6 +70,10 @@ impl Default for Settings {
             sounds: true,
             toast_when_fullscreen: true,
             auto_update: true,
+            auto_start: false,
+            theme: "system".into(),
+            accent: "yellow".into(),
+            reduce_motion: false,
         }
     }
 }
@@ -95,6 +107,33 @@ pub fn load() -> Settings {
             s
         })
         .unwrap_or_default()
+}
+
+/// Add or remove the HKCU Run entry that starts Nubi at sign-in.
+pub fn apply_auto_start(on: bool) -> Result<(), String> {
+    use windows_sys::Win32::System::Registry::{RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+    let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Run");
+    let name = wide("Nubi");
+    if on {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let cmd = wide(&format!("\"{}\"", exe.display()));
+        let rc = unsafe {
+            RegSetKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), REG_SZ, cmd.as_ptr() as *const _, (cmd.len() * 2) as u32)
+        };
+        if rc != 0 {
+            return Err(format!("could not set auto-start (error {rc})"));
+        }
+    } else {
+        // 2 = ERROR_FILE_NOT_FOUND: already off.
+        let rc = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) };
+        if rc != 0 && rc != 2 {
+            return Err(format!("could not remove auto-start (error {rc})"));
+        }
+    }
+    Ok(())
 }
 
 pub fn save(s: &Settings) -> Result<(), String> {

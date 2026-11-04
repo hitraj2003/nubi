@@ -34,3 +34,21 @@ async fn check(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     update.download_and_install(|_, _| {}, || {}).await?;
     app.restart();
 }
+
+/// About > Check for updates. Installs and restarts when a newer version exists.
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Result<String, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    if cfg!(debug_assertions) {
+        return Ok("Updates only work in release builds".into());
+    }
+    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    let Some(update) = update else { return Ok("You have the latest version".into()) };
+    update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+    app.restart();
+}
+
+#[tauri::command]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
