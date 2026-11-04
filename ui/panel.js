@@ -274,6 +274,7 @@ function render(s) {
 $("dnd").addEventListener("change", (e) => invoke("set_dnd", { on: e.target.checked }));
 $("refresh").addEventListener("click", () => invoke("refresh_usage"));
 $("test").addEventListener("click", () => invoke("test_alert"));
+$("report").addEventListener("click", () => invoke("report_issue"));
 invoke("monitors").then((list) => list.forEach((label, i) => $("monitor").append(new Option(label.replace(/^\d+: /, "") || "Monitor " + (i + 1), String(i)))));
 listen("state", (e) => render(e.payload));
 invoke("get_state").then(render);

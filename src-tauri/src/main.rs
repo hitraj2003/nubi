@@ -68,6 +68,7 @@ fn main() {
             island::island_offset,
             app::show_requests,
             app::log_js,
+            app::report_issue,
             notch::notch_drag,
             notch::notch_drag_end,
             ring::ring_move,
