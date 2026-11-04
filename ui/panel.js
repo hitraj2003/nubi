@@ -260,8 +260,9 @@ function barColor(p, used) { return used >= 70 ? "var(--bad)" : used >= 50 ? "va
 function renderUsage(s) {
   const box = $("usage");
   box.replaceChildren();
-  const ok = s.usage.find((u) => u.fetched_ms);
-  $("usage-meta").textContent = ok ? "Updated " + ago(ok.fetched_ms) : "";
+  const known = s.usage.filter((u) => u.windows.length && u.fetched_ms);
+  const oldest = known.reduce((a, u) => !a || u.fetched_ms < a.fetched_ms ? u : a, null);
+  $("usage-meta").textContent = oldest ? UsageStatus.age(oldest) : "";
   if (!s.usage.length) box.append(el("div", "empty", "Loading usage..."));
   for (const u of s.usage) {
     const c = el("div", "meter " + u.provider);
@@ -286,10 +287,9 @@ function renderUsage(s) {
     const body = el("div", "body");
     const top = el("div", "top");
     top.append(tile(u.provider), el("div", "ct", NAME[u.provider]));
-    if (u.status !== "ok") top.append(el("span", "st", {
-      loading: "Loading usage...", needs_auth: "Sign in again", no_auth: "Sign in to see usage",
-      backoff: "Waiting to try again", error: "Could not update usage",
-    }[u.status] || "Usage unavailable"));
+    const status = el("span", "st", UsageStatus.text(u));
+    status.dataset.usageProvider = u.provider;
+    top.append(status);
     body.append(top);
     for (const w of u.windows) {
       const kv = el("div", "kv");
@@ -515,3 +515,14 @@ invoke("get_state").then((s) => {
 });
 // Countdowns tick every second without rebuilding the cards.
 setInterval(() => { if (snap) { countdowns($("inbox"), snap); countdowns($("session-requests"), snap); } }, 1000);
+// Refresh the age without restarting meter animations.
+setInterval(() => {
+  if (!snap) return;
+  document.querySelectorAll("[data-usage-provider]").forEach((node) => {
+    const u = snap.usage.find((u) => u.provider === node.dataset.usageProvider);
+    node.textContent = UsageStatus.text(u);
+  });
+  const known = snap.usage.filter((u) => u.windows.length && u.fetched_ms);
+  const oldest = known.reduce((a, u) => !a || u.fetched_ms < a.fetched_ms ? u : a, null);
+  $("usage-meta").textContent = oldest ? UsageStatus.age(oldest) : "";
+}, 30000);

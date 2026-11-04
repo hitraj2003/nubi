@@ -101,6 +101,7 @@ pub struct Usage {
     pub status: String,
     pub message: Option<String>,
     pub windows: Vec<Window>,
+    /// Time of the last successful nonempty usage update, not the last attempt.
     pub fetched_ms: Option<u64>,
 }
 
@@ -159,8 +160,10 @@ impl Inner {
     /// Update session state from a hook event. Returns an alert to show, if any.
     pub fn on_event(&mut self, m: &HookMsg) -> Option<Alert> {
         let key = format!("{}:{}", m.provider, m.session_id);
-        // Any later event from the session (not its idle Notification) means the terminal got an answer.
-        if m.event != "Notification" {
+        // Any later event from the session means the terminal got an answer. A Notification counts
+        // only when it is the idle prompt (after a deny or interrupt no other event arrives);
+        // the permission prompt Notification is the terminal still waiting.
+        if m.event != "Notification" || m.notification_type.as_deref() == Some("idle_prompt") {
             self.missed.retain(|x| x.session_key != key);
         }
         if m.event == "SessionEnd" {

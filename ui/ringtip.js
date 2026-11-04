@@ -25,7 +25,7 @@ function render() {
   const p = cur.provider;
   const u = (snap.usage || []).find((x) => x.provider === p) || { status: "loading", windows: [] };
   tip.append(el("div", "title", NAME[p]));
-  tip.append(el("div", "tier", u.status === "ok" ? "Share of your limit used" : ({ loading: "Loading usage...", needs_auth: "Sign in again", no_auth: "Sign in to see usage", backoff: "Waiting to try again", error: "Could not update usage" }[u.status] || "Usage unavailable")));
+  tip.append(el("div", "tier", u.windows.length ? u.status === "ok" ? "Share of your limit used" : "Saved usage" : UsageStatus.text(u)));
   tip.append(el("div", "div"));
   const sweep = shownFor !== p + cur.mode; // new hover: bars sweep in from zero
   for (const w of u.windows) {
@@ -54,8 +54,7 @@ function render() {
     tip.append(el("div", "waiting", `${waiting} waiting in terminal`));
     tip.append(el("div", "reset", "Click the ring count to open terminal. Right-click the count to dismiss."));
   }
-  const m = u.fetched_ms ? Math.round((Date.now() - u.fetched_ms) / 60000) : null;
-  tip.append(el("div", "foot", m == null ? "" : m < 1 ? "Updated just now" : `Updated ${m}m ago`));
+  tip.append(el("div", "foot", u.windows.length ? UsageStatus.age(u) : ""));
   if (sweep) { tip.style.opacity = "0"; Motion.enter(tip); }
   shownFor = p + cur.mode;
 }
@@ -65,3 +64,8 @@ listen("state", (e) => { snap = e.payload; render(); });
 invoke("get_state").then((s) => { snap = s; render(); });
 // Hidden tooltip: next hover blurs in again.
 listen("ringtip_hide", () => { shownFor = ""; });
+setInterval(() => {
+  const u = snap?.usage.find((u) => u.provider === cur.provider);
+  const foot = tip.querySelector(".foot");
+  if (foot && u?.windows.length) foot.textContent = UsageStatus.age(u);
+}, 30000);

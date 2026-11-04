@@ -363,15 +363,16 @@ function renderCompact() {
     L.push(el("span", "c-txt", p[0].kind === "question" ? "Question" : "Needs your OK"));
     R.push(el("span", "badge", String(p.length)));
   } else if (m.length) {
-    const t = el("span", "c-txt", m.length === 1 ? (m[0].kind === "question" ? "Question in terminal" : "Approval in terminal") : `${m.length} waiting in terminal`);
-    t.title = "Open terminal";
-    t.addEventListener("click", (e) => { e.stopPropagation(); invoke("jump_session", { key: m[0].session_key }).catch(() => {}); });
-    t.addEventListener("pointerdown", (e) => e.stopPropagation());
-    L.push(t);
+    // Number only (owner, 2026-11-04): no "in terminal" text. Click the number to open the terminal.
+    const b = el("span", "badge", String(m.length));
+    b.title = "Waiting in terminal. Click to open it";
+    b.style.cursor = "pointer";
+    b.addEventListener("click", (e) => { e.stopPropagation(); invoke("jump_session", { key: m[0].session_key }).catch(() => {}); });
+    b.addEventListener("pointerdown", (e) => e.stopPropagation());
     const x = btn("×", "dismiss", () => invoke("dismiss_missed", { id: null }).catch(() => {}));
     x.title = "Dismiss";
     x.addEventListener("pointerdown", (e) => e.stopPropagation());
-    R.push(el("span", "badge", String(m.length)), x);
+    R.push(b, x);
   }
   const sig = JSON.stringify([p.map((x) => x.id), m.map((x) => x.id), working.map((s) => s.key), rings.map((r) => r.sig), provs, edge]);
   if (left.dataset.sig === sig) return;
@@ -415,14 +416,18 @@ const newestUsage = () => Math.max(0, ...(snap?.usage || []).map((u) => Number(u
 function updateUsageLine() {
   const line = $("usage-updated");
   if (!line) return;
-  const stamp = newestUsage();
-  const minutes = Math.max(0, Math.floor((Date.now() - stamp) / 60000));
-  const text = usageFailed ? "Couldn't refresh, try again" : !stamp ? "Not updated yet" : minutes < 1 ? "Updated just now" : `Updated ${minutes} min ago`;
+  const known = (snap?.usage || []).filter((u) => u.windows.length && u.fetched_ms);
+  const oldest = known.reduce((a, u) => !a || u.fetched_ms < a.fetched_ms ? u : a, null);
+  const stamp = oldest?.fetched_ms || 0;
+  const text = oldest ? UsageStatus.age(oldest) : usageFailed ? "Couldn't refresh, try again" : "Not updated yet";
+  document.querySelectorAll("[data-usage-provider]").forEach((node) => {
+    node.textContent = UsageStatus.text(snap.usage.find((u) => u.provider === node.dataset.usageProvider));
+  });
   if (line.dataset.text !== text || updatedStamp !== stamp) {
     const previous = line.dataset.text || "";
     line.dataset.text = text;
     line.textContent = text;
-    line.classList.toggle("failed", usageFailed);
+    line.classList.toggle("failed", usageFailed && !oldest);
     if (previous) {
       const old = el("span", "usage-previous", previous);
       line.append(old);
@@ -497,7 +502,9 @@ function renderUsage(pane) {
       const why = !u ? "No usage data yet" : u.status === "needs_auth" ? "Sign in again: the saved Claude token has expired" : (u.message || u.status);
       m.append(el("div", "mnone", why));
     } else {
-      if (u.status !== "ok") h.append(el("span", "st", u.message || u.status));
+      const status = el("span", "st", UsageStatus.text(u));
+      status.dataset.usageProvider = pv;
+      h.append(status);
       const ws = el("div", "mw");
       for (const w of u.windows.slice(0, 2)) {
         const key = pv + ":" + w.label;

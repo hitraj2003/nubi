@@ -73,7 +73,7 @@ function render() {
     const name = p === "codex" ? "Codex" : "Claude";
     const w = u && u.windows.find((x) => x.label === lab);
     const value = w ? `${Math.round(w.used_percent)}% used${w.resets_at ? ", resets in " + dur(w.resets_at) : ""}` : line(u, lab).text;
-    return `${name}, ${lab === "5h" ? "last 5 hours" : "this week"}: ${value}`;
+    return `${name}, ${lab === "5h" ? "last 5 hours" : "this week"}: ${value}. ${UsageStatus.text(u)}`;
   });
   const waiting = (snap.pending || []).length;
   const missed = (snap.missed || []).filter((m) => want === "both" || m.provider === want).length;

@@ -21,6 +21,7 @@ const CLAUDE_EVENTS: &[EventSpec] = &[
     EventSpec { name: "SessionEnd", matcher: None, timeout: Some(10) },
     EventSpec { name: "UserPromptSubmit", matcher: None, timeout: Some(10) },
     EventSpec { name: "PreToolUse", matcher: Some("*"), timeout: Some(QUESTION_HOOK_TIMEOUT_SECS) },
+    EventSpec { name: "PostToolUse", matcher: Some("*"), timeout: Some(10) },
     EventSpec { name: "Notification", matcher: None, timeout: Some(10) },
     EventSpec { name: "Stop", matcher: None, timeout: Some(10) },
     EventSpec { name: "SubagentStop", matcher: None, timeout: Some(10) },
@@ -80,6 +81,12 @@ fn command_for(shim: &Path, provider: &str) -> String {
     format!("\"{}\" --hook {}", shim.display().to_string().replace('\\', "/"), provider)
 }
 
+fn windows_command_for(shim: &Path, provider: &str) -> String {
+    let path = shim.display().to_string().replace('\\', "/").replace('\'', "''");
+    // Invoke explicitly so both PowerShell and cmd hosts handle quoted executable paths.
+    format!("powershell.exe -NoProfile -NonInteractive -Command \"& '{path}' --hook {provider}\"")
+}
+
 fn is_ours(h: &Value) -> bool {
     ["command", "commandWindows"]
         .iter()
@@ -111,7 +118,7 @@ pub fn strip(root: &mut Value) -> bool {
     changed
 }
 
-fn add(root: &mut Value, events: &[EventSpec], command: &str, codex: bool) {
+fn add(root: &mut Value, events: &[EventSpec], command: &str, windows_command: Option<&str>) {
     if !root.is_object() {
         *root = Value::Object(Map::new());
     }
@@ -123,8 +130,8 @@ fn add(root: &mut Value, events: &[EventSpec], command: &str, codex: bool) {
     let hooks = hooks.as_object_mut().unwrap();
     for e in events {
         let mut h = json!({ "type": "command", "command": command });
-        if codex {
-            h["commandWindows"] = json!(command);
+        if let Some(windows_command) = windows_command {
+            h["commandWindows"] = json!(windows_command);
         }
         if let Some(t) = e.timeout {
             h["timeout"] = json!(t);
@@ -239,9 +246,10 @@ pub fn set_enabled(provider: &str, enable: bool) -> Result<(), String> {
         let shim = install_shim().map_err(|e| e.to_string())?;
         let cmd = command_for(&shim, provider);
         if provider == "codex" {
-            add(&mut root, CODEX_EVENTS, &cmd, true);
+            let windows_cmd = windows_command_for(&shim, provider);
+            add(&mut root, CODEX_EVENTS, &cmd, Some(&windows_cmd));
         } else {
-            add(&mut root, CLAUDE_EVENTS, &cmd, false);
+            add(&mut root, CLAUDE_EVENTS, &cmd, None);
             take_statusline(&mut root, &shim);
         }
     } else if provider == "claude" {
@@ -260,7 +268,7 @@ mod tests {
             "model": "x",
             "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "other.exe" } ] } ] }
         });
-        add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", false);
+        add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", None);
         assert!(has_ours(&root));
         assert_eq!(root["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
         assert!(strip(&mut root));
@@ -273,9 +281,11 @@ mod tests {
     #[test]
     fn strip_removes_empty_hooks_key() {
         let mut root = json!({});
-        add(&mut root, CODEX_EVENTS, "\"C:/x/nubi-hook.exe\" --hook codex", true);
+        let windows_cmd = windows_command_for(Path::new("C:/x/nubi-hook.exe"), "codex");
+        add(&mut root, CODEX_EVENTS, "\"C:/x/nubi-hook.exe\" --hook codex", Some(&windows_cmd));
         assert_eq!(root["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"], HOOK_TIMEOUT_SECS);
         assert!(root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"].is_string());
+        assert_eq!(root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"], windows_cmd);
         strip(&mut root);
         assert!(root.get("hooks").is_none());
     }
@@ -285,8 +295,16 @@ mod tests {
         let mut root = json!({});
         for _ in 0..2 {
             strip(&mut root);
-            add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", false);
+            add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", None);
         }
         assert_eq!(root["hooks"]["Stop"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn windows_command_quotes_spaces_and_apostrophes() {
+        assert_eq!(
+            windows_command_for(Path::new("C:\\Users\\O'Brien Smith\\nubi-hook.exe"), "codex"),
+            "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:/Users/O''Brien Smith/nubi-hook.exe' --hook codex\""
+        );
     }
 }

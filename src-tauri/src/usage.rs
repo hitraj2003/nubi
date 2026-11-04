@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const POLL_SECS: i64 = 300;
+const USER_AGENT: &str = concat!("nubi/", env!("CARGO_PKG_VERSION"));
 const CLAUDE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CODEX_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
 
@@ -59,7 +60,7 @@ fn parse_time(v: &Value) -> Option<i64> {
 }
 
 fn get(url: &str, headers: &[(&str, &str)]) -> Result<Value, Outcome> {
-    let mut req = ureq::get(url).timeout(Duration::from_secs(15));
+    let mut req = ureq::get(url).set("User-Agent", USER_AGENT).timeout(Duration::from_secs(15));
     for (k, v) in headers {
         req = req.set(k, v);
     }
@@ -196,18 +197,20 @@ pub fn fetch(provider: &str) -> Outcome {
 pub fn apply(provider: &str, out: Outcome, prev: Option<&Usage>) -> (Usage, i64) {
     let now = now_s();
     let keep = prev.map(|p| p.windows.clone()).unwrap_or_default();
+    let fetched_ms = prev.filter(|p| !p.windows.is_empty()).and_then(|p| p.fetched_ms);
     let mk = |status: &str, msg: Option<String>, windows: Vec<Window>| Usage {
         provider: provider.into(),
         status: status.into(),
         message: msg,
         windows,
-        fetched_ms: Some(now_ms()),
+        // An unsuccessful attempt must not make cached numbers look fresh.
+        fetched_ms: if status == "ok" { Some(now_ms()) } else { fetched_ms },
     };
     match out {
-        Outcome::Ok(w) if w.is_empty() => (mk("unavailable", Some("no limit windows returned".into()), w), now + POLL_SECS),
+        Outcome::Ok(w) if w.is_empty() => (mk("unavailable", Some("no limit windows returned".into()), keep), now + POLL_SECS),
         Outcome::Ok(w) => (mk("ok", None, w), now + POLL_SECS),
         Outcome::NeedsAuth(m) => (mk("needs_auth", Some(m), keep), now + POLL_SECS),
-        Outcome::Unavailable(m) => (mk("unavailable", Some(m), vec![]), now + POLL_SECS),
+        Outcome::Unavailable(m) => (mk("unavailable", Some(m), keep), now + POLL_SECS),
         Outcome::RateLimited(s) => (mk("backoff", Some(format!("rate limited, retry in {} min", s / 60)), keep), now + s),
         Outcome::Error(m) => (mk("error", Some(m), keep), now + POLL_SECS),
     }
@@ -216,6 +219,57 @@ pub fn apply(provider: &str, out: Outcome, prev: Option<&Usage>) -> (Usage, i64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_fetches_keep_last_successful_values_and_time() {
+        let (mut cached, _) = apply("codex", Outcome::Ok(parse_codex(&json!({
+            "rate_limit":{"primary_window":{"used_percent":25,"limit_window_seconds":18000}}
+        }))), None);
+        cached.fetched_ms = Some(1_000);
+        for outcome in [Outcome::RateLimited(900), Outcome::Error("offline".into()),
+            Outcome::NeedsAuth("expired".into()), Outcome::Unavailable("no login".into()), Outcome::Ok(vec![])] {
+            let before = now_s();
+            let (stale, next) = apply("codex", outcome, Some(&cached));
+            assert_ne!(stale.status, "ok");
+            assert_eq!(stale.windows[0].used_percent, 25.0);
+            assert_eq!(stale.fetched_ms, Some(1_000));
+            assert!(next >= before + if stale.status == "backoff" { 900 } else { POLL_SECS });
+            cached = stale;
+        }
+        let (fresh, _) = apply("codex", Outcome::Ok(vec![Window { used_percent: 35.0, ..Window::default() }]), Some(&cached));
+        assert_eq!(fresh.status, "ok");
+        assert_eq!(fresh.windows[0].used_percent, 35.0);
+        assert!(fresh.fetched_ms.unwrap() > 1_000);
+    }
+
+    #[test]
+    fn failed_first_fetch_has_no_success_timestamp() {
+        let (usage, _) = apply("claude", Outcome::RateLimited(60), None);
+        assert!(usage.windows.is_empty());
+        assert_eq!(usage.fetched_ms, None);
+    }
+
+    #[test]
+    fn usage_request_identifies_app_version() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                assert_eq!(stream.read(&mut byte).unwrap(), 1);
+                request.push(byte[0]);
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        assert!(get(&format!("http://{addr}/usage"), &[]).is_ok());
+        let request = server.join().unwrap().to_ascii_lowercase();
+        assert!(request.lines().any(|line| line == format!("user-agent: nubi/{}", env!("CARGO_PKG_VERSION"))));
+    }
 
     #[test]
     fn statusline_rate_limits() {
