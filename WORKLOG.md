@@ -12,7 +12,7 @@ ubi` (read from the old `claude-overlay` folder when empty), env vars `NUBI_DEBU
 - Sounds: one synthesized tone per alert kind (`ui/sounds.js`); Navi sound files removed, notices updated.
 - Settings save automatically (no Save button).
 - Updater: tauri-plugin-updater, passive NSIS install, checks `github.com/hitraj2003/nubi/releases/latest/download/latest.json` 20 s after start and every 6 h (release builds only). Key `~/.tauri/nubi.key` (no password). `scripts/latest-json.mjs` writes latest.json.
-- Published: public repo `hitraj2003/nubi` (README only), release `v0.1.0` with installer and latest.json; URL returns 200.
+- Published: public repo `hitraj2003/nubi` (source and MIT LICENSE pushed), release `v0.1.0` with installer and latest.json; URL returns 200.
 - Verified: 23 unit tests pass, cargo check, release build. Not verified on screen: toast springs, hover fix, session names, new ring/tooltip/taskbar, sounds, autosave. Auto-update not tested end to end.
 
 ## 2026-11-04 — Claude Opus 5.5 — uncommitted, debug build only
