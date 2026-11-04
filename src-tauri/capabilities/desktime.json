@@ -1,0 +1,8 @@
+{
+  "identifier": "desktime",
+  "description": "DeskTime pages can only submit validated dashboard measurements.",
+  "local": false,
+  "remote": { "urls": ["https://desktime.com/*", "https://*.desktime.com/*"] },
+  "windows": ["desktime"],
+  "permissions": ["allow-desktime-report"]
+}

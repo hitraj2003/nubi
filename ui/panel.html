@@ -67,6 +67,7 @@
         <button type="button" data-pane="display"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/></svg>Display</button>
         <button type="button" data-pane="requests"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Questions &amp; approvals</button>
         <button type="button" data-pane="notify"><svg viewBox="0 0 24 24"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></svg>Notifications</button>
+        <button type="button" data-pane="desktime"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>DeskTime</button>
         <div class="sep"></div>
         <button type="button" data-pane="hooks"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>Connections</button>
         <button type="button" data-pane="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>About</button>
@@ -169,6 +170,27 @@
             <div class="row"><div><div class="rl">Quiet hours</div><div class="rd">From hour to hour, 0–23. Leave empty to turn off.</div></div>
               <span class="unit"><input name="quiet_start" type="number" min="0" max="23" class="num"> to <input name="quiet_end" type="number" min="0" max="23" class="num"></span></div>
             <div class="row"><div><div class="rl">Follow Windows Focus</div><div class="rd">Stay quiet while Windows Focus or Do not disturb is on</div></div><span class="switch"><input type="checkbox" name="follow_quiet_time"><i></i></span></div>
+          </div>
+        </div>
+
+        <div class="pane" data-pane="desktime">
+          <header><h1>DeskTime</h1><span class="meta">Shows your DeskTime hours in the notch</span></header>
+          <div class="card">
+            <div class="row"><div><div class="rl">Show DeskTime in the notch</div><div class="rd">When off, the DeskTime tab is hidden and Nubi stops reading DeskTime</div></div><span class="switch"><input type="checkbox" name="desktime_tab"><i></i></span></div>
+            <div class="row"><div><div class="rl">DeskTime account</div><div class="rd" id="dt-status">Not connected</div></div>
+              <span class="hook"><button type="button" id="dt-login" class="btn primary">Log in</button><button type="button" id="dt-logout" class="btn ghost" hidden>Log out</button></span></div>
+          </div>
+          <div class="card">
+            <div class="row"><div><div class="rl">Daily target</div><div class="rd">Hours to work on a normal day</div></div><input type="time" name="daily_target" class="key" required></div>
+            <div class="row"><div><div class="rl">End of day</div><div class="rd">Used to project where you will end up today</div></div><input type="time" name="end_of_day" class="key" required></div>
+            <div class="row"><div><div class="rl">Start of day</div><div class="rd">Optional. Lets the month view show a latest arrival time.</div></div><input type="time" name="start_of_day" class="key"></div>
+            <div class="row"><div><div class="rl">Work days</div></div>
+              <span class="days" id="dt-days"><label><input type="checkbox" value="1"><span>Mon</span></label><label><input type="checkbox" value="2"><span>Tue</span></label><label><input type="checkbox" value="3"><span>Wed</span></label><label><input type="checkbox" value="4"><span>Thu</span></label><label><input type="checkbox" value="5"><span>Fri</span></label><label><input type="checkbox" value="6"><span>Sat</span></label><label><input type="checkbox" value="0"><span>Sun</span></label></span></div>
+          </div>
+          <div class="card">
+            <div class="ct">Days off</div><div class="cd">One date per line as YYYY-MM-DD. Public holidays shown by DeskTime are picked up automatically.</div>
+            <div class="row"><div><div class="rl">Holidays</div><div class="rd">No target on these days</div></div><textarea name="dt_holidays" rows="3" class="dates" spellcheck="false"></textarea></div>
+            <div class="row"><div><div class="rl">Half days</div><div class="rd">Half the daily target</div></div><textarea name="dt_half_days" rows="3" class="dates" spellcheck="false"></textarea></div>
           </div>
         </div>
 

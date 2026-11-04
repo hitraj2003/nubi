@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ring-move"
+description = "Enables the ring_move command without any pre-configured scope."
+commands.allow = ["ring_move"]
+
+[[permission]]
+identifier = "deny-ring-move"
+description = "Denies the ring_move command without any pre-configured scope."
+commands.deny = ["ring_move"]

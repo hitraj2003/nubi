@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-report-context"
+description = "Enables the report_context command without any pre-configured scope."
+commands.allow = ["report_context"]
+
+[[permission]]
+identifier = "deny-report-context"
+description = "Denies the report_context command without any pre-configured scope."
+commands.deny = ["report_context"]

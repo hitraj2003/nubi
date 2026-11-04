@@ -149,6 +149,20 @@ async fn handle(app: App, pipe: NamedPipeServer) {
         eprintln!("[nubi] read failed: {read:?}");
         return;
     }
+    // DeskTime browser frames (from the native messaging host) are routed first; the hook path
+    // below is unchanged. Errors never quote the frame: it can hold cookie values.
+    if let Ok(frame) = serde_json::from_slice::<BrowserFrame>(&buf) {
+        let a = app.clone();
+        let reply = tauri::async_runtime::spawn_blocking(move || crate::desktime::on_browser(&a, frame.browser))
+            .await
+            .unwrap_or_else(|_| BrowserReply::result(Err("Nubi could not apply the session".into())));
+        if let Ok(mut line) = serde_json::to_string(&reply) {
+            line.push('\n');
+            let _ = wr.write_all(line.as_bytes()).await;
+            let _ = wr.flush().await;
+        }
+        return;
+    }
     let msg = match serde_json::from_slice::<HookMsg>(&buf) {
         Ok(m) => m,
         Err(e) => {

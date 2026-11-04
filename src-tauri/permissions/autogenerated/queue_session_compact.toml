@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-queue-session-compact"
+description = "Enables the queue_session_compact command without any pre-configured scope."
+commands.allow = ["queue_session_compact"]
+
+[[permission]]
+identifier = "deny-queue-session-compact"
+description = "Denies the queue_session_compact command without any pre-configured scope."
+commands.deny = ["queue_session_compact"]

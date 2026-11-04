@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-jump-session"
+description = "Enables the jump_session command without any pre-configured scope."
+commands.allow = ["jump_session"]
+
+[[permission]]
+identifier = "deny-jump-session"
+description = "Denies the jump_session command without any pre-configured scope."
+commands.deny = ["jump_session"]

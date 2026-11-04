@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-report-island-hot"
+description = "Enables the report_island_hot command without any pre-configured scope."
+commands.allow = ["report_island_hot"]
+
+[[permission]]
+identifier = "deny-report-island-hot"
+description = "Denies the report_island_hot command without any pre-configured scope."
+commands.deny = ["report_island_hot"]

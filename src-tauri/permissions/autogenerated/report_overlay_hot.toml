@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-report-overlay-hot"
+description = "Enables the report_overlay_hot command without any pre-configured scope."
+commands.allow = ["report_overlay_hot"]
+
+[[permission]]
+identifier = "deny-report-overlay-hot"
+description = "Denies the report_overlay_hot command without any pre-configured scope."
+commands.deny = ["report_overlay_hot"]

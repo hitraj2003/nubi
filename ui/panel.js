@@ -351,12 +351,32 @@ function fillForm(cfg) {
     if (i.type === "checkbox") i.checked = !!v;
     else i.value = v == null ? "" : String(v);
   }
+  fillDesktime(cfg);
   syncDropdowns();
   modeFields();
   f.elements.launch_hotkey.disabled = !f.elements.launcher_enabled.checked;
   window.nubiTheme.apply({ theme: cfg.theme, accent: cfg.accent, reduce_motion: cfg.reduce_motion });
   requestAnimationFrame(syncThumbs);
 }
+// DeskTime fields that are not plain inputs: work-day checkboxes and the date lists.
+function fillDesktime(cfg) {
+  const f = $("settings").elements;
+  document.querySelectorAll("#dt-days input").forEach((c) => (c.checked = (cfg.work_days || []).includes(Number(c.value))));
+  f.dt_holidays.value = (cfg.holidays || []).join("\n");
+  f.dt_half_days.value = (cfg.half_days || []).join("\n");
+}
+const dateLines = (text) => text.split(/[\s,;]+/).filter(Boolean);
+function renderDesktime(s) {
+  const on = s.enabled && !s.logged_out;
+  $("dt-status").textContent = !s.enabled ? "Not connected" : s.logged_out ? "Signed out. Log in again to resume." : s.error ? "Connected. " + s.error : "Connected";
+  $("dt-login").hidden = on;
+  $("dt-login").textContent = s.enabled ? "Log in again" : "Log in";
+  $("dt-logout").hidden = !s.enabled;
+}
+$("dt-login").addEventListener("click", () => invoke("desktime_login").catch((e) => ($("saved").textContent = String(e))));
+$("dt-logout").addEventListener("click", () => invoke("desktime_logout").catch((e) => ($("saved").textContent = String(e))));
+listen("desktime", (e) => renderDesktime(e.payload));
+invoke("desktime_state").then(renderDesktime).catch(() => {});
 function modeFields() {
   const m = $("settings").elements.display_mode.value;
   document.querySelectorAll(".mode-notch").forEach((e) => (e.style.display = m === "island" ? "" : "none"));
@@ -410,6 +430,13 @@ async function saveSettings() {
     notch_theme: f.notch_theme.value,
     notch_accent: f.notch_accent.value,
     reduce_motion: f.reduce_motion.checked,
+    desktime_tab: f.desktime_tab.checked,
+    daily_target: f.daily_target.value || snap.settings.daily_target,
+    end_of_day: f.end_of_day.value || snap.settings.end_of_day,
+    start_of_day: f.start_of_day.value,
+    work_days: [...document.querySelectorAll("#dt-days input:checked")].map((c) => Number(c.value)),
+    holidays: dateLines(f.dt_holidays.value),
+    half_days: dateLines(f.dt_half_days.value),
   };
   try {
     await invoke("save_settings", { settings });

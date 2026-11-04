@@ -57,6 +57,125 @@ pub struct Reply {
     pub answers: Option<serde_json::Map<String, Value>>,
 }
 
+// ---------- DeskTime browser connector ----------
+// The Nubi browser extension sends these through Chrome native messaging (`nubi.exe
+// chrome-extension://<id>/`), which forwards them to the GUI as `{"browser": ...}` pipe frames.
+
+/// Largest native message accepted from the browser.
+pub const MAX_BROWSER_MSG: usize = 64 * 1024;
+const MAX_COOKIES: usize = 64;
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowserCookie {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub path: String,
+    pub secure: bool,
+    pub http_only: bool,
+    /// Unix seconds; None for a browser-session cookie.
+    pub expires: Option<f64>,
+}
+// Cookie values are secrets: Debug never prints them.
+impl std::fmt::Debug for BrowserCookie {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BrowserCookie({} @ {}{})", self.name, self.domain, self.path)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BrowserMsg {
+    /// The DeskTime cookies of the browser. `sync` marks a background re-send after a cookie change.
+    DesktimeSession {
+        cookies: Vec<BrowserCookie>,
+        #[serde(default)]
+        sync: bool,
+    },
+    DesktimeRevoke,
+}
+
+/// Pipe frame for a browser message; a HookMsg never has a `browser` key.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserFrame {
+    pub browser: BrowserMsg,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+pub struct BrowserReply {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Access was removed in Nubi; the extension stops re-sending until allowed again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub revoked: bool,
+}
+impl BrowserReply {
+    pub fn result(r: Result<(), String>) -> Self {
+        match r {
+            Ok(()) => Self { ok: true, ..Default::default() },
+            Err(e) => Self { error: Some(e), ..Default::default() },
+        }
+    }
+}
+
+/// desktime.com or a subdomain, with or without the leading dot cookies use for subdomains.
+pub fn desktime_domain(domain: &str) -> bool {
+    let d = domain.strip_prefix('.').unwrap_or(domain).to_ascii_lowercase();
+    d.len() <= 253
+        && d.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        && !d.starts_with('.')
+        && !d.contains("..")
+        && (d == "desktime.com" || d.ends_with(".desktime.com"))
+}
+
+fn cookie_ok(c: &BrowserCookie) -> Result<(), &'static str> {
+    // RFC 6265 token: visible ASCII without separators.
+    let token = |b: u8| b.is_ascii_graphic() && !b"()<>@,;:\\\"/[]?={}".contains(&b);
+    if c.name.is_empty() || c.name.len() > 256 || !c.name.bytes().all(token) {
+        return Err("Invalid cookie name");
+    }
+    // Visible ASCII without `;`, so a value can never add cookie attributes.
+    if c.value.len() > 4096 || !c.value.bytes().all(|b| (b.is_ascii_graphic() && b != b';') || b == b' ') {
+        return Err("Invalid cookie value");
+    }
+    if !desktime_domain(&c.domain) {
+        return Err("Cookie is not for desktime.com");
+    }
+    if !c.path.starts_with('/') || c.path.len() > 1024 || !c.path.bytes().all(|b| b.is_ascii_graphic() && b != b';') {
+        return Err("Invalid cookie path");
+    }
+    if c.expires.is_some_and(|e| !e.is_finite() || !(0.0..1e11).contains(&e)) {
+        return Err("Invalid cookie expiry");
+    }
+    Ok(())
+}
+
+pub fn validate_browser_msg(m: &BrowserMsg) -> Result<(), String> {
+    if let BrowserMsg::DesktimeSession { cookies, .. } = m {
+        if cookies.len() > MAX_COOKIES {
+            return Err("Too many cookies".into());
+        }
+        for c in cookies {
+            cookie_ok(c)?;
+        }
+    }
+    Ok(())
+}
+
+/// Parse and validate one native message body from the browser.
+pub fn parse_browser_msg(body: &[u8]) -> Result<BrowserMsg, String> {
+    if body.len() > MAX_BROWSER_MSG {
+        return Err("Message is too large".into());
+    }
+    // serde errors can quote input, which may hold cookie values: report a fixed message.
+    let msg: BrowserMsg = serde_json::from_slice(body).map_err(|_| "Unexpected message".to_string())?;
+    validate_browser_msg(&msg)?;
+    Ok(msg)
+}
+
 /// True for a Claude Code AskUserQuestion the overlay can answer.
 pub fn is_question(provider: &str, event: &str, tool: Option<&str>) -> bool {
     provider == "claude" && event == "PreToolUse" && tool == Some("AskUserQuestion")
@@ -224,6 +343,90 @@ mod tests {
     #[test]
     fn missing_session_is_dropped() {
         assert!(build_msg("claude", &json!({"hook_event_name":"Stop"}), vec![]).is_none());
+    }
+
+    fn cookie() -> Value {
+        json!({"name":"desktime_session","value":"abc=def","domain":".desktime.com","path":"/","secure":true,"httpOnly":true,"expires":1893456000.5})
+    }
+
+    #[test]
+    fn browser_session_parses_and_validates() {
+        let body = json!({"type":"desktime_session","cookies":[cookie()]}).to_string();
+        let BrowserMsg::DesktimeSession { cookies, sync } = parse_browser_msg(body.as_bytes()).unwrap() else { panic!() };
+        assert!(!sync);
+        assert_eq!(cookies[0].name, "desktime_session");
+        assert!(cookies[0].http_only);
+        let body = json!({"type":"desktime_session","cookies":[],"sync":true}).to_string();
+        assert_eq!(parse_browser_msg(body.as_bytes()).unwrap(), BrowserMsg::DesktimeSession { cookies: vec![], sync: true });
+        assert_eq!(parse_browser_msg(br#"{"type":"desktime_revoke"}"#).unwrap(), BrowserMsg::DesktimeRevoke);
+        // Session cookies carry no expiry.
+        let mut c = cookie();
+        c["expires"] = Value::Null;
+        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn browser_message_shape_is_strict() {
+        for body in [
+            r#"{"type":"other"}"#,
+            r#"{"type":"desktime_session"}"#,
+            r#"{"type":"desktime_session","cookies":[],"extra":1}"#,
+            r#"not json"#,
+        ] {
+            assert!(parse_browser_msg(body.as_bytes()).is_err(), "{body}");
+        }
+        let mut c = cookie();
+        c["sameSite"] = json!("lax");
+        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).is_err());
+        let many: Vec<Value> = (0..65).map(|_| cookie()).collect();
+        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":many}).to_string().as_bytes()).is_err());
+        assert!(parse_browser_msg(&vec![b' '; MAX_BROWSER_MSG + 1]).is_err());
+    }
+
+    #[test]
+    fn cookie_errors_never_echo_values() {
+        let mut c = cookie();
+        c["value"] = json!("secret;Domain=evil.com");
+        let err = parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).unwrap_err();
+        assert!(!err.contains("secret"));
+        let err = parse_browser_msg(br#"{"type":"desktime_session","cookies":[{"value":"secret"}]}"#).unwrap_err();
+        assert!(!err.contains("secret"));
+    }
+
+    #[test]
+    fn cookie_fields_are_checked() {
+        let bad = |k: &str, v: Value| {
+            let mut c = cookie();
+            c[k] = v;
+            parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).is_err()
+        };
+        for d in ["evil.com", "desktime.com.evil.com", "evildesktime.com", "..desktime.com", "a..desktime.com", "desk time.com"] {
+            assert!(bad("domain", json!(d)), "{d}");
+        }
+        for d in ["desktime.com", ".desktime.com", "app.desktime.com", "DeskTime.com"] {
+            assert!(!bad("domain", json!(d)), "{d}");
+        }
+        assert!(bad("name", json!("")));
+        assert!(bad("name", json!("a=b")));
+        assert!(bad("name", json!("x".repeat(257))));
+        assert!(bad("value", json!("a\nb")));
+        assert!(bad("value", json!("x".repeat(4097))));
+        assert!(bad("path", json!("app")));
+        assert!(bad("path", json!("/a;b")));
+        assert!(bad("expires", json!(-1.0)));
+        assert!(bad("expires", json!(1e12)));
+        assert!(format!("{:?}", serde_json::from_value::<BrowserCookie>(cookie()).unwrap()).find("abc").is_none());
+    }
+
+    #[test]
+    fn browser_frames_and_hook_frames_do_not_mix() {
+        let frame = serde_json::to_string(&BrowserFrame { browser: BrowserMsg::DesktimeRevoke }).unwrap();
+        assert_eq!(frame, r#"{"browser":{"type":"desktime_revoke"}}"#);
+        assert!(serde_json::from_str::<HookMsg>(&frame).is_err());
+        let hook = serde_json::to_string(&HookMsg { v: 1, provider: "claude".into(), ..Default::default() }).unwrap();
+        assert!(serde_json::from_str::<BrowserFrame>(&hook).is_err());
+        assert_eq!(serde_json::to_string(&BrowserReply::result(Ok(()))).unwrap(), r#"{"ok":true}"#);
+        assert_eq!(serde_json::to_string(&BrowserReply::result(Err("x".into()))).unwrap(), r#"{"ok":false,"error":"x"}"#);
     }
 
     #[test]

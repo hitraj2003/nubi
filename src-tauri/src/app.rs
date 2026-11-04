@@ -465,12 +465,14 @@ mod session_action_tests {
 
 #[tauri::command]
 pub fn save_settings(app: App, settings: Settings) -> Result<(), String> {
+    crate::desktime::validate_settings(&settings)?;
     register_hotkey(&app, &settings)?;
     settings::apply_auto_start(settings.auto_start)?;
     settings::save(&settings)?;
     with(&app, |i| i.settings = settings.clone());
     place_all(&app, &settings);
     crate::poller::kick(&app);
+    crate::desktime::emit(&app);
     emit_state(&app);
     refresh_menu(&app);
     Ok(())
@@ -810,6 +812,8 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     let a = app.clone();
     tauri::async_runtime::spawn(async move { crate::pipe::serve(a).await });
     crate::poller::start(app.clone());
+    crate::desktime::start(app.clone());
+    std::thread::spawn(crate::native_host::register);
     Ok(())
 }
 

@@ -37,15 +37,12 @@ pub fn run(provider: &str) -> i32 {
     0
 }
 
-fn exchange(msg: &HookMsg) -> Option<Reply> {
+/// Connect to the GUI's pipe; None when the GUI is not running or stays busy.
+pub fn open_pipe() -> Option<std::fs::File> {
     let name = pipe_name();
-    let mut pipe = None;
     for _ in 0..20 {
         match OpenOptions::new().read(true).write(true).open(&name) {
-            Ok(f) => {
-                pipe = Some(f);
-                break;
-            }
+            Ok(f) => return Some(f),
             // 231 = all pipe instances busy; anything else (2 = GUI not running) gives up.
             Err(e) if e.raw_os_error() == Some(231) => std::thread::sleep(Duration::from_millis(50)),
             Err(e) => {
@@ -56,7 +53,11 @@ fn exchange(msg: &HookMsg) -> Option<Reply> {
             }
         }
     }
-    let mut f = pipe?;
+    None
+}
+
+fn exchange(msg: &HookMsg) -> Option<Reply> {
+    let mut f = open_pipe()?;
     let mut line = serde_json::to_string(msg).ok()?;
     line.push('\n');
     f.write_all(line.as_bytes()).ok()?;

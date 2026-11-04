@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-show-requests"
+description = "Enables the show_requests command without any pre-configured scope."
+commands.allow = ["show_requests"]
+
+[[permission]]
+identifier = "deny-show-requests"
+description = "Denies the show_requests command without any pre-configured scope."
+commands.deny = ["show_requests"]

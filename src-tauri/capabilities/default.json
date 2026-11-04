@@ -11,6 +11,7 @@
     "launcher"
   ],
   "permissions": [
+    "local-commands",
     "core:default"
   ]
 }

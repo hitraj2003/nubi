@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-new-session-terminal"
+description = "Enables the new_session_terminal command without any pre-configured scope."
+commands.allow = ["new_session_terminal"]
+
+[[permission]]
+identifier = "deny-new-session-terminal"
+description = "Denies the new_session_terminal command without any pre-configured scope."
+commands.deny = ["new_session_terminal"]

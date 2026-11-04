@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-notch-drag-end"
+description = "Enables the notch_drag_end command without any pre-configured scope."
+commands.allow = ["notch_drag_end"]
+
+[[permission]]
+identifier = "deny-notch-drag-end"
+description = "Denies the notch_drag_end command without any pre-configured scope."
+commands.deny = ["notch_drag_end"]

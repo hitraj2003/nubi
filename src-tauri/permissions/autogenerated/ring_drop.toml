@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ring-drop"
+description = "Enables the ring_drop command without any pre-configured scope."
+commands.allow = ["ring_drop"]
+
+[[permission]]
+identifier = "deny-ring-drop"
+description = "Denies the ring_drop command without any pre-configured scope."
+commands.deny = ["ring_drop"]

@@ -53,6 +53,18 @@ pub struct Settings {
     pub notch_accent: String,
     /// Fades only, no springs (also on when Windows asks for less motion).
     pub reduce_motion: bool,
+    pub desktime_enabled: bool,
+    /// Shows the DeskTime tab in the notch and runs the dashboard reads.
+    pub desktime_tab: bool,
+    /// HH:MM targets and clocks; an empty start disables arrival clocks.
+    pub daily_target: String,
+    pub end_of_day: String,
+    pub start_of_day: String,
+    /// Sunday = 0, Monday = 1.
+    pub work_days: Vec<u8>,
+    pub day_targets: std::collections::BTreeMap<u8, String>,
+    pub holidays: Vec<String>,
+    pub half_days: Vec<String>,
 }
 
 impl Default for Settings {
@@ -85,6 +97,15 @@ impl Default for Settings {
             notch_theme: "dark".into(),
             notch_accent: "yellow".into(),
             reduce_motion: false,
+            desktime_enabled: false,
+            desktime_tab: true,
+            daily_target: "08:30".into(),
+            end_of_day: "18:30".into(),
+            start_of_day: String::new(),
+            work_days: vec![1, 2, 3, 4, 5],
+            day_targets: Default::default(),
+            holidays: Vec::new(),
+            half_days: Vec::new(),
         }
     }
 }

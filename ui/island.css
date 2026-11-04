@@ -233,3 +233,69 @@ body[data-edge="left"] .pane,body[data-edge="right"] .pane{max-height:620px}
 #refresh-usage.loading{color:var(--ink-3)}
 .question-step .opt b{font-weight:500}
 html[data-motion="reduce"] #refresh-usage.loading svg{opacity:.5;transform:none !important}
+
+/* DeskTime tab. The tab button stays hidden until the owner is logged in. */
+.tabs button[hidden]{display:none}
+.dt{display:grid;gap:8px}
+.dt-day{background:var(--row);border-radius:16px;padding:14px;display:grid;grid-template-columns:auto 1fr;gap:6px 20px;align-items:center}
+.dt-big{font:600 28px/1 var(--mono);font-variant-numeric:tabular-nums}
+.dt-big.over{color:var(--ok)}
+.dt-cap{color:var(--ink-2);font-size:12px}
+.dt-bar{grid-column:1 / -1;height:6px;border-radius:3px;background:var(--notch-ink-10);overflow:hidden;margin:6px 0 4px}
+.dt-bar i{display:block;height:100%;width:var(--p,0%);background:var(--ok);border-radius:3px;transition:width .6s var(--out)}
+.dt-rows{grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.dt-r span{display:block;color:var(--ink-3);font-size:11px}
+.dt-r b{display:block;font:600 13px/1.3 var(--mono);font-variant-numeric:tabular-nums}
+.dt-r small{display:block;color:var(--ink-3);font-size:11px;white-space:nowrap}
+.dt-period{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dt-p{background:var(--row);border-radius:16px;padding:14px}
+.dt-p .mh{margin-bottom:8px}
+.dt-p .mh .st{color:var(--ink-3)}
+.dt-kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0}
+.dt-kv span{color:var(--ink-2)}
+.dt-kv b{font:600 12px var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.dt-kv b small{color:var(--ink-3);font:400 11px var(--mono)}
+.dt-kv b.pos{color:var(--ok)} .dt-kv b.neg{color:var(--bad)}
+.dt-foot{display:flex;gap:6px;color:var(--ink-3);font-size:11px;padding:2px 4px}
+.dt-foot .stale{color:var(--warn)}
+.dt-foot{align-items:center}
+.dt-state{display:inline-flex;align-items:center;gap:5px;color:var(--ok)}
+.dt-state::before{content:"";width:6px;height:6px;border-radius:3px;background:currentColor}
+.dt-link{color:var(--ink-2);font-size:11px;padding:2px 6px;border-radius:6px;transition:background-color .15s,color .15s}
+.dt-link:hover{background:var(--row-hover);color:var(--ink)}
+/* Refresh icon: spin around its own centre. */
+#refresh-usage.dt-spin svg{animation:dtrf .9s linear infinite}
+@keyframes dtrf{to{transform:rotate(360deg)}}
+/* First load without cached data: skeleton with a sweeping sheen plus real step text. */
+.sk{position:relative;overflow:hidden;background:var(--notch-ink-10);border-radius:6px}
+.sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(var(--notch-rgb),.10),transparent);animation:sheen 1.3s var(--ease) infinite}
+@keyframes sheen{to{transform:translateX(100%)}}
+.dt-steps{display:flex;align-items:center;gap:10px;color:var(--ink-2);font-size:12px;padding:2px 4px}
+.dt-steps .pips{display:flex;gap:4px}
+.dt-steps .pips i{width:18px;height:3px;border-radius:2px;background:var(--notch-ink-10);transition:background-color .3s}
+.dt-steps .pips i.on{background:var(--ok)}
+.dt-steps .msg{animation:rise .3s var(--out) both}
+/* Refresh with cached data: keep the old numbers, thin progress line on top, then flash what changed. */
+.dt-live{position:relative}
+.dt-line{position:absolute;left:0;right:0;top:-6px;height:2px;border-radius:1px;overflow:hidden;opacity:0;transition:opacity .2s}
+.dt-live.busy .dt-line{opacity:1}
+.dt-line::after{content:"";position:absolute;top:0;bottom:0;width:30%;background:var(--ok);border-radius:1px;animation:dtslide 1.1s var(--ease) infinite}
+@keyframes dtslide{from{left:-30%}to{left:100%}}
+.num{transition:opacity .2s}
+.dt-live.busy .num{opacity:.72}
+.num.changed{animation:dtflash 1.2s var(--out)}
+@keyframes dtflash{0%{color:var(--ok)}100%{color:inherit}}
+/* Logged out / nothing to show */
+.dt-empty{background:var(--row);border-radius:16px;padding:20px 14px;text-align:center;display:grid;gap:8px;justify-items:center}
+.dt-empty p{margin:0;color:var(--ink-2);font-size:12px}
+.dt-btn{padding:6px 14px;border-radius:14px;background:var(--ink);color:var(--notch-inverse);font-weight:500}
+body[data-edge="left"] .dt-rows,body[data-edge="right"] .dt-rows{grid-template-columns:repeat(2,minmax(0,1fr))}
+body[data-edge="left"] .dt-period,body[data-edge="right"] .dt-period{grid-template-columns:1fr}
+html[data-motion="reduce"] .sk::after,html[data-motion="reduce"] .dt-line::after,html[data-motion="reduce"] #refresh-usage.dt-spin svg,
+html[data-motion="reduce"] .num.changed,html[data-motion="reduce"] .dt-steps .msg{animation:none}
+html[data-motion="reduce"] .dt-bar i{transition:none}
+@media (prefers-reduced-motion: reduce){
+  .sk::after,.dt-line::after,#refresh-usage.dt-spin svg,.num.changed,.dt-steps .msg{animation:none}
+  .dt-bar i{transition:none}
+}

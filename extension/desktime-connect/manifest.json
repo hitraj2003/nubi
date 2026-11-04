@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Nubi DeskTime connect",
+  "version": "1.0.0",
+  "description": "Lets Nubi read your DeskTime hours with the DeskTime session you already have in this browser.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx3mTiIRwwN4fu0GWGoY08puv/ksB8OEerUwo5dvYgNVKo9zenNbaR1Au67TKEZK5kimdpcqmYDRlW1Uh0abq8+/TTCyNCq66C8+XRaLKCVBOpRCZpZw9Ldqah6chClKaZpcdIpaOkPoc66BRbg5MCGehTkRSOi+HYgSPmRB31XHokksTgDsZhDHLPf8tJlg5nkzObcLQmgWkmiNQrJfGnBIFwwfiTr+Ts0WKWcr2gbdfoXzER8owYU3XxxdydHcB+0w+RPM5UnN/kWwijrb1aE43XK7gXfu8ERUfAj3beM4HFw5MpU9bMf8S75g227+NArpsYjFRxfdLhbwyuyLKVQIDAQAB",
+  "permissions": ["cookies", "nativeMessaging", "storage"],
+  "host_permissions": ["https://desktime.com/*", "https://*.desktime.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Nubi DeskTime connect", "default_popup": "popup.html" }
+}

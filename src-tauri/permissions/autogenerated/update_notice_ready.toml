@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-notice-ready"
+description = "Enables the update_notice_ready command without any pre-configured scope."
+commands.allow = ["update_notice_ready"]
+
+[[permission]]
+identifier = "deny-update-notice-ready"
+description = "Denies the update_notice_ready command without any pre-configured scope."
+commands.deny = ["update_notice_ready"]

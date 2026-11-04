@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hold-pending"
+description = "Enables the hold_pending command without any pre-configured scope."
+commands.allow = ["hold_pending"]
+
+[[permission]]
+identifier = "deny-hold-pending"
+description = "Denies the hold_pending command without any pre-configured scope."
+commands.deny = ["hold_pending"]

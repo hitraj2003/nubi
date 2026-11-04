@@ -1,13 +1,16 @@
 // Nubi: Claude Code + Codex overlay for Windows.
-// One exe, two modes: GUI (default) and `--hook <claude|codex>` (short-lived hook client).
+// One exe, several modes: GUI (default), `--hook <claude|codex>` (short-lived hook client) and the
+// Chrome native messaging host for the DeskTime extension (`chrome-extension://<id>/`).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod desktime;
 mod updater;
 mod hook_client;
 mod hooks_config;
 mod island;
 mod launcher;
+mod native_host;
 mod notch;
 mod pipe;
 mod poller;
@@ -33,6 +36,10 @@ fn main() {
         let provider = args.get(2).map(String::as_str).unwrap_or("claude");
         std::process::exit(hook_client::run(provider));
     }
+    // Chrome native messaging (DeskTime browser extension): Chrome passes the extension origin.
+    if let Some(origin) = args.get(1).filter(|a| native_host::is_native_call(a)) {
+        std::process::exit(native_host::run(origin));
+    }
     // `--statusline`: Claude Code status line (usage numbers without an API call).
     if args.get(1).map(String::as_str) == Some("--statusline") {
         std::process::exit(hook_client::statusline());
@@ -56,8 +63,14 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app::Shared(Mutex::new(state::Inner::default())))
         .manage(updater::UpdateState::default())
+        .manage(desktime::DeskTime::default())
         .invoke_handler(tauri::generate_handler![
             app::get_state,
+            desktime::desktime_open,
+            desktime::desktime_logout,
+            desktime::desktime_state,
+            desktime::desktime_refresh,
+            desktime::desktime_report,
             launcher::launcher_run,
             launcher::launcher_cancel,
             app::answer_permission,
