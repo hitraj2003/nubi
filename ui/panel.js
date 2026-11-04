@@ -366,15 +366,20 @@ function fillDesktime(cfg) {
   f.dt_half_days.value = (cfg.half_days || []).join("\n");
 }
 const dateLines = (text) => text.split(/[\s,;]+/).filter(Boolean);
+// Login happens in the owner's browser; the Nubi extension's Allow access hands the session over.
 function renderDesktime(s) {
   const on = s.enabled && !s.logged_out;
-  $("dt-status").textContent = !s.enabled ? "Not connected" : s.logged_out ? "Signed out. Log in again to resume." : s.error ? "Connected. " + s.error : "Connected";
+  $("dt-status").textContent = !s.enabled ? "Not connected. Log in to DeskTime in your browser, then click Allow access in the Nubi extension."
+    : s.logged_out ? "Signed out. Log in to DeskTime in your browser, then click Allow access in the Nubi extension again."
+    : s.error ? "Connected. " + s.error : "Connected";
   $("dt-login").hidden = on;
-  $("dt-login").textContent = s.enabled ? "Log in again" : "Log in";
   $("dt-logout").hidden = !s.enabled;
+  $("dt-ext-path").textContent = s.extension_dir || "";
 }
-$("dt-login").addEventListener("click", () => invoke("desktime_login").catch((e) => ($("saved").textContent = String(e))));
-$("dt-logout").addEventListener("click", () => invoke("desktime_logout").catch((e) => ($("saved").textContent = String(e))));
+const dtFail = (e) => ($("saved").textContent = String(e));
+$("dt-login").addEventListener("click", () => invoke("desktime_open", { target: "site" }).catch(dtFail));
+$("dt-ext-open").addEventListener("click", () => invoke("desktime_open", { target: "extension" }).catch(dtFail));
+$("dt-logout").addEventListener("click", () => invoke("desktime_logout").catch(dtFail));
 listen("desktime", (e) => renderDesktime(e.payload));
 invoke("desktime_state").then(renderDesktime).catch(() => {});
 function modeFields() {

@@ -178,7 +178,9 @@
           <div class="card">
             <div class="row"><div><div class="rl">Show DeskTime in the notch</div><div class="rd">When off, the DeskTime tab is hidden and Nubi stops reading DeskTime</div></div><span class="switch"><input type="checkbox" name="desktime_tab"><i></i></span></div>
             <div class="row"><div><div class="rl">DeskTime account</div><div class="rd" id="dt-status">Not connected</div></div>
-              <span class="hook"><button type="button" id="dt-login" class="btn primary">Log in</button><button type="button" id="dt-logout" class="btn ghost" hidden>Log out</button></span></div>
+              <span class="hook"><button type="button" id="dt-login" class="btn primary">Open DeskTime</button><button type="button" id="dt-logout" class="btn ghost" hidden>Log out</button></span></div>
+            <div class="row"><div><div class="rl">Browser extension</div><div class="rd">In Chrome, Brave or Edge, open chrome://extensions (edge://extensions in Edge), turn on Developer mode, click Load unpacked and pick this folder: <span class="dt-path" id="dt-ext-path"></span></div></div>
+              <span class="hook"><button type="button" id="dt-ext-open" class="btn ghost">Open folder</button></span></div>
           </div>
           <div class="card">
             <div class="row"><div><div class="rl">Daily target</div><div class="rd">Hours to work on a normal day</div></div><input type="time" name="daily_target" class="key" required></div>
