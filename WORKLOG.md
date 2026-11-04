@@ -5,6 +5,10 @@
 - CI: `.github/workflows/build.yml` (tests + build on main, signed release on `v*` tags). First run passed in 10.5 min.
 - Claude usage now comes from Claude Code's status line input (`rate_limits.five_hour/seven_day`), not the rate-limited `/api/oauth/usage`. Nubi takes `statusLine` (`nubi-hook.exe --statusline`), saves the previous one to `%APPDATA%\nubi\statusline_prev.json`, runs it and prints its output; turning Claude hooks off restores it. API is a fallback at most every 30 min when no status line has reported for 30 min.
 - Verified: 24 tests; `--statusline` with the owner's `statusline.js` prints the same line. Not verified: live update in the GUI, restore on disable.
+- Settings: "Update automatically" switch (`auto_update`, default on, read before each update check); changes are now a draft with a Discard/Save bar and a save-or-discard pop-up when leaving Settings (autosave removed).
+- "Report an issue" button opens the GitHub bug form with Nubi and Windows versions filled in; issue forms added (`bug_report.yml`, `feature_request.yml`, `config.yml`). Agent-drafted reports parked in TODO "Later".
+- TODO.md rewritten to hold every owner request and pending task. Owner rules: ask before any push/tag/release; v0.1.1 waits for more bug fixes.
+- Not built or tested since the status line change (owner: test later). `main` is 8 commits ahead of origin, not pushed.
 
 ## 2026-11-04 (later) — Claude Opus 5.5 — release v0.1.0 published
 - Renamed to Nubi: Cargo package `nubi`, productName `Nubi`, identifier `dev.nubi.app`, pipe `nubi-<user>`, hook exe `nubi-hook.exe` in `%LOCALAPPDATA%
