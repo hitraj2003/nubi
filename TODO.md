@@ -4,8 +4,7 @@ Every request from the owner goes here (with date) until it is done. Never push,
 without asking the owner first.
 
 ## Pick up here (next session)
-- [ ] Push: `main` is 7 commits ahead of `origin` (hitraj2003/nubi). Ask the owner first.
-- [ ] Release v0.1.1: owner said wait (2026-11-04), more bug fixes first. Ask before tagging.
+- [ ] v0.1.1 tagged and pushed 2026-11-04 (owner approved). Check the GitHub Actions release finished and installed copies update.
 - [ ] Owner's bug list: owner has more bugs to report (2026-11-04). Get the list and log each here.
 - [ ] Panel: warm concept built in code (2026-11-04): `ui/panel.*`, shared `ui/theme.css` + `ui/theme.js` (theme, accent, reduce motion from Settings), motion on the notch springs (`motion.js`: rail tile and settings list slide, cards blur in staggered, ring counts up, segmented thumbs, draft bar and modal spring in). New settings: `theme`, `accent` (default yellow), `reduce_motion`; About page uses new `check_update` and `app_version` commands. Check on screen.
 - [ ] Theme everywhere (owner, 2026-11-04): notch/island, toast (overlay), ring, ringtip and taskbar strip must follow theme and accent. `theme.js` is ready; each surface still needs its colours moved onto `theme.css` tokens.

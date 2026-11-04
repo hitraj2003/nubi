@@ -1,5 +1,12 @@
 # Worklog (newest first)
 
+## 2026-11-04 (night) — Claude Opus 5.5 — v0.1.1 released (owner approved commit, push, release, local install)
+- Bug fixes from the owner's list: logo mark removed; taskbar strip placement serialized (`PLACE_LOCK`) so mode switches stop bringing it back; monitor list shows friendly names; panel hidden from the taskbar; no system scrollbars or number spinners.
+- New: Start with Windows (HKCU Run key); Theme / Accent / Reduce motion settings with shared `ui/theme.css` + `ui/theme.js`; About page with `check_update` and `app_version` commands.
+- Panel rebuilt from the approved warm concept (`docs/concepts/panel-warm/`, references in `docs/references/`); motion on the notch springs (`motion.js` gained `vslider` and respects Reduce motion).
+- Verified: `cargo check`; Chrome previews with mock data. Not verified: the running app, taskbar fix, auto-start, update check.
+- Not done: notch, toast, ring and taskbar strip on the shared theme (owner: later; estimate 45-60 min with notch black and strip matching Windows).
+
 ## 2026-11-04 (evening) — Claude Opus 5.5 — local commits, not pushed
 - Single instance (tauri-plugin-single-instance): a second launch opens the panel; fixes "pipe already in use". Pushed to main before the owner asked to approve pushes (no release).
 - CI: `.github/workflows/build.yml` (tests + build on main, signed release on `v*` tags). First run passed in 10.5 min.
