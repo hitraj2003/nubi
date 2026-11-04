@@ -49,8 +49,8 @@ fn exchange(msg: &HookMsg) -> Option<Reply> {
             // 231 = all pipe instances busy; anything else (2 = GUI not running) gives up.
             Err(e) if e.raw_os_error() == Some(231) => std::thread::sleep(Duration::from_millis(50)),
             Err(e) => {
-                if std::env::var_os("CLAUDE_OVERLAY_DEBUG").is_some() {
-                    eprintln!("[claude-overlay hook] open {name}: {e}");
+                if std::env::var_os("NUBI_DEBUG").is_some() {
+                    eprintln!("[nubi hook] open {name}: {e}");
                 }
                 return None;
             }

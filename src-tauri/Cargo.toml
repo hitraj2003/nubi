@@ -1,5 +1,5 @@
 [package]
-name = "claude-overlay"
+name = "nubi"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
@@ -17,6 +17,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 ureq = { version = "2", features = ["json"] }
 dirs = "5"
 chrono = "0.4"
+tauri-plugin-updater = "2"
 
 [dependencies.windows-sys]
 version = "0.59"

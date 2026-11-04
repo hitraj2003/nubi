@@ -37,6 +37,7 @@ pub fn place(app: &App) {
     if s.display_mode != "ring" {
         let _ = w.hide();
         if let Some(t) = app.get_webview_window("ringtip") {
+            let _ = t.emit_to(t.label(), "ringtip_hide", ());
             let _ = t.hide();
         }
         return;
@@ -95,7 +96,8 @@ pub fn ring_drop(app: App) {
 pub fn ring_tip(app: App, show: bool, provider: String, mode: String, height: f64) {
     let Some(t) = app.get_webview_window("ringtip") else { return };
     if !show {
-        let _ = t.hide();
+        let _ = t.emit_to(t.label(), "ringtip_hide", ());
+            let _ = t.hide();
         return;
     }
     let Some(w) = app.get_webview_window("ring") else { return };
@@ -110,6 +112,6 @@ pub fn ring_tip(app: App, show: bool, provider: String, mode: String, height: f6
     let y = (p.y - (20.0 * scale) as i32).clamp(ay, (ay + ah - th).max(ay));
     let _ = t.set_size(PhysicalSize::new(tw as u32, th as u32));
     let _ = t.set_position(PhysicalPosition::new(x, y));
-    let _ = t.emit("ringtip", serde_json::json!({ "provider": provider, "mode": mode }));
+    let _ = t.emit_to(t.label(), "ringtip", serde_json::json!({ "provider": provider, "mode": mode }));
     let _ = t.show();
 }

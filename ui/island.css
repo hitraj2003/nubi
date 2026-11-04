@@ -1,0 +1,214 @@
+/* Top island. Same material as the alert toast: pure black, white ink at three strengths,
+   Claude terracotta / Codex blue only where they name a provider. Size and corner radius are
+   driven by a spring in island.js; CSS only handles the content crossfades. */
+:root{
+  --ink:#fff; --ink-2:rgba(255,255,255,.62); --ink-3:rgba(255,255,255,.38);
+  --row:rgba(255,255,255,.06); --row-hover:rgba(255,255,255,.1); --line:rgba(255,255,255,.08);
+  --ok:#4CD964; --warn:#FFB340; --info:#0A84FF; --bad:#FF6961;
+  --claude:#D97757; --codex:#6E9BEF;
+  --mono:"Cascadia Mono",Consolas,monospace;
+  --out:cubic-bezier(.22,1,.36,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:transparent !important;
+  font:13px/1.4 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:var(--ink);
+  -webkit-font-smoothing:antialiased;user-select:none}
+button{font:inherit;color:inherit;border:none;background:none;cursor:pointer;padding:0}
+svg{flex:none}
+
+/* The shape: an SVG path redrawn every frame (island.js), so the concave ears where it meets the
+   screen edge, the straight sides and the round outer corners all move together. It sits on the
+   edge named by body[data-edge], centred in the window (the window itself is placed along the edge). */
+#shape{position:absolute;width:180px;height:34px;will-change:width,height}
+body[data-edge="top"] #shape{top:0;left:50%;transform:translateX(-50%)}
+body[data-edge="bottom"] #shape{bottom:0;left:50%;transform:translateX(-50%)}
+body[data-edge="left"] #shape{left:0;top:50%;transform:translateY(-50%)}
+body[data-edge="right"] #shape{right:0;top:50%;transform:translateY(-50%)}
+#bg{position:absolute;top:0;left:0;overflow:visible;pointer-events:none}
+#bg path{fill:#000}
+#views{position:absolute;inset:0;overflow:hidden}
+#shape.dragging{cursor:grabbing}
+
+/* Each view keeps its own fixed size so text never re-wraps while the shape moves. It is pinned
+   to the screen edge and centred along it; --c holds that centring. */
+.v{position:absolute;opacity:0;pointer-events:none;--c:translateX(-50%);
+  transform:var(--c) scale(.94);filter:blur(6px);
+  transition:opacity .16s ease,filter .16s ease,transform .16s ease}
+body[data-edge="top"] .v{top:0;left:50%;transform-origin:50% 0}
+body[data-edge="bottom"] .v{bottom:0;left:50%;transform-origin:50% 100%}
+body[data-edge="left"] .v{left:0;top:50%;--c:translateY(-50%);transform-origin:0 50%}
+body[data-edge="right"] .v{right:0;top:50%;--c:translateY(-50%);transform-origin:100% 50%}
+.v.on{opacity:1;pointer-events:auto;transform:var(--c);filter:blur(0);
+  transition:opacity .32s var(--out) .07s,filter .32s var(--out) .07s,transform .42s var(--out) .04s}
+#v-tab{width:56px;height:6px}
+
+/* Closed pill */
+#v-compact{display:flex;align-items:center;justify-content:space-between;height:38px;padding:0 14px 0 10px;gap:12px;white-space:nowrap;cursor:grab}
+/* Side edges: the pill stands up, rings stacked, no text. */
+body[data-edge="left"] #v-compact,body[data-edge="right"] #v-compact{flex-direction:column;height:auto;width:46px;padding:12px 0;gap:10px}
+body[data-edge="left"] .c-left,body[data-edge="right"] .c-left,body[data-edge="left"] .c-right,body[data-edge="right"] .c-right{flex-direction:column;gap:10px}
+body[data-edge="left"] .c-txt,body[data-edge="right"] .c-txt{display:none}
+body[data-edge="left"] .pr,body[data-edge="right"] .pr{flex-direction:column;gap:2px}
+.c-left,.c-right{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
+.c-right{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.glyph{width:16px;height:16px;display:inline-flex}
+.glyph svg{width:100%;height:100%}
+.badge{min-width:18px;height:18px;padding:0 6px;border-radius:9px;background:var(--warn);color:#000;
+  font:600 11px/18px var(--mono);text-align:center}
+/* Working: three bars breathing, like an equaliser. */
+.eq{display:inline-flex;align-items:flex-end;gap:2px;height:12px}
+.eq i{width:2px;border-radius:1px;background:currentColor;animation:eq 1s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:-.33s}.eq i:nth-child(3){animation-delay:-.66s}
+@keyframes eq{0%,100%{height:3px}50%{height:12px}}
+.p-claude{color:var(--claude)} .p-codex{color:var(--codex)}
+.ring{width:16px;height:16px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:3}
+.ring .tr{stroke:rgba(255,255,255,.16)}
+.ring .fg{stroke:currentColor;stroke-linecap:round;transition:stroke-dasharray .6s var(--out)}
+
+/* Alert */
+#v-alert{display:flex;align-items:center;gap:12px;height:56px;padding:0 20px 0 14px;white-space:nowrap}
+.a-icon{width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center}
+.a-icon svg{width:14px;height:14px}
+.a-icon.success{background:rgba(76,217,100,.16);color:var(--ok)}
+.a-icon.warning{background:rgba(255,179,64,.16);color:var(--warn)}
+.a-icon.info{background:rgba(10,132,255,.18);color:var(--info)}
+.a-text{display:flex;flex-direction:column;min-width:0}
+.a-text b{font-weight:600}
+.a-text span{color:var(--ink-2);font-size:12px;overflow:hidden;text-overflow:ellipsis;max-width:300px}
+
+/* Open */
+#v-open{width:620px;padding:10px 12px 14px}
+.bar{display:flex;align-items:center;gap:4px;height:32px;margin-bottom:8px}
+.tabs{position:relative;display:flex;gap:2px}
+.tabs button{position:relative;z-index:1;height:28px;padding:0 12px;border-radius:14px;color:var(--ink-2);font-size:12px;font-weight:500;
+  display:flex;align-items:center;gap:6px;transition:color .2s}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:#000}
+.tab-hl{position:absolute;top:0;left:0;height:28px;border-radius:14px;background:#fff;will-change:transform,width}
+.tn{font:600 10px/16px var(--mono);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:rgba(255,255,255,.14);text-align:center}
+.tn:empty{display:none}
+.tabs button.on .tn{background:rgba(0,0,0,.12)}
+.tn.hot{background:var(--warn);color:#000}
+.grow{flex:1}
+.ib{width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;color:var(--ink-2);transition:background-color .15s,color .15s}
+.ib:hover{background:var(--row-hover);color:var(--ink)}
+.ib svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ib.on{color:var(--warn)}
+.ib.on svg{fill:currentColor}
+
+.pane{position:relative;max-height:420px;overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
+.pane > *{animation:rise .38s var(--out) both;animation-delay:calc(var(--i,0) * 28ms)}
+@keyframes rise{from{opacity:0;transform:translateY(6px);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
+.empty{color:var(--ink-3);padding:18px 4px 6px;text-align:center;font-size:12px}
+
+/* Sessions */
+.srow{display:grid;grid-template-columns:16px 1fr auto auto auto 14px;cursor:pointer;width:100%;text-align:left;align-items:center;gap:12px;height:40px;padding:0 10px;border-radius:12px;transition:background-color .15s}
+.srow:hover{background:var(--row)}
+.srow .f{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .s{display:flex;align-items:center;gap:6px;color:var(--ink-2);font-size:12px}
+.srow .t{color:var(--ink-3);font:11px var(--mono);font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
+.dot{width:6px;height:6px;border-radius:3px;background:var(--ink-3)}
+.dot.waiting{background:var(--warn)} .dot.done{background:var(--ok)}
+.srow .ctx{color:var(--ink-3);font:11px var(--mono);font-variant-numeric:tabular-nums;min-width:40px;text-align:right}
+.srow .go{width:14px;height:14px;color:var(--ink-3);opacity:0;transform:translateX(-4px);transition:opacity .15s,transform .25s var(--out)}
+.srow:hover .go{opacity:1;transform:none}
+
+/* Usage */
+.meters{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.meter{background:var(--row);border-radius:16px;padding:14px}
+.mh{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-weight:500}
+.mh .st{margin-left:auto;color:var(--warn);font-size:11px;font-weight:400}
+.mw{display:flex;gap:16px}
+.mi{display:flex;align-items:center;gap:10px}
+.big-ring{width:44px;height:44px}
+.big-ring circle{fill:none;stroke-width:4}
+.big-ring .tr{stroke:rgba(255,255,255,.1)}
+.big-ring .fg{stroke-linecap:round;transition:stroke-dasharray .8s var(--out)}
+.mi b{display:block;font:600 16px/1.1 var(--mono);font-variant-numeric:tabular-nums}
+.mi span{display:block;color:var(--ink-2);font-size:12px}
+.mi small{display:block;color:var(--ink-3);font-size:11px;white-space:nowrap}
+.mw{justify-content:space-between}
+.mnone{color:var(--ink-3);font-size:12px;padding:10px 0 12px}
+/* Provider mark inside its rings (closed pill): session ring, thin weekly ring outside it, and an
+   activity ring inside (spinning while working, pulsing amber when it needs you). */
+.pr{display:inline-flex;align-items:center;gap:6px}
+.prw{position:relative;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center}
+.prw svg.rr{position:absolute;inset:0;width:30px;height:30px;overflow:visible}
+.prw circle{fill:none}
+.prw .glyph{width:11px;height:11px;position:relative}
+.prw .glyph.dim{opacity:.35}
+.pr.stale .prw{opacity:.5}
+.pct{font:600 11px var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-2)}
+body[data-edge="left"] .pct,body[data-edge="right"] .pct{font-size:10px}
+.spin{transform-origin:15px 15px;animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pulse{transform-origin:15px 15px;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* Requests */
+.req{background:var(--row);border-radius:16px;padding:12px 14px;margin-bottom:8px;position:relative;overflow:hidden}
+.req:last-child{margin-bottom:0}
+.rh{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.rh b{font-weight:600}
+.rh .w{color:var(--ink-3);font-size:12px}
+.rh .left{margin-left:auto;color:var(--ink-3);font:11px var(--mono);font-variant-numeric:tabular-nums}
+.cmd{font:12px/1.5 var(--mono);color:rgba(255,255,255,.82);background:rgba(255,255,255,.05);border-radius:10px;padding:8px 10px;
+  margin-bottom:10px;max-height:96px;overflow:auto;white-space:pre-wrap;word-break:break-all;user-select:text}
+.q{margin-bottom:8px;font-weight:500}
+.q .h{color:var(--ink-3);font-weight:400;margin-right:6px}
+.opts{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.opt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,.05);border:1px solid transparent;
+  border-radius:10px;padding:7px 10px;transition:background-color .15s,border-color .15s}
+.opt:hover{background:var(--row-hover)}
+.opt .n{font:11px var(--mono);color:var(--ink-3);width:10px}
+.opt .l{display:flex;flex-direction:column}
+.opt small{color:var(--ink-3);font-size:11px}
+.req.p-claude .opt.on{border-color:var(--claude);background:rgba(217,119,87,.14)}
+.req.p-codex .opt.on{border-color:var(--codex);background:rgba(110,155,239,.14)}
+.other{width:100%;font:inherit;font-size:12px;color:var(--ink);background:rgba(255,255,255,.05);border:1px solid transparent;border-radius:10px;
+  padding:7px 10px;outline:none;margin-bottom:10px;user-select:text}
+.other:focus{border-color:rgba(255,255,255,.24)}
+.acts{display:flex;align-items:center;gap:6px}
+.btn{height:28px;padding:0 16px;border-radius:14px;font-size:12px;font-weight:600;transition:background-color .15s,transform .12s var(--out)}
+.btn:active{transform:scale(.96)}
+.btn.primary{background:#fff;color:#000}
+.btn.primary:hover{background:#e6e6e6}
+.btn.quiet{background:rgba(255,255,255,.12)}
+.btn.quiet:hover{background:rgba(255,255,255,.18)}
+.link{font-size:12px;color:var(--ink-2);padding:4px 6px}
+.link:hover{color:var(--ink)}
+.timebar{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(255,255,255,.05)}
+.timebar i{display:block;height:100%;transform-origin:left center;background:var(--ink-3)}
+.req.p-claude .timebar i{background:var(--claude)} .req.p-codex .timebar i{background:var(--codex)}
+.leave{animation:none !important;transition:opacity .2s ease,transform .3s var(--out),filter .2s ease;opacity:0;transform:scale(.97);filter:blur(4px)}
+
+button:focus{outline:none}
+button:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+.other:focus-visible{outline:none}
+
+@media (prefers-reduced-motion: reduce){
+  .v,.v.on,.pane > *{transition:opacity .12s linear !important;animation:none !important;filter:none !important}
+  .v,.v.on{transform:var(--c) !important}
+  .spin,.pulse{animation:none}
+  .eq i{animation:none;height:8px}
+}
+.tabs button:focus-visible{box-shadow:none}
+.srow:focus-visible{box-shadow:none}
+
+/* Side edges: the open panel stands up too, narrow and tall, so it reads as part of the edge. */
+body[data-edge="left"] #v-open,body[data-edge="right"] #v-open{width:360px;padding:12px 12px 14px}
+body[data-edge="left"] .meters,body[data-edge="right"] .meters{grid-template-columns:1fr}
+body[data-edge="left"] .bar .tabs button,body[data-edge="right"] .bar .tabs button{padding:0 10px}
+body[data-edge="left"] .srow,body[data-edge="right"] .srow{grid-template-columns:16px 1fr auto auto 14px;gap:10px}
+body[data-edge="left"] .srow .ctx,body[data-edge="right"] .srow .ctx{display:none}
+body[data-edge="left"] .srow .s,body[data-edge="right"] .srow .s{font-size:11px}
+body[data-edge="left"] .pane,body[data-edge="right"] .pane{max-height:620px}
+/* Provider colour only on the mark, never on the card text. */
+.req.p-claude,.req.p-codex,.pr.p-claude,.pr.p-codex{color:var(--ink)}
+.pr .pct{color:var(--ink-2)}
+/* System prompts approval: one row with the buttons beside the command. */
+.req.slim{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px}
+.req.slim .st{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--mono);color:rgba(255,255,255,.88)}
+.req.slim .left{color:var(--ink-3);font:11px var(--mono);font-variant-numeric:tabular-nums}
+.req.slim .w{color:var(--ink-3);font-size:12px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}

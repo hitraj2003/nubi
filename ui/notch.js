@@ -1,3 +1,5 @@
+window.addEventListener("error", (e) => window.__TAURI__.core.invoke("log_js", { msg: `ui/notch.js: ${e.message} @${e.lineno}` }));
+window.addEventListener("unhandledrejection", (e) => window.__TAURI__.core.invoke("log_js", { msg: `ui/notch.js: ${e.reason}` }));
 // Edge notch. Ring drawing, tones, card placement and fold timing follow vinzdg/codenotch
 // windows/codenotch/ui/notch.html (MIT, commit 6522e9f). All dynamic text goes through esc().
 const { invoke } = window.__TAURI__.core;
@@ -57,6 +59,70 @@ function pendingOf(p) { return (snap.pending || []).filter((x) => x.provider ===
 function headline(u) { return u.windows.find((w) => w.label === "5h") || u.windows[0] || null; }
 function weekly(u) { return u.windows.find((w) => w.label === "7d") || null; }
 function workState(p) {
+  const ss = sessionsOf(p);
+  if (pendingOf(p).length || ss.some((s) => s.state === "waiting" || (s.attention && s.state === "idle"))) return "attention";
+  if (ss.some((s) => s.state === "working")) return "running";
+  return "idle";
+}
+
+function renderRing() {
+  const ps = providers();
+  const want = ps.join(",") + "|" + ps.map((p) => (glyphs[p] ? 1 : 0)).join("");
+  if (pill.dataset.cells !== want) {
+    pill.innerHTML = ps.map((p, i) => `<div class="cell" data-p="${p}" style="--i:${i}">
+      <div class="ringwrap"><svg class="ring" viewBox="0 0 56 56"></svg><svg class="reading" viewBox="0 0 56 56"></svg><svg class="activity" viewBox="0 0 56 56"></svg><div class="glyph">${glyphs[p] || esc(NAME[p][0])}</div></div>
+      <div class="pct">—</div></div>`).join("");
+    pill.dataset.cells = want;
+  }
+  for (const p of ps) {
+    const cell = pill.querySelector(`.cell[data-p="${p}"]`);
+    if (!cell) continue;
+    const u = usageOf(p), h = headline(u), wk = weekly(u);
+    let inner = `<circle cx="28" cy="28" r="22" fill="${HOLE}"/><circle cx="28" cy="28" r="25" fill="none" stroke="${TRACK}" stroke-width="5"/>`;
+    if (wk && wk !== h) {
+      const f = Math.min(Math.max(wk.used_percent / 100, 0), 1);
+      inner += `<circle cx="28" cy="28" r="31" fill="none" stroke="${TRACK}" stroke-width="2.4" opacity="0.7"/>` +
+        svgArc(31, f, tone(f), 2.4, 'opacity="0.85"');
+    }
+    cell.querySelector("svg.ring").innerHTML = inner;
+    const hf = h ? Math.min(Math.max(h.used_percent / 100, 0), 1) : 0;
+    cell.querySelector("svg.reading").innerHTML = h ? svgArc(25, hf, tone(hf), 5) : "";
+    const ws = workState(p);
+    cell.querySelector("svg.activity").innerHTML =
+      ws === "running" ? `<g class="arc-spin">${svgArc(19, 0.28, INK, 2.5)}</g>` :
+      ws === "attention" ? `<circle cx="28" cy="28" r="19" fill="none" stroke="${WATCH}" stroke-width="2.5"/>` : "";
+    cell.querySelector(".pct").textContent = h ? Math.round(h.used_percent) + "%" : (u.status === "loading" ? "…" : "—");
+    cell.querySelector(".glyph").classList.toggle("dim", !!(h && h.used_percent >= 100));
+    cell.querySelector(".ringwrap").classList.toggle("stale", u.status !== "ok" && !!h);
+  }
+}
+
+function resetCopy(sec) {
+  if (!sec) return "";
+  const diff = sec * 1000 - Date.now();
+  if (diff <= 0) return "Resetting";
+  const min = Math.round(diff / 60000);
+  if (min < 60) return `Resets in ${Math.max(1, min)} min`;
+  const d = new Date(sec * 1000);
+  const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (diff < 864e5) return "Resets " + t;
+  return "Resets " + d.toLocaleDateString([], { weekday: "short" }) + " " + t;
+}
+function ago(ms) { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "now" : m < 60 ? m + "m" : Math.round(m / 60) + "h"; }
+
+function renderCard() {
+  if (!card.classList.contains("show") || !hoverId || !snap) return;
+  const p = hoverId, u = usageOf(p);
+  let html = `<div class="c-head"><span class="mark">${glyphs[p] || ""}</span><span class="c-title">${esc(NAME[p])}</span></div>`;
+  html += `<div class="c-sub">${esc(u.status === "ok" ? "Usage limits" : (u.message || u.status))}</div>`;
+  for (const w of u.windows) {
+    const f = Math.min(Math.max(w.used_percent / 100, 0), 1);
+    html += `<div class="win"><div class="w-row"><span class="w-label">${esc(w.label)}</span><span class="w-reset">${esc(resetCopy(w.resets_at))}</span></div>
+      <div class="w-track"><div class="w-fill" style="width:${(f * 100).toFixed(1)}%;background:${tone(f)}"></div></div>
+      <div class="w-used">${Math.round(w.used_percent)}% used</div></div>`;
+  }
+  const waiting = pendingOf(p).length;
+  if (waiting) html += `<div class="c-auth"><button data-requests="1">${waiting} waiting for you</button></div>`;
   const ss = sessionsOf(p);
   if (pendingOf(p).length || ss.some((s) => s.state === "waiting" || (s.attention && s.state === "idle"))) return "attention";
   if (ss.some((s) => s.state === "working")) return "running";
@@ -171,6 +237,7 @@ root.addEventListener("input", (e) => {
   if (inp.value.trim()) { if (!q.multiSelect) sel.clear(); sel.add(inp.value.trim()); }
 });
 root.addEventListener("click", (e) => {
+  if (e.target.closest("[data-requests]")) { invoke("show_requests"); return; }
   const opt = e.target.closest("button.opt");
   if (opt) {
     const a = pendingById(Number(opt.closest("[data-qid]").dataset.qid));
@@ -214,17 +281,7 @@ function permHtml(a) {
     <div class="w-used">Terminal asks instead in ${Math.max(0, Math.round((a.expires_ms - Date.now()) / 1000))}s</div>`;
 }
 // Waiting requests pop out on their own. Items keep their DOM while their id stays, so typing is not lost.
-function renderReqs() {
-  const list = snap ? (snap.pending || []).filter((x) => providers().includes(x.provider)) : [];
-  reqs.className = (list.length ? "show " : "") + (snap && snap.settings.notch_requests_layout === "side" ? "side" : "stack");
-  const typing = reqs.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
-  const want = list.map((a) => a.id).join(",");
-  if (!typing || reqs.dataset.ids !== want) {
-    reqs.innerHTML = list.map((a) => `<div class="req" data-id="${a.id}">${a.kind === "question" ? questionHtml(a).replace('<div class="g-box"', '<div') : permHtml(a)}</div>`).join("");
-    reqs.dataset.ids = want;
-  }
-  if (list.length) { clearTimeout(foldTimer); setFolded(false); hideCard(); placeReqs(); }
-}
+function renderReqs() { reqs.className = ""; }
 function placeReqs() {
   const pr = pill.getBoundingClientRect();
   const gap = TAIL_GAP + 8;

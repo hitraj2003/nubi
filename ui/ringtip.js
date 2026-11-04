@@ -1,13 +1,14 @@
-// Ring tooltip, after claude-usage-meter tooltip_widget.py (MIT, 260e4f2). Text via textContent only.
+// Ring tooltip. Layout after claude-usage-meter tooltip_widget.py (MIT, 260e4f2); notch material and
+// usage colours (usage-color.js: session rows in the lighter shade, like the inner ring). The card
+// blurs in on a spring and bars sweep to their value. Text via textContent only.
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const tip = document.getElementById("tip");
 let snap = null, cur = { provider: "claude", mode: "5h" };
+let shownFor = "";
 
 const NAME = { claude: "Claude", codex: "Codex" };
-const ACCENT = { claude: ["#d9773c", "#e8a838", "#e74c3c"], codex: ["#2f80ed", "#56ccf2", "#eb5757"] };
 const LABEL = { "5h": "Current session (5h)", "7d": "Weekly (all models)", "7d Opus": "Weekly (Opus)", "7d Sonnet": "Weekly (Sonnet)" };
-function color(p, pct) { const a = ACCENT[p]; return pct > 80 ? a[2] : pct > 50 ? a[1] : a[0]; }
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
 function resetText(w, session) {
@@ -27,25 +28,33 @@ function render() {
   tip.append(el("div", "title", NAME[p]));
   tip.append(el("div", "tier", u.status === "ok" ? "Usage limits" : u.status));
   tip.append(el("div", "div"));
+  const sweep = shownFor !== p + cur.mode; // new hover: bars sweep in from zero
   for (const w of u.windows) {
+    const session = w.label === "5h";
     const row = el("div", "row" + (w.label === cur.mode ? " on" : ""));
     const head = el("div", "rh");
-    head.append(el("span", "l", LABEL[w.label] || w.label));
-    const pct = el("span", null, Math.round(w.used_percent) + "%");
-    pct.style.color = color(p, w.used_percent);
-    head.append(pct);
+    head.append(el("span", "l", LABEL[w.label] || w.label), el("span", "v", Math.round(w.used_percent) + "%"));
     const bar = el("div", "bar"), fill = el("div", "fill");
-    fill.style.width = Math.min(100, w.used_percent) + "%";
-    fill.style.background = color(p, w.used_percent);
+    const frac = Math.min(100, w.used_percent) / 100;
+    fill.style.background = usageColor(w.used_percent, session);
+    fill.style.transform = `scaleX(${sweep ? 0 : frac})`;
     bar.append(fill);
-    row.append(head, bar, el("div", "reset", resetText(w, w.label === "5h")));
+    row.append(head, bar, el("div", "reset", resetText(w, session)));
     tip.append(row);
+    if (sweep) {
+      const s = new Motion.Spring(0, Motion.PRESET.content).to(frac);
+      new Motion.Animator({ s }, (v) => { fill.style.transform = `scaleX(${Math.max(0, v.s)})`; }).kick();
+    }
   }
   if (u.message && u.status !== "ok") tip.append(el("div", "warn", u.message));
   const m = u.fetched_ms ? Math.round((Date.now() - u.fetched_ms) / 60000) : null;
   tip.append(el("div", "foot", m == null ? "" : m < 1 ? "Updated just now" : `Updated ${m}m ago`));
+  if (sweep) { tip.style.opacity = "0"; Motion.enter(tip); }
+  shownFor = p + cur.mode;
 }
 
 listen("ringtip", (e) => { cur = e.payload; render(); });
 listen("state", (e) => { snap = e.payload; render(); });
 invoke("get_state").then((s) => { snap = s; render(); });
+// Hidden tooltip: next hover blurs in again.
+listen("ringtip_hide", () => { shownFor = ""; });

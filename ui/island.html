@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>island</title>
+<link rel="stylesheet" href="island.css">
+</head>
+<body data-edge="top">
+  <div id="shape" class="closed">
+    <svg id="bg"><path id="bgp"/></svg>
+    <div id="views">
+      <!-- Folded: a thin tab until hovered. -->
+      <div class="v" id="v-tab"></div>
+      <!-- Closed: the small pill. -->
+      <div class="v" id="v-compact">
+        <span class="c-left" id="c-left"></span>
+        <span class="c-right" id="c-right"></span>
+      </div>
+      <!-- An alert, shown for a few seconds. -->
+      <div class="v" id="v-alert">
+        <span class="a-icon" id="a-icon"></span>
+        <span class="a-text"><b id="a-title"></b><span id="a-body"></span></span>
+      </div>
+      <!-- Open: tabs and their content. -->
+      <div class="v" id="v-open">
+        <div class="bar">
+          <div class="tabs" id="tabs" role="tablist">
+            <i class="tab-hl" id="tab-hl"></i>
+            <button type="button" data-tab="requests" role="tab">Waiting<span class="tn" id="tn-requests"></span></button>
+            <button type="button" data-tab="sessions" role="tab">Sessions<span class="tn" id="tn-sessions"></span></button>
+            <button type="button" data-tab="usage" role="tab">Usage</button>
+          </div>
+          <span class="grow"></span>
+          <button type="button" class="ib" id="dnd" title="Do not disturb">
+            <svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+          <button type="button" class="ib" id="open-panel" title="Open panel">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
+        </div>
+        <div class="pane" id="pane"></div>
+      </div>
+    </div>
+  </div>
+  <script src="usage-color.js"></script>
+  <script src="motion.js"></script>
+  <script src="sounds.js"></script>
+  <script src="island.js"></script>
+</body>
+</html>

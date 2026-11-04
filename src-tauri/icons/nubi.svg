@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Nubi: a little notch creature rising from the bottom edge, hugged by a usage ring. -->
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#fff" stroke="#E6E6E6" stroke-width="8"/>
+  <g transform="rotate(180 512 512)">
+  <!-- Usage ring around the creature's round bottom (Claude terracotta) -->
+  <path d="M 222 380 A 290 290 0 0 0 802 380" fill="none" stroke="#D97757" stroke-width="56" stroke-linecap="round"/>
+  <!-- Notch body: concave ears at the top edge, round bottom -->
+  <path fill="#000" d="
+    M 196 32
+    C 270 32 302 64 302 140
+    L 302 380
+    A 210 210 0 0 0 722 380
+    L 722 140
+    C 722 64 754 32 828 32
+    Z"/>
+  <!-- Eyes -->
+  <ellipse cx="438" cy="420" rx="40" ry="56" fill="#fff"/>
+  <ellipse cx="586" cy="420" rx="40" ry="56" fill="#fff"/>
+  </g>
+</svg>

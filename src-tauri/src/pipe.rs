@@ -100,7 +100,7 @@ fn client_allowed(pipe: &NamedPipeServer) -> bool {
     }
     let ok = allowed.iter().any(|a| *a == img);
     if !ok {
-        eprintln!("[claude-overlay] rejected pipe client: {img}");
+        eprintln!("[nubi] rejected pipe client: {img}");
     }
     ok
 }
@@ -146,17 +146,16 @@ async fn handle(app: App, pipe: NamedPipeServer) {
     )
     .await;
     if !matches!(read, Ok(Ok(n)) if n > 0) {
-        eprintln!("[claude-overlay] read failed: {read:?}");
+        eprintln!("[nubi] read failed: {read:?}");
         return;
     }
     let msg = match serde_json::from_slice::<HookMsg>(&buf) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("[claude-overlay] bad frame: {e}");
+            eprintln!("[nubi] bad frame: {e}");
             return;
         }
     };
-    eprintln!("[claude-overlay] hook {} {} wants_reply={}", msg.provider, msg.event, msg.wants_reply);
     if msg.provider != "claude" && msg.provider != "codex" {
         return;
     }
@@ -165,15 +164,20 @@ async fn handle(app: App, pipe: NamedPipeServer) {
     if !(msg.wants_reply && (msg.event == "PermissionRequest" || question)) {
         return;
     }
+    if question && app::questions_mode(&app) == "off" {
+        return; // connection closes, the hook prints nothing, Claude asks in the terminal
+    }
     let cap = if question { QUESTION_DEADLINE_SECS } else { PERMISSION_DEADLINE_SECS };
-    let wait = Duration::from_secs(msg.deadline_secs.min(cap).saturating_sub(5));
+    // The user's takeover time, kept inside the hook's own deadline.
+    let takeover = app::takeover_secs(&app).max(3);
+    let wait = Duration::from_secs(takeover.min(msg.deadline_secs.min(cap).saturating_sub(5)));
     let (tx, rx) = oneshot::channel();
     let id = app::add_pending(&app, &msg, tx, wait.as_millis() as u64);
     let mut probe = [0u8; 1];
     let reply = tokio::select! {
         r = rx => r.ok(),
-        _ = tokio::time::sleep(wait) => { eprintln!("[claude-overlay] approval {id} timed out"); None }
-        r = reader.read(&mut probe) => { eprintln!("[claude-overlay] approval {id} client gone: {r:?}"); None } // provider moved on
+        _ = tokio::time::sleep(wait) => None,
+        _ = reader.read(&mut probe) => None, // provider moved on
     };
     app::remove_pending(&app, id);
     if let Some(rep) = reply {
@@ -183,4 +187,47 @@ async fn handle(app: App, pipe: NamedPipeServer) {
             let _ = wr.flush().await;
         }
     }
+}
+
+/// Debug builds only: a test inbox. Each `<name>.json` file dropped into the folder named by
+/// `NUBI_SIM_DIR` is read as `{"provider": "...", "hook": {hook JSON}}` and handled
+/// like a hook call; for requests, the answer is written to `<name>.reply`. Lets a sandboxed
+/// test script drive the UI without the named pipe. Not compiled into release builds.
+#[cfg(debug_assertions)]
+pub fn start_sim(app: App) {
+    let Some(dir) = std::env::var_os("NUBI_SIM_DIR").map(std::path::PathBuf::from) else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) != Some("json") {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&p) else { continue };
+                let _ = std::fs::remove_file(&p);
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+                let provider = v["provider"].as_str().unwrap_or("claude").to_string();
+                let Some(msg) = build_msg(&provider, &v["hook"], vec![]) else { continue };
+                let app = app.clone();
+                let out = p.with_extension("reply");
+                tauri::async_runtime::spawn(async move {
+                    app::on_hook(&app, &msg);
+                    let question = is_question(&msg.provider, &msg.event, msg.tool_name.as_deref());
+                    if !msg.wants_reply || (question && app::questions_mode(&app) == "off") {
+                        return;
+                    }
+                    let wait = Duration::from_secs(app::takeover_secs(&app).max(3));
+                    let (tx, rx) = oneshot::channel();
+                    let id = app::add_pending(&app, &msg, tx, wait.as_millis() as u64);
+                    let reply = tokio::select! { r = rx => r.ok(), _ = tokio::time::sleep(wait) => None };
+                    app::remove_pending(&app, id);
+                    let text = reply.and_then(|r| serde_json::to_string(&r).ok()).unwrap_or_else(|| "timeout".into());
+                    let _ = std::fs::write(out, text);
+                });
+            }
+        }
+    });
 }

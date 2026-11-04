@@ -1,27 +1,35 @@
-// Floating ring, recreated from yonathanamir/claude-usage-meter (MIT, 260e4f2).
-// Paint order and sizes follow meter_widget.py; Qt points converted at 96 dpi (12pt = 16px).
-// Attention badge for pending approvals/questions is ours.
+// Floating ring. Drag, snap and tooltip behaviour from yonathanamir/claude-usage-meter (MIT, 260e4f2).
+// Look and motion match the notch (island.css / island.js): pure black disc, white ink, inner
+// session ring (lighter shade) and thin outer week ring in the shared OKLCH usage colours
+// (usage-color.js), an activity ring inside (spinning while working, pulsing amber when it needs
+// you). Ring values ride springs (motion.js), so changes sweep instead of jumping.
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const R = 30, M = 12, STEP = 50, RING_R = R - 5;
-const PALETTE = {
-  claude: { bg: "#1a1714", base: "#d9773c", amber: "#e8a838", red: "#e74c3c", short: "C" },
-  codex: { bg: "#101820", base: "#2f80ed", amber: "#56ccf2", red: "#eb5757", short: "X" },
-};
+const R = 30, M = 12;
+const SESS_R = 23, SESS_W = 4, WEEK_R = 27.6, WEEK_W = 2.2, ACT_R = 18.5;
 const svg = document.getElementById("ring");
 let snap = null;
 const mode = { claude: "5h", codex: "5h" };
+const { Spring, Animator, PRESET } = Motion;
+const sp = {};
+for (const p of ["claude", "codex"]) { sp[p + "s"] = new Spring(0, PRESET.content); sp[p + "w"] = new Spring(0, PRESET.content); }
+const anim = new Animator(sp, () => drawArcs());
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
-function color(p, pct) { const c = PALETTE[p]; return pct > 80 ? c.red : pct > 50 ? c.amber : c.base; }
 function providers() {
   if (!snap) return [];
   const w = snap.settings.providers;
   return ["claude", "codex"].filter((p) => w === "both" || w === p);
 }
 function usage(p) { return (snap.usage || []).find((u) => u.provider === p) || { status: "loading", windows: [] }; }
-function win(p) { return usage(p).windows.find((w) => w.label === mode[p]) || null; }
+function winOf(p, label) { return usage(p).windows.find((w) => w.label === label) || null; }
+function win(p) { return winOf(p, mode[p]); }
+function activity(p) {
+  const mine = (snap.sessions || []).filter((s) => s.provider === p);
+  if ((snap.pending || []).some((x) => x.provider === p) || mine.some((s) => s.attention)) return "attention";
+  return mine.some((s) => s.state === "working") ? "working" : "";
+}
 
 // "Time Until" for 5h ("Xd Yh" / "Xh Ym" / "Xm"), "Date" for 7d ("Nov 07").
 function resetText(p, w) {
@@ -33,89 +41,90 @@ function resetText(p, w) {
   return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function circle(p, i) {
-  const c = PALETTE[p], cx = R + M, cy = R + M + i * STEP;
-  const u = usage(p), w = win(p);
-  const pct = w ? w.used_percent : 0;
-  const arc = pct > 0 ? color(p, pct) : "#FFFFFF";
-  const C = 2 * Math.PI * RING_R;
-  let g = `<g data-p="${p}">`;
-  g += `<defs><radialGradient id="sh${i}" cx="${cx}" cy="${cy + 2}" r="${R + 6}" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="rgba(0,0,0,0.31)"/><stop offset="1" stop-color="rgba(0,0,0,0)"/></radialGradient></defs>`;
-  g += `<circle cx="${cx}" cy="${cy + 2}" r="${R + 4}" fill="url(#sh${i})"/>`;
-  g += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${c.bg}"/>`;
-  g += `<circle cx="${cx}" cy="${cy}" r="${RING_R}" fill="none" stroke="${c.base}" stroke-opacity="0.118" stroke-width="5"/>`;
-  if (pct > 0) {
-    g += `<circle cx="${cx}" cy="${cy}" r="${RING_R}" fill="none" stroke="${arc}" stroke-width="5" stroke-linecap="round"
-      stroke-dasharray="${(C * Math.min(pct, 100) / 100).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
-  }
-  g += `<circle cx="${cx}" cy="${cy - RING_R}" r="3" fill="${arc}"/>`;
-  if (!w) {
-    const t = u.status === "loading" ? "..." : "!";
-    g += `<text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="13" font-weight="700" fill="${arc}">${t}</text>`;
-  } else {
-    g += `<text x="${cx}" y="${cy + 1}" text-anchor="middle" font-size="16" font-weight="700" fill="${arc}">${Math.floor(pct)}</text>`;
-    g += `<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="9.3" fill="rgba(200,200,200,0.55)">${esc(resetText(p, w))}</text>`;
-  }
-  // Mode badge, top-left: "C5h" / "X7d"
-  const label = c.short + mode[p];
-  const bw = label.length * 6 + 6, bh = 13, bx = cx - R + 1, by = cy - R + 1;
-  g += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="3" fill="${c.bg}" fill-opacity="0.86" stroke="${arc}" stroke-opacity="0.47"/>`;
-  g += `<text x="${bx + bw / 2}" y="${by + 10}" text-anchor="middle" font-size="9.3" font-weight="700" fill="${arc}">${label}</text>`;
-  // Warning badge, bottom-left: error/stale reading, or something waiting for you.
-  const waiting = (snap.pending || []).some((x) => x.provider === p);
-  if (waiting || (u.status !== "ok" && u.status !== "loading")) {
-    const wy = cy + R - bh - 1;
-    g += `<rect x="${bx}" y="${wy}" width="13" height="${bh}" rx="3" fill="${waiting ? "#e8a838" : "#e74c3c"}" stroke="rgba(255,255,255,0.47)"/>`;
-    g += `<text x="${bx + 6.5}" y="${wy + 10}" text-anchor="middle" font-size="9.3" font-weight="700" fill="#fff">!</text>`;
-  }
-  return g + "</g>";
+// Arc from 12 o'clock, clockwise (dir 1) or anticlockwise (dir -1), over `span` of the circle.
+function arc(cx, cy, r, w, pct, light, span, dir) {
+  const L = 2 * Math.PI * r, p = Math.max(0, Math.min(100, pct));
+  if (p <= 0.2) return "";
+  const tf = dir < 0 ? `translate(${2 * cx} 0) scale(-1 1) rotate(-90 ${cx} ${cy})` : `rotate(-90 ${cx} ${cy})`;
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${usageColor(p, light)}" stroke-width="${w}" stroke-linecap="round"
+    stroke-dasharray="${((L * span * p) / 100).toFixed(2)} ${L.toFixed(2)}" transform="${tf}"/>`;
 }
+function track(cx, cy, r, w, a) { return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,${a})" stroke-width="${w}"/>`; }
 
-// Both providers: one ring split down the middle. Left half = Claude, right half = Codex,
-// each half filling from the top toward the bottom.
-function split() {
-  const cx = R + M, cy = R + M, half = Math.PI * RING_R, C = 2 * Math.PI * RING_R;
-  const side = (p) => { const w = win(p); return { w, pct: w ? w.used_percent : 0, u: usage(p) }; };
-  const L = side("claude"), Rt = side("codex");
-  const mirror = `translate(${2 * cx} 0) scale(-1 1) rotate(-90 ${cx} ${cy})`;
-  const arc = (pct, col, tf) => pct > 0 ? `<circle cx="${cx}" cy="${cy}" r="${RING_R}" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round"
-      stroke-dasharray="${(half * Math.min(pct, 100) / 100).toFixed(2)} ${C.toFixed(2)}" transform="${tf}"/>` : "";
-  const track = (col, tf) => `<circle cx="${cx}" cy="${cy}" r="${RING_R}" fill="none" stroke="${col}" stroke-opacity="0.18" stroke-width="5"
-      stroke-dasharray="${half.toFixed(2)} ${C.toFixed(2)}" transform="${tf}"/>`;
-  const lc = L.pct > 0 ? color("claude", L.pct) : "#FFFFFF", rc = Rt.pct > 0 ? color("codex", Rt.pct) : "#FFFFFF";
-  const num = (s) => (s.w ? Math.floor(s.pct) : s.u.status === "loading" ? "…" : "!");
-  let g = `<defs><radialGradient id="sh" cx="${cx}" cy="${cy + 2}" r="${R + 6}" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="rgba(0,0,0,0.31)"/><stop offset="1" stop-color="rgba(0,0,0,0)"/></radialGradient>
-    <clipPath id="lh"><rect x="0" y="0" width="${cx}" height="${2 * cy}"/></clipPath>
-    <clipPath id="rh"><rect x="${cx}" y="0" width="${cx}" height="${2 * cy}"/></clipPath></defs>`;
-  g += `<circle cx="${cx}" cy="${cy + 2}" r="${R + 4}" fill="url(#sh)"/>`;
-  g += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${PALETTE.claude.bg}" clip-path="url(#lh)"/>`;
-  g += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${PALETTE.codex.bg}" clip-path="url(#rh)"/>`;
-  g += track(PALETTE.claude.base, mirror) + track(PALETTE.codex.base, `rotate(-90 ${cx} ${cy})`);
-  g += arc(L.pct, lc, mirror) + arc(Rt.pct, rc, `rotate(-90 ${cx} ${cy})`);
-  // Divider through the ring at top and bottom
-  g += `<line x1="${cx}" y1="${cy - R}" x2="${cx}" y2="${cy - RING_R + 4}" stroke="#000" stroke-width="2"/>`;
-  g += `<line x1="${cx}" y1="${cy + RING_R - 4}" x2="${cx}" y2="${cy + R}" stroke="#000" stroke-width="2"/>`;
-  g += `<line x1="${cx}" y1="${cy - 12}" x2="${cx}" y2="${cy + 8}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
-  g += `<text x="${cx - 9}" y="${cy + 2}" text-anchor="middle" font-size="13" font-weight="700" fill="${lc}">${num(L)}</text>`;
-  g += `<text x="${cx + 9}" y="${cy + 2}" text-anchor="middle" font-size="13" font-weight="700" fill="${rc}">${num(Rt)}</text>`;
-  g += `<text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="9.3" fill="rgba(200,200,200,0.55)">${mode.claude}</text>`;
-  const waiting = (snap.pending || []).length > 0;
-  const bad = [L, Rt].some((s) => s.u.status !== "ok" && s.u.status !== "loading");
-  if (waiting || bad) {
-    const bx = cx - R + 1, wy = cy + R - 14;
-    g += `<rect x="${bx}" y="${wy}" width="13" height="13" rx="3" fill="${waiting ? "#e8a838" : "#e74c3c"}" stroke="rgba(255,255,255,0.47)"/>`;
-    g += `<text x="${bx + 6.5}" y="${wy + 10}" text-anchor="middle" font-size="9.3" font-weight="700" fill="#fff">!</text>`;
-  }
-  return g;
-}
-
+// Static layer (disc, tracks, activity ring, text) is rebuilt only when it changes, so the CSS
+// spin/pulse keeps running. The arcs layer is redrawn on every spring frame.
+let lastStatic = "";
 function render() {
   if (!snap) return;
   const ps = providers();
+  if (!ps.length) return;
+  for (const p of ps) {
+    const s = winOf(p, "5h") || usage(p).windows[0], w = winOf(p, "7d");
+    sp[p + "s"].to(s ? s.used_percent : 0);
+    sp[p + "w"].to(w && w !== s ? w.used_percent : 0);
+  }
+  const cx = R + M, cy = R + M;
+  const split = ps.length === 2;
+  const acts = ps.map(activity);
+  const act = acts.includes("attention") ? "attention" : acts.includes("working") ? "working" : "";
+  const stale = ps.every((p) => usage(p).status !== "ok" && usage(p).status !== "loading");
+  const num = (p) => { const w = win(p); return w ? String(Math.floor(w.used_percent)) : usage(p).status === "loading" ? "…" : "!"; };
+  let g = `<defs><radialGradient id="sh" cx="${cx}" cy="${cy + 2}" r="${R + 6}" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="rgba(0,0,0,0.35)"/><stop offset="1" stop-color="rgba(0,0,0,0)"/></radialGradient></defs>`;
+  g += `<circle cx="${cx}" cy="${cy + 2}" r="${R + 4}" fill="url(#sh)"/>`;
+  g += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="#000"/>`;
+  g += `<g class="${stale ? "stale" : ""}">`;
+  g += track(cx, cy, SESS_R, SESS_W, 0.12) + track(cx, cy, WEEK_R, WEEK_W, 0.08);
+  g += `<g id="arcs"></g>`;
+  if (split) {
+    // Two separate halves: left Claude, right Codex. Arcs are clipped to their own half (see
+    // drawArcs), and a gap through the middle keeps one side's colour from touching the other.
+    g += `<rect x="${cx - 1.5}" y="${cy - R}" width="3" height="${2 * R}" fill="#000"/>`;
+    // Activity per half: a D-shaped loop (that half's round edge plus the centre line). Working =
+    // a dash running round the loop; attention = the loop pulsing amber; idle = nothing.
+    g += `<line x1="${cx}" y1="${cy - WEEK_R}" x2="${cx}" y2="${cy + WEEK_R}" stroke="rgba(255,255,255,.16)" stroke-width="1"/>`;
+    for (const [p, sweep, dx] of [["claude", 0, -1.5], ["codex", 1, 1.5]]) {
+      const a = activity(p), x = cx + dx, r = ACT_R;
+      const d = `M ${x} ${cy - r} A ${r} ${r} 0 0 ${sweep} ${x} ${cy + r} Z`;
+      if (a === "working") {
+        g += `<path class="run" d="${d}" pathLength="100" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="22 78"/>`;
+      } else if (a === "attention") {
+        g += `<path class="pulse" d="${d}" fill="none" stroke="var(--warn)" stroke-width="1.4" stroke-linejoin="round"/>`;
+      }
+    }
+    // Each percentage sits in the middle of its own half.
+    g += `<text class="n h" x="${cx - 10}" y="${cy + 2}" text-anchor="middle">${num("claude")}</text>`;
+    g += `<text class="n h" x="${cx + 10}" y="${cy + 2}" text-anchor="middle">${num("codex")}</text>`;
+    g += `<text class="s" x="${cx - 10}" y="${cy + 12}" text-anchor="middle">${mode.claude}</text>`;
+    g += `<text class="s" x="${cx + 10}" y="${cy + 12}" text-anchor="middle">${mode.codex}</text>`;
+  } else {
+    if (act === "working") g += `<g class="spin"><circle cx="${cx}" cy="${cy}" r="${ACT_R}" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="${(2 * Math.PI * ACT_R * 0.28).toFixed(2)} 200"/></g>`;
+    if (act === "attention") g += `<circle class="pulse" cx="${cx}" cy="${cy}" r="${ACT_R}" fill="none" stroke="var(--warn)" stroke-width="1.4"/>`;
+    const p = ps[0];
+    g += `<text class="n" x="${cx}" y="${cy + 3}" text-anchor="middle">${num(p)}</text>`;
+    g += `<text class="s" x="${cx}" y="${cy + 12}" text-anchor="middle">${esc(resetText(p, win(p)))}</text>`;
+  }
+  g += "</g>";
   svg.setAttribute("height", 2 * (R + M));
-  svg.innerHTML = ps.length === 2 ? split() : circle(ps[0], 0);
+  if (g !== lastStatic) { svg.innerHTML = g; lastStatic = g; drawArcs(); }
+  anim.kick();
+}
+function drawArcs() {
+  const box = svg.querySelector("#arcs");
+  if (!box || !snap) return;
+  const ps = providers(), cx = R + M, cy = R + M;
+  let g = "";
+  if (ps.length === 2) {
+    // Clip each half so round caps never cross the middle, even at 100 %.
+    g += `<defs><clipPath id="lh"><rect x="0" y="0" width="${cx - 1.5}" height="${2 * cy}"/></clipPath>
+      <clipPath id="rh"><rect x="${cx + 1.5}" y="0" width="${cx}" height="${2 * cy}"/></clipPath></defs>`;
+    g += `<g clip-path="url(#lh)">` + arc(cx, cy, SESS_R, SESS_W, sp.claudes.x, true, 0.5, -1) + arc(cx, cy, WEEK_R, WEEK_W, sp.claudew.x, false, 0.5, -1) + "</g>";
+    g += `<g clip-path="url(#rh)">` + arc(cx, cy, SESS_R, SESS_W, sp.codexs.x, true, 0.5, 1) + arc(cx, cy, WEEK_R, WEEK_W, sp.codexw.x, false, 0.5, 1) + "</g>";
+  } else if (ps.length) {
+    const p = ps[0];
+    g += arc(cx, cy, SESS_R, SESS_W, sp[p + "s"].x, true, 1, 1) + arc(cx, cy, WEEK_R, WEEK_W, sp[p + "w"].x, false, 1, 1);
+  }
+  box.innerHTML = g;
 }
 
 // ---- drag + snap (snap animation runs in Rust: 250 ms OutCubic) ----
@@ -143,7 +152,7 @@ document.addEventListener("mouseup", (e) => {
   down = null;
   if (wasDrag) { invoke("ring_drop"); return; }
   const p = providerAt(e.clientX);
-  if ((snap.pending || []).length) { invoke("show_panel"); return; }
+  if ((snap.pending || []).length) { invoke("show_requests"); return; }
   const next = mode[p] === "5h" ? "7d" : "5h";
   if (providers().length === 2) { mode.claude = next; mode.codex = next; } else mode[p] = next;
   render();

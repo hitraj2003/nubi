@@ -25,6 +25,10 @@ pub struct Session {
     pub session_id: String,
     pub cwd: Option<String>,
     pub folder: String,
+    /// Session title: Claude `/rename` or its auto title, Codex thread name. Empty until known.
+    pub name: String,
+    #[serde(skip)]
+    pub name_checked_ms: u64,
     /// "idle" | "working" | "waiting" | "done" | "stale"
     pub state: String,
     pub attention: bool,
@@ -45,6 +49,7 @@ pub struct Pending {
     pub provider: String,
     pub session_key: String,
     pub folder: String,
+    pub name: String,
     pub tool_name: Option<String>,
     pub tool_input: Option<Value>,
     pub created_ms: u64,
@@ -97,6 +102,32 @@ pub struct Inner {
     pub hooks: HashMap<String, bool>,
 }
 
+/// Title of a session, if it has one. Claude: last `custom-title` (from `/rename`) in the
+/// transcript, else the last `ai-title`. Codex: last `thread_name` for the id in
+/// `~/.codex/session_index.jsonl`.
+fn session_name(provider: &str, session_id: &str, transcript: Option<&str>) -> Option<String> {
+    let pick = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::trim).filter(|x| !x.is_empty()).map(String::from);
+    if provider == "codex" {
+        let path = dirs::home_dir()?.join(".codex").join("session_index.jsonl");
+        let text = std::fs::read_to_string(path).ok()?;
+        return text.lines().rev().filter(|l| l.contains(session_id)).find_map(|l| {
+            let v: Value = serde_json::from_str(l).ok()?;
+            if v.get("id")?.as_str()? != session_id { return None; }
+            pick(&v, "thread_name")
+        });
+    }
+    let text = std::fs::read_to_string(transcript?).ok()?;
+    let (mut custom, mut ai) = (None, None);
+    for l in text.lines() {
+        if l.contains("\"type\":\"custom-title\"") {
+            if let Ok(v) = serde_json::from_str::<Value>(l) { custom = pick(&v, "customTitle").or(custom); }
+        } else if l.contains("\"type\":\"ai-title\"") {
+            if let Ok(v) = serde_json::from_str::<Value>(l) { ai = pick(&v, "aiTitle").or(ai); }
+        }
+    }
+    custom.or(ai)
+}
+
 fn folder_of(cwd: &Option<String>) -> String {
     cwd.as_deref()
         .map(|c| c.trim_end_matches(['/', '\\']))
@@ -121,6 +152,8 @@ impl Inner {
             session_id: m.session_id.clone(),
             cwd: None,
             folder: String::new(),
+            name: String::new(),
+            name_checked_ms: 0,
             state: "idle".into(),
             attention: false,
             last_event: String::new(),
@@ -142,6 +175,14 @@ impl Inner {
         }
         s.last_event = m.event.clone();
         s.last_event_ms = now;
+        // Re-read the title at most every 20 s (titles appear after the first prompt and can be renamed).
+        if now.saturating_sub(s.name_checked_ms) > 20_000 {
+            s.name_checked_ms = now;
+            if let Some(n) = session_name(&s.provider, &s.session_id, s.transcript_path.as_deref()) {
+                s.name = n;
+            }
+        }
+        let label = if s.name.is_empty() { s.folder.clone() } else { s.name.clone() };
         let mk = |kind: &str, title: &str, body: String| Alert {
             ts: now,
             provider: m.provider.clone(),
@@ -164,7 +205,7 @@ impl Inner {
                     .and_then(|t| t["questions"][0]["question"].as_str())
                     .unwrap_or("Claude has a question")
                     .to_string();
-                Some(mk("question", "Question for you", format!("{} · {q}", s.folder)))
+                Some(mk("question", "Question for you", format!("{label} · {q}")))
             }
             "UserPromptSubmit" | "PreToolUse" | "PostToolUse" => {
                 s.state = "working".into();
@@ -185,7 +226,7 @@ impl Inner {
                 s.attention = true;
                 let tool = m.tool_name.clone().unwrap_or_else(|| "tool".into());
                 let note = if m.tool_input_oversize { " (too large: answer in terminal)" } else { "" };
-                Some(mk("permission", "Permission needed", format!("{} · {tool}{note}", s.folder)))
+                Some(mk("permission", "Permission needed", format!("{label} · {tool}{note}")))
             }
             "Notification" => {
                 let nt = m.notification_type.clone().unwrap_or_default();
@@ -193,7 +234,7 @@ impl Inner {
                 if nt == "idle_prompt" || msg.contains("waiting for your input") {
                     s.state = "idle".into();
                     s.attention = true;
-                    Some(mk("idle", "Waiting for you", s.folder.clone()))
+                    Some(mk("idle", "Waiting for you", label.clone()))
                 } else if nt == "permission_prompt" {
                     s.state = "waiting".into();
                     s.attention = true;
@@ -208,7 +249,7 @@ impl Inner {
                 if let Some(p) = &s.transcript_path {
                     s.context_tokens = context_tokens(&m.provider, p).or(s.context_tokens);
                 }
-                Some(mk("done", "Task complete", s.folder.clone()))
+                Some(mk("done", "Task complete", label.clone()))
             }
             _ => None,
         }
@@ -224,6 +265,7 @@ impl Inner {
         let id = self.next_id;
         let key = format!("{}:{}", m.provider, m.session_id);
         let folder = self.sessions.get(&key).map(|s| s.folder.clone()).unwrap_or_default();
+        let name = self.sessions.get(&key).map(|s| s.name.clone()).unwrap_or_default();
         let now = now_ms();
         self.pending.insert(
             id,
@@ -233,6 +275,7 @@ impl Inner {
                 provider: m.provider.clone(),
                 session_key: key,
                 folder,
+                name,
                 tool_name: m.tool_name.clone(),
                 tool_input: m.tool_input.clone(),
                 created_ms: now,
@@ -285,9 +328,11 @@ impl Inner {
                 "provider": p.provider,
                 "session_key": p.session_key,
                 "folder": p.folder,
+                "name": p.name,
                 "tool_name": p.tool_name,
                 "tool_input": p.tool_input.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()),
                 "expires_ms": p.expires_ms,
+                "created_ms": p.created_ms,
             })).collect::<Vec<_>>(),
             "alerts": self.alerts,
             "usage": self.usage.values().filter(|u| wants(&u.provider)).collect::<Vec<_>>(),

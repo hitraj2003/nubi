@@ -1,3 +1,5 @@
+window.addEventListener("error", (e) => window.__TAURI__.core.invoke("log_js", { msg: `ui/panel.js: ${e.message} @${e.lineno}` }));
+window.addEventListener("unhandledrejection", (e) => window.__TAURI__.core.invoke("log_js", { msg: `ui/panel.js: ${e.reason}` }));
 // Panel. All dynamic text is set with textContent: tool input and questions are untrusted.
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -12,117 +14,121 @@ function el(tag, cls, text) {
 }
 function btn(text, fn, cls) { const b = el("button", cls, text); b.type = "button"; b.addEventListener("click", fn); return b; }
 function ago(ms) { const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? s + "s ago" : s < 3600 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago"; }
-function until(sec) {
+function resetIn(sec) {
   if (!sec) return "";
   const m = Math.round((sec * 1000 - Date.now()) / 60000);
-  if (m <= 0) return "resetting";
-  return "resets in " + (m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d");
+  if (m <= 0) return "Resetting";
+  return "Resets in " + (m < 60 ? m + "m" : m < 1440 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : Math.round(m / 1440) + "d");
 }
-const tone = (p) => (p >= 70 ? "var(--crit)" : p >= 50 ? "var(--watch)" : "var(--ample)");
-const tag = (p) => el("span", "tag " + p, NAME[p]);
+const prov = (p) => el("span", "prov " + p, NAME[p]);
+const LABEL = { "5h": "Session", "7d": "Week", "7d Opus": "Week, Opus", "7d Sonnet": "Week, Sonnet" };
 
 // ---- navigation ----
-document.querySelectorAll("#nav button[data-view]").forEach((b) =>
+document.querySelectorAll("nav button[data-view]").forEach((b) =>
   b.addEventListener("click", () => {
-    document.querySelectorAll("#nav button[data-view]").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll("nav button[data-view]").forEach((x) => x.classList.toggle("on", x === b));
     document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.id === "v-" + b.dataset.view));
   }));
 
 let snap = null, formDirty = false;
-const picks = {}; // question id -> { question: Set(labels) }
+const picks = {};
+let inboxIds = "";
 
-// ---- inbox ----
+// ---- inbox: built once per set of requests, countdowns update in place ----
 function renderInbox(s) {
+  $("inbox-meta").textContent = s.pending.length ? `${s.pending.length} waiting` : "";
+  const ids = s.pending.map((p) => p.id).join(",");
+  if (ids === inboxIds) {
+    for (const p of s.pending) { const c = document.querySelector(`[data-left="${p.id}"]`); if (c) c.textContent = `Terminal takes over in ${Math.max(0, Math.round((p.expires_ms - Date.now()) / 1000))}s`; }
+    return;
+  }
+  inboxIds = ids;
   const box = $("inbox");
-  // Keep focus in an "Other" box while typing: skip re-render if one is focused.
-  if (box.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
   box.replaceChildren();
-  if (!s.pending.length) { box.append(el("div", "empty", "Nothing waiting. Approvals and Claude's questions show up here.")); return; }
+  if (!s.pending.length) { box.append(el("div", "empty", "Nothing waiting. Approvals and Claude's questions appear here.")); return; }
   for (const p of s.pending) {
-    const it = el("div", "item " + p.kind);
+    const it = el("div", "item " + p.provider);
     const h = el("div", "ih");
-    h.append(tag(p.provider), el("span", "t", p.kind === "question" ? "Question" : "Permission: " + (p.tool_name || "tool")),
-      el("span", "tag", p.folder || "session"),
-      el("span", "exp", "terminal takes over in " + Math.max(0, Math.round((p.expires_ms - Date.now()) / 1000)) + "s"));
+    h.append(prov(p.provider), el("span", "t", p.kind === "question" ? "Question" : `Allow ${p.tool_name || "tool"}?`), el("span", "sub", p.name || p.folder || "session"));
+    const left = el("span", "left"); left.dataset.left = p.id; h.append(left);
     it.append(h);
     if (p.kind === "question") renderQuestion(it, p);
     else {
       if (p.tool_input) it.append(el("pre", null, p.tool_input));
       const a = el("div", "acts");
-      a.append(btn("Allow", () => answer(p.id, "allow"), "primary"), btn("Deny", () => answer(p.id, "deny"), "danger"),
-        btn("Jump to terminal", () => invoke("jump_session", { key: p.session_key }), "ghost"));
+      a.append(btn("Allow", () => invoke("answer_permission", { id: p.id, decision: "allow" }), "primary"),
+        btn("Deny", () => invoke("answer_permission", { id: p.id, decision: "deny" })), el("span", "grow"),
+        btn("Jump to terminal", () => invoke("jump_session", { key: p.session_key }), "link"));
       it.append(a);
     }
     box.append(it);
   }
+  renderInbox({ ...s, pending: s.pending }); // fill countdowns
 }
-function answer(id, decision) { invoke("answer_permission", { id, decision }).catch((e) => alert(e)); }
 
 function renderQuestion(it, p) {
   const sel = picks[p.id] || (picks[p.id] = {});
-  (p.questions || []).forEach((q) => {
+  for (const q of p.questions || []) {
     const chosen = sel[q.question] || (sel[q.question] = new Set());
-    const wrap = el("div", "q");
-    const qt = el("div", "qt");
-    if (q.header) qt.append(el("span", "qh", q.header));
+    const qt = el("div", "q");
+    if (q.header) qt.append(el("span", "h", q.header));
     qt.append(document.createTextNode(q.question + (q.multiSelect ? " (pick any)" : "")));
-    wrap.append(qt);
+    it.append(qt);
     const opts = el("div", "opts");
-    for (const o of q.options || []) {
+    (q.options || []).forEach((o, i) => {
       const b = el("button", "opt" + (chosen.has(o.label) ? " on" : ""));
       b.type = "button";
-      b.append(el("span", null, o.label));
-      if (o.description) b.append(el("small", null, o.description));
+      const l = el("span", "l");
+      l.append(el("span", null, o.label));
+      if (o.description) l.append(el("small", null, o.description));
+      b.append(el("span", "k", String(i + 1)), l);
       b.addEventListener("click", () => {
         if (q.multiSelect) chosen.has(o.label) ? chosen.delete(o.label) : chosen.add(o.label);
         else { chosen.clear(); chosen.add(o.label); }
-        renderInbox(snap);
+        opts.querySelectorAll(".opt").forEach((r, j) => r.classList.toggle("on", chosen.has(q.options[j].label)));
       });
       opts.append(b);
-    }
-    wrap.append(opts);
+    });
+    it.append(opts);
     const other = el("input", "other");
-    other.placeholder = "Other answer…";
+    other.placeholder = "Other answer";
     const known = (l) => (q.options || []).some((o) => o.label === l);
-    other.value = [...chosen].find((l) => !known(l)) || "";
     other.addEventListener("input", () => {
       for (const l of [...chosen]) if (!known(l)) chosen.delete(l);
       if (other.value.trim()) { if (!q.multiSelect) chosen.clear(); chosen.add(other.value.trim()); }
     });
-    wrap.append(other);
-    it.append(wrap);
-  });
+    it.append(other);
+  }
   const a = el("div", "acts");
   a.append(
-    btn("Send answer", () => {
+    btn("Send", () => {
       const answers = {};
-      for (const q of p.questions || []) {
-        const c = sel[q.question];
-        if (!c || !c.size) { alert("Answer every question first."); return; }
-        answers[q.question] = [...c].join(", ");
-      }
-      invoke("answer_question", { id: p.id, answers }).catch((e) => alert(e));
+      for (const q of p.questions || []) { const c = sel[q.question]; if (!c || !c.size) return; answers[q.question] = [...c].join(", "); }
+      invoke("answer_question", { id: p.id, answers });
       delete picks[p.id];
     }, "primary"),
-    btn("Answer in terminal", () => { invoke("answer_question", { id: p.id, answers: {} }); delete picks[p.id]; }, "ghost"),
-    btn("Jump to terminal", () => invoke("jump_session", { key: p.session_key }), "ghost"));
+    el("span", "grow"),
+    btn("Answer in terminal", () => { invoke("answer_question", { id: p.id, answers: {} }); delete picks[p.id]; }, "link"),
+    btn("Jump to terminal", () => invoke("jump_session", { key: p.session_key }), "link"));
   it.append(a);
 }
 
 // ---- sessions ----
 function renderSessions(s) {
-  const tb = $("sessions");
-  tb.replaceChildren();
-  $("sessions-empty").style.display = s.sessions.length ? "none" : "block";
+  $("sessions-meta").textContent = s.sessions.length ? `${s.sessions.length} running` : "";
+  const box = $("sessions");
+  box.replaceChildren();
+  box.style.display = s.sessions.length ? "" : "none";
+  if (!s.sessions.length) { if (!$("sessions-empty")) { const e = el("div", "empty", "No sessions yet. Turn on hooks in Settings, then start Claude Code or Codex."); e.id = "sessions-empty"; box.after(e); } return; }
+  if ($("sessions-empty")) $("sessions-empty").remove();
   for (const x of s.sessions) {
-    const tr = el("tr", "state-" + x.state);
-    const td = (c) => { const t = el("td"); if (c instanceof Node) t.append(c); else t.textContent = c; return t; };
-    tr.append(td(el("span", "sdot")), td(x.folder), td(tag(x.provider)),
-      td(x.state + (x.attention ? " · needs you" : "") + (x.subagents ? ` · ${x.subagents} sub-agent(s)` : "")),
-      td(x.context_tokens ? Math.round(x.context_tokens / 1000) + "k tokens" : "—"),
-      td(`${x.last_event} · ${ago(x.last_event_ms)}`),
-      td(btn("Jump", () => invoke("jump_session", { key: x.key }).then((ok) => { if (!ok) alert("Terminal window not found."); }), "ghost")));
-    tb.append(tr);
+    const r = el("div", "r");
+    const state = x.state + (x.attention && x.state !== "waiting" ? ", needs you" : "") + (x.subagents ? ` · ${x.subagents} agents` : "");
+    r.append(el("span", "dot " + x.state), el("span", null, x.name || x.folder), prov(x.provider), el("span", "sub", state),
+      el("span", "mono sub num", x.context_tokens ? Math.round(x.context_tokens / 1000) + "k" : "—"),
+      el("span", "sub", ago(x.last_event_ms)),
+      btn("Jump", () => invoke("jump_session", { key: x.key }), "link"));
+    box.append(r);
   }
 }
 
@@ -130,20 +136,25 @@ function renderSessions(s) {
 function renderUsage(s) {
   const box = $("usage");
   box.replaceChildren();
-  if (!s.usage.length) box.append(el("div", "empty", "Loading…"));
+  const ok = s.usage.find((u) => u.fetched_ms);
+  $("usage-meta").textContent = ok ? "Updated " + ago(ok.fetched_ms) : "";
+  if (!s.usage.length) box.append(el("div", "empty", "Loading"));
   for (const u of s.usage) {
-    const c = el("div", "ucard");
-    const h = el("h3"); h.append(tag(u.provider)); c.append(h);
-    c.append(el("div", "st" + (u.status === "ok" ? "" : " bad"), u.status === "ok" ? "Up to date" + (u.fetched_ms ? " · " + ago(u.fetched_ms) : "") : (u.message || u.status)));
+    const c = el("div", "meter " + u.provider);
+    const top = el("div", "top");
+    top.append(prov(u.provider), el("span", "st" + (u.status === "ok" ? "" : " bad"), u.status === "ok" ? "" : (u.message || u.status)));
+    c.append(top);
     for (const w of u.windows) {
-      const d = el("div", "w");
-      const r = el("div", "wr");
-      r.append(el("span", null, `${w.label} · ${Math.round(w.used_percent)}% used`), el("span", "r", until(w.resets_at)));
-      const t = el("div", "track"), i = el("i");
+      const d = el("div", "win");
+      const wh = el("div", "wh");
+      const big = el("span", "big", String(Math.round(w.used_percent)));
+      big.append(el("small", null, "%"));
+      wh.append(big, el("span", "sub", resetIn(w.resets_at)));
+      const bar = el("div", "bar"), i = el("i");
       i.style.width = Math.min(100, w.used_percent) + "%";
-      i.style.background = tone(w.used_percent);
-      t.append(i);
-      d.append(r, t);
+      if (w.used_percent >= 70) i.className = "bad"; else if (w.used_percent >= 50) i.className = "warn";
+      bar.append(i);
+      d.append(wh, bar, el("div", "wl", LABEL[w.label] || w.label));
       c.append(d);
     }
     box.append(c);
@@ -151,18 +162,17 @@ function renderUsage(s) {
 }
 
 // ---- alerts ----
-const KCOL = { done: "var(--ample)", permission: "var(--watch)", question: "#0A84FF", idle: "#0A84FF", info: "#888" };
 function renderAlerts(s) {
   const box = $("alerts");
   box.replaceChildren();
-  if (!s.alerts.length) box.append(el("div", "empty", "No alerts yet."));
+  box.style.display = s.alerts.length ? "" : "none";
+  if (!s.alerts.length) { if (!$("alerts-empty")) { const e = el("div", "empty", "No alerts yet"); e.id = "alerts-empty"; box.after(e); } return; }
+  if ($("alerts-empty")) $("alerts-empty").remove();
   for (const a of s.alerts) {
-    const r = el("div", "a");
-    const k = el("span", "k"); k.style.background = KCOL[a.kind] || "#888";
-    const body = el("span");
-    body.append(tag(a.provider), document.createTextNode(` ${a.title} · ${a.body}`));
-    if (a.queued) body.append(el("span", "q", " (during DND)"));
-    r.append(el("span", "tm", new Date(a.ts).toLocaleTimeString()), k, body);
+    const r = el("div", "r");
+    const body = el("span", null, `${a.title} · ${a.body}`);
+    if (a.queued) body.append(el("span", "sub", "  during do not disturb"));
+    r.append(el("span", "mono sub", new Date(a.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), prov(a.provider), body);
     box.append(r);
   }
 }
@@ -173,10 +183,13 @@ function renderHooks(s) {
   box.replaceChildren();
   for (const p of ["claude", "codex"]) {
     const on = !!s.hooks[p];
-    const r = el("div", "hook");
-    r.append(el("span", "nm", NAME[p]), el("span", on ? "on" : "off", on ? "On" : "Off"),
-      btn(on ? "Disable" : "Enable", () => invoke("set_hooks", { provider: p, enable: !on }).catch((e) => alert(e)), "ghost"));
-    if (p === "codex" && on) r.append(el("span", "hint", "Run /hooks once in Codex to trust them."));
+    const r = el("div", "row");
+    const left = el("div");
+    left.append(el("div", "rl", NAME[p]), el("div", "rd", p === "codex" && on ? "Run /hooks once in Codex to trust them" : p === "codex" ? "$CODEX_HOME/hooks.json" : "~/.claude/settings.json"));
+    const right = el("span", "hook");
+    right.append(el("span", "on-off" + (on ? " on" : ""), on ? "On" : "Off"),
+      btn(on ? "Turn off" : "Turn on", () => invoke("set_hooks", { provider: p, enable: !on }).catch((e) => alert(e))));
+    r.append(left, right);
     box.append(r);
   }
 }
@@ -193,10 +206,21 @@ function fillForm(cfg) {
 }
 function modeFields() {
   const m = $("settings").elements.display_mode.value;
-  document.querySelectorAll(".mode-notch").forEach((e) => (e.style.display = m === "notch" ? "" : "none"));
+  document.querySelectorAll(".mode-notch").forEach((e) => (e.style.display = m === "island" ? "" : "none"));
   document.querySelectorAll(".mode-taskbar").forEach((e) => (e.style.display = m === "taskbar" ? "" : "none"));
 }
-$("settings").addEventListener("input", () => { formDirty = true; modeFields(); });
+// Settings save themselves. Switches, radios and selects save at once; typed fields (numbers,
+// hotkey, quiet hours) save 700 ms after the last keystroke or when the field loses focus.
+let autoTimer = 0;
+const autoSave = () => { clearTimeout(autoTimer); $("settings").requestSubmit(); };
+$("settings").addEventListener("input", (e) => {
+  formDirty = true; modeFields();
+  const t = e.target;
+  const typed = t.tagName === "INPUT" && !["checkbox", "radio"].includes(t.type);
+  clearTimeout(autoTimer);
+  if (typed) autoTimer = setTimeout(autoSave, 700); else autoSave();
+});
+$("settings").addEventListener("change", (e) => { if (formDirty && e.target.tagName === "INPUT" && !["checkbox", "radio"].includes(e.target.type)) autoSave(); });
 $("settings").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target.elements;
@@ -204,11 +228,14 @@ $("settings").addEventListener("submit", async (e) => {
   const settings = {
     ...snap.settings,
     providers: f.providers.value,
+    questions_mode: f.questions_mode.value,
+    request_layout: f.request_layout.value,
+    request_popup_secs: Number(f.request_popup_secs.value || 0),
+    takeover_secs: Math.min(95, Math.max(3, Number(f.takeover_secs.value || 10))),
     display_mode: f.display_mode.value,
     monitor: Number(f.monitor.value || 0),
     edge: f.edge.value,
     notch_on_hover: f.notch_on_hover.checked,
-    notch_requests_layout: f.notch_requests_layout.value,
     taskbar_side: f.taskbar_side.value,
     dnd_hotkey: f.dnd_hotkey.value,
     quiet_start: num(f.quiet_start.value),
@@ -217,27 +244,27 @@ $("settings").addEventListener("submit", async (e) => {
     sounds: f.sounds.checked,
     toast_when_fullscreen: f.toast_when_fullscreen.checked,
   };
-  try { await invoke("save_settings", { settings }); formDirty = false; $("saved").textContent = "Saved"; setTimeout(() => ($("saved").textContent = ""), 2000); }
+  try { await invoke("save_settings", { settings }); formDirty = false; $("saved").textContent = "Saved"; clearTimeout(savedTimer); savedTimer = setTimeout(() => ($("saved").textContent = ""), 1500); }
   catch (err) { $("saved").textContent = String(err); }
 });
+
+let savedTimer = 0;
 
 // ---- shell ----
 function render(s) {
   snap = s;
   $("dnd").checked = s.dnd;
-  $("dnd-hint").textContent = s.dnd && !s.dnd_manual ? "On from quiet hours or Windows quiet time" : `Hotkey: ${s.settings.dnd_hotkey || "none"}`;
+  $("dnd-hint").textContent = s.dnd && !s.dnd_manual ? "On from quiet hours" : (s.settings.dnd_hotkey || "");
   $("pipe").textContent = s.pipe_error ? "Pipe error: " + s.pipe_error : "";
-  const n = s.pending.length, ni = $("n-inbox");
-  ni.textContent = n; ni.classList.toggle("show", n > 0);
-  const ns = $("n-sessions");
-  ns.textContent = s.sessions.length; ns.classList.toggle("show", s.sessions.length > 0); ns.classList.add("muted");
+  const ni = $("n-inbox"); ni.textContent = s.pending.length || ""; ni.classList.toggle("hot", s.pending.length > 0);
+  $("n-sessions").textContent = s.sessions.length || "";
   renderInbox(s); renderSessions(s); renderUsage(s); renderAlerts(s); renderHooks(s);
   if (!formDirty) fillForm(s.settings);
 }
 $("dnd").addEventListener("change", (e) => invoke("set_dnd", { on: e.target.checked }));
 $("refresh").addEventListener("click", () => invoke("refresh_usage"));
 $("test").addEventListener("click", () => invoke("test_alert"));
-invoke("monitors").then((list) => list.forEach((label, i) => $("monitor").append(new Option(label, String(i)))));
+invoke("monitors").then((list) => list.forEach((label, i) => $("monitor").append(new Option(label.replace(/^\d+: /, "") || "Monitor " + (i + 1), String(i)))));
 listen("state", (e) => render(e.payload));
 invoke("get_state").then(render);
-setInterval(() => invoke("get_state").then(render), 1000);
+setInterval(() => { if (snap) { renderInbox(snap); renderSessions(snap); } }, 1000);

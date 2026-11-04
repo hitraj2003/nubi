@@ -25,7 +25,7 @@ pub fn pipe_name() -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
     let user = if user.is_empty() { "default".to_string() } else { user };
-    format!(r"\\.\pipe\claude-overlay-{user}")
+    format!(r"\\.\pipe\nubi-{user}")
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

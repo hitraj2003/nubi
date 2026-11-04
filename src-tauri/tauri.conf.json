@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "claude-overlay",
+  "productName": "Nubi",
   "version": "0.1.0",
-  "identifier": "dev.claude-overlay.app",
+  "identifier": "dev.nubi.app",
   "build": {
     "frontendDist": "../ui"
   },
@@ -24,10 +24,24 @@
         "focus": false
       },
       {
+        "label": "island",
+        "url": "island.html",
+        "width": 720,
+        "height": 520,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false,
+        "focus": false
+      },
+      {
         "label": "overlay",
         "url": "overlay.html",
-        "width": 520,
-        "height": 90,
+        "width": 1080,
+        "height": 560,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
@@ -39,7 +53,7 @@
       },
       {
         "label": "panel",
-        "title": "claude-overlay",
+        "title": "Nubi",
         "url": "panel.html",
         "width": 960,
         "height": 680,
@@ -110,6 +124,18 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk5RTMzRkI4NUJDNjVBMUUKUldRZVdzWmJ1RC9qbWRIMG5xOTlvRVd4WVgwR0xERGdwMFJsQkx0YVg0RDNTdTRncHhJOEw3cncK",
+      "endpoints": [
+        "https://github.com/hitraj2003/nubi/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }
