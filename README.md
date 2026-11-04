@@ -108,7 +108,7 @@ Bump `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit
 push:
 
 ```
-git tag v0.1.1 && git push origin main v0.1.1
+git tag v0.1.2 && git push origin main v0.1.2
 ```
 
 GitHub Actions (`.github/workflows/build.yml`) builds the installer, signs the update and
