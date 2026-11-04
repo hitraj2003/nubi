@@ -121,3 +121,48 @@ pub fn beep(kind: &str) {
         MessageBeep(t);
     }
 }
+
+/// Friendly monitor names keyed by GDI device name (`\.\DISPLAY1`), as Windows Settings shows
+/// them: the EDID name ("Acer ET241Y"), or "Internal Display" for a laptop panel.
+pub fn monitor_names() -> HashMap<String, String> {
+    use windows_sys::Win32::Devices::Display::*;
+    let mut out = HashMap::new();
+    unsafe {
+        let (mut np, mut nm) = (0u32, 0u32);
+        if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm) != 0 {
+            return out;
+        }
+        let mut paths: Vec<DISPLAYCONFIG_PATH_INFO> = vec![std::mem::zeroed(); np as usize];
+        let mut modes: Vec<DISPLAYCONFIG_MODE_INFO> = vec![std::mem::zeroed(); nm as usize];
+        if QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), std::ptr::null_mut()) != 0 {
+            return out;
+        }
+        for p in &paths[..np as usize] {
+            let mut src: DISPLAYCONFIG_SOURCE_DEVICE_NAME = std::mem::zeroed();
+            src.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            src.header.size = std::mem::size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
+            src.header.adapterId = p.sourceInfo.adapterId;
+            src.header.id = p.sourceInfo.id;
+            if DisplayConfigGetDeviceInfo(&mut src.header) != 0 {
+                continue;
+            }
+            let mut tgt: DISPLAYCONFIG_TARGET_DEVICE_NAME = std::mem::zeroed();
+            tgt.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            tgt.header.size = std::mem::size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32;
+            tgt.header.adapterId = p.targetInfo.adapterId;
+            tgt.header.id = p.targetInfo.id;
+            if DisplayConfigGetDeviceInfo(&mut tgt.header) != 0 {
+                continue;
+            }
+            let gdi = String::from_utf16_lossy(&src.viewGdiDeviceName).trim_end_matches('\0').to_string();
+            let tech = tgt.outputTechnology;
+            let internal = tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL
+                || tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EMBEDDED
+                || tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED;
+            let name = String::from_utf16_lossy(&tgt.monitorFriendlyDeviceName).trim_end_matches('\0').to_string();
+            let name = if internal { "Internal Display".to_string() } else if name.is_empty() { continue } else { name };
+            out.insert(gdi, name);
+        }
+    }
+    out
+}

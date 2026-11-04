@@ -1,8 +1,10 @@
 window.addEventListener("error", (e) => window.__TAURI__.core.invoke("log_js", { msg: `ui/panel.js: ${e.message} @${e.lineno}` }));
 window.addEventListener("unhandledrejection", (e) => window.__TAURI__.core.invoke("log_js", { msg: `ui/panel.js: ${e.reason}` }));
 // Panel. All dynamic text is set with textContent: tool input and questions are untrusted.
+// Motion uses the same spring engine and presets as the notch (motion.js).
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+const { PRESET, Spring, Animator, enter, tween, slider, vslider, pressable } = window.Motion;
 const $ = (id) => document.getElementById(id);
 const NAME = { claude: "Claude", codex: "Codex" };
 
@@ -12,54 +14,150 @@ function el(tag, cls, text) {
   if (text != null) e.textContent = text;
   return e;
 }
-function btn(text, fn, cls) { const b = el("button", cls, text); b.type = "button"; b.addEventListener("click", fn); return b; }
+function btn(text, fn, cls) { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.addEventListener("click", fn); return b; }
 function ago(ms) { const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? s + "s ago" : s < 3600 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago"; }
 function resetIn(sec) {
   if (!sec) return "";
   const m = Math.round((sec * 1000 - Date.now()) / 60000);
-  if (m <= 0) return "Resetting";
-  return "Resets in " + (m < 60 ? m + "m" : m < 1440 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : Math.round(m / 1440) + "d");
+  if (m <= 0) return "resetting";
+  return "resets in " + (m < 60 ? m + "m" : m < 1440 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : Math.round(m / 1440) + "d");
 }
-const prov = (p) => el("span", "prov " + p, NAME[p]);
+const tile = (p) => el("span", "ico " + p, p === "codex" ? "X" : "C");
 const LABEL = { "5h": "Session", "7d": "Week", "7d Opus": "Week, Opus", "7d Sonnet": "Week, Sonnet" };
+const STATE = { working: "Working", waiting: "Waiting", done: "Done", idle: "Idle" };
 
-// ---- navigation ----
-function go(view) {
-  document.querySelectorAll("nav button[data-view]").forEach((x) => x.classList.toggle("on", x.dataset.view === view));
-  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.id === "v-" + view));
+// Children come in one after another on the notch's content spring (blur + rise).
+function stagger(nodes, step = 35) {
+  [...nodes].forEach((n, i) => { n.style.opacity = "0"; setTimeout(() => enter(n, PRESET.content), i * step); });
 }
-// Leaving Settings with unsaved changes asks first: Save or Discard (Esc or a click outside stays).
+pressable(document.body);
+
+// ---- navigation: the rail tile slides between items ----
+const railHl = vslider(document.querySelector(".rail-hl"));
+function go(view) {
+  document.querySelectorAll(".rail button[data-view]").forEach((x) => x.classList.toggle("on", x.dataset.view === view));
+  railHl(document.querySelector(".rail button.on"));
+  document.querySelectorAll(".view").forEach((v) => {
+    const on = v.id === "v-" + view;
+    if (on && !v.classList.contains("on")) {
+      v.classList.add("on");
+      enter(v, PRESET.content);
+      stagger(v.querySelectorAll(".pane.on .card, .ses, .al, .meter, .item"));
+    } else if (!on) v.classList.remove("on");
+  });
+  if (view === "settings") requestAnimationFrame(() => { sideHl(document.querySelector(".side button.on")); syncThumbs(); });
+}
 let leavingTo = null;
-document.querySelectorAll("nav button[data-view]").forEach((b) =>
+document.querySelectorAll(".rail button[data-view]").forEach((b) =>
   b.addEventListener("click", () => {
-    if (formDirty && b.dataset.view !== "settings") { leavingTo = b.dataset.view; $("leave").hidden = false; $("leave-save").focus(); return; }
+    if (formDirty && b.dataset.view !== "settings") { leavingTo = b.dataset.view; openLeave(); return; }
     go(b.dataset.view);
   }));
+function openLeave() { $("leave").hidden = false; enter($("leave").querySelector(".box"), PRESET.open); $("leave-save").focus(); }
 const closeLeave = () => { $("leave").hidden = true; leavingTo = null; };
 $("leave").addEventListener("click", (e) => { if (e.target === $("leave")) closeLeave(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("leave").hidden) closeLeave(); });
+requestAnimationFrame(() => railHl(document.querySelector(".rail button.on")));
+// The settings button sits at the bottom of the rail, so it moves when the window resizes.
+new ResizeObserver(() => railHl(document.querySelector(".rail button.on"))).observe(document.querySelector(".rail"));
+
+// ---- settings sections: highlight slides, pane blurs in ----
+const sideHl = vslider(document.querySelector(".side-hl"));
+document.querySelectorAll(".side button[data-pane]").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".side button[data-pane]").forEach((x) => x.classList.toggle("on", x === b));
+  sideHl(b);
+  document.querySelectorAll(".pane").forEach((p) => {
+    const on = p.dataset.pane === b.dataset.pane;
+    p.classList.toggle("on", on);
+    if (on) { enter(p, PRESET.content); stagger(p.querySelectorAll(".card")); }
+  });
+  requestAnimationFrame(syncThumbs);
+}));
+
+// ---- segmented controls: the thumb slides on the snappy spring ----
+const thumbs = [];
+document.querySelectorAll(".seg").forEach((seg) => {
+  const t = el("i", "thumb"); seg.prepend(t);
+  thumbs.push({ seg, t, move: slider(t) });
+});
+function syncThumbs() {
+  for (const { seg, t, move } of thumbs) {
+    const span = seg.querySelector("input:checked + span");
+    if (!span || !span.offsetWidth) { t.style.opacity = "0"; continue; }
+    t.style.opacity = "1";
+    move(span.parentElement);
+  }
+}
+addEventListener("resize", syncThumbs);
+
+// ---- custom dropdowns: each <select> keeps the form value, a styled menu drives it ----
+const CHEVRON = '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
+const dropdowns = [];
+function enhanceSelect(sel) {
+  const dd = el("div", "dd");
+  const b = el("button"); b.type = "button";
+  const label = el("span");
+  b.append(label); b.insertAdjacentHTML("beforeend", CHEVRON);
+  const ul = el("ul"); ul.setAttribute("role", "listbox");
+  dd.append(b, ul);
+  sel.after(dd);
+  let act = -1;
+  const items = () => [...ul.children];
+  const mark = () => items().forEach((li, i) => li.classList.toggle("act", i === act));
+  const close = () => { dd.classList.remove("open"); act = -1; mark(); };
+  const pick = (v) => { sel.value = v; sync(); close(); sel.dispatchEvent(new Event("input", { bubbles: true })); b.focus(); };
+  function sync() {
+    ul.replaceChildren();
+    for (const o of sel.options) {
+      const li = el("li", o.value === sel.value ? "sel" : "", o.textContent);
+      li.setAttribute("role", "option");
+      li.addEventListener("click", () => pick(o.value));
+      ul.append(li);
+    }
+    label.textContent = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : "";
+  }
+  b.addEventListener("click", () => {
+    const open = !dd.classList.contains("open");
+    dropdowns.forEach((d) => d.close());
+    if (open) { dd.classList.add("open"); act = sel.selectedIndex; mark(); stagger(ul.children, 20); }
+  });
+  b.addEventListener("keydown", (e) => {
+    if (!dd.classList.contains("open")) { if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); b.click(); } return; }
+    const n = sel.options.length;
+    if (e.key === "ArrowDown") { e.preventDefault(); act = (act + 1) % n; mark(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); act = (act - 1 + n) % n; mark(); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (act >= 0) pick(sel.options[act].value); }
+    else if (e.key === "Escape" || e.key === "Tab") close();
+  });
+  dropdowns.push({ sync, close, dd });
+  sync();
+}
+document.querySelectorAll("#settings select").forEach(enhanceSelect);
+addEventListener("pointerdown", (e) => dropdowns.forEach((d) => { if (!d.dd.contains(e.target)) d.close(); }));
+const syncDropdowns = () => dropdowns.forEach((d) => d.sync());
 
 let snap = null, formDirty = false;
 const picks = {};
-let inboxIds = "";
 
-// ---- inbox: built once per set of requests, countdowns update in place ----
-function renderInbox(s) {
-  $("inbox-meta").textContent = s.pending.length ? `${s.pending.length} waiting` : "";
+// ---- requests: shown in the Inbox and on top of Sessions ----
+const built = {};
+function countdowns(box, s) {
+  for (const p of s.pending) for (const c of box.querySelectorAll(`[data-left="${p.id}"]`)) c.textContent = `Terminal in ${Math.max(0, Math.round((p.expires_ms - Date.now()) / 1000))}s`;
+}
+function renderRequests(box, s) {
   const ids = s.pending.map((p) => p.id).join(",");
-  if (ids === inboxIds) {
-    for (const p of s.pending) { const c = document.querySelector(`[data-left="${p.id}"]`); if (c) c.textContent = `Terminal takes over in ${Math.max(0, Math.round((p.expires_ms - Date.now()) / 1000))}s`; }
-    return;
-  }
-  inboxIds = ids;
-  const box = $("inbox");
+  if (built[box.id] === ids) { countdowns(box, s); return; }
+  const before = (built[box.id] || "").split(",");
+  built[box.id] = ids;
   box.replaceChildren();
-  if (!s.pending.length) { box.append(el("div", "empty", "Nothing waiting. Approvals and Claude's questions appear here.")); return; }
+  if (box.id === "inbox" && !s.pending.length) { box.append(el("div", "empty", "Nothing waiting. Approvals and Claude's questions appear here.")); return; }
   for (const p of s.pending) {
     const it = el("div", "item " + p.provider);
     const h = el("div", "ih");
-    h.append(prov(p.provider), el("span", "t", p.kind === "question" ? "Question" : `Allow ${p.tool_name || "tool"}?`), el("span", "sub", p.name || p.folder || "session"));
-    const left = el("span", "left"); left.dataset.left = p.id; h.append(left);
+    const tl = el("div");
+    tl.append(el("div", "t", p.kind === "question" ? "Question" : `Allow ${p.tool_name || "tool"}?`), el("div", "sm", p.name || p.folder || "session"));
+    const left = el("span", "pill waiting left"); left.dataset.left = p.id;
+    h.append(tile(p.provider), tl, left);
     it.append(h);
     if (p.kind === "question") renderQuestion(it, p);
     else {
@@ -71,8 +169,10 @@ function renderInbox(s) {
       it.append(a);
     }
     box.append(it);
+    // A new request drops in like a notch card.
+    if (!before.includes(String(p.id)) && box.offsetParent) tween(it, { y: -10, scale: 0.97, opacity: 0, blur: 6 }, {}, PRESET.open);
   }
-  renderInbox({ ...s, pending: s.pending }); // fill countdowns
+  countdowns(box, s);
 }
 
 function renderQuestion(it, p) {
@@ -84,6 +184,7 @@ function renderQuestion(it, p) {
     qt.append(document.createTextNode(q.question + (q.multiSelect ? " (pick any)" : "")));
     it.append(qt);
     const opts = el("div", "opts");
+    const key = p.id + "\u0000" + q.question;
     (q.options || []).forEach((o, i) => {
       const b = el("button", "opt" + (chosen.has(o.label) ? " on" : ""));
       b.type = "button";
@@ -94,10 +195,14 @@ function renderQuestion(it, p) {
       b.addEventListener("click", () => {
         if (q.multiSelect) chosen.has(o.label) ? chosen.delete(o.label) : chosen.add(o.label);
         else { chosen.clear(); chosen.add(o.label); }
-        opts.querySelectorAll(".opt").forEach((r, j) => r.classList.toggle("on", chosen.has(q.options[j].label)));
+        // The same question shows in Inbox and Sessions: update both copies.
+        document.querySelectorAll(".opts").forEach((os) => {
+          if (os.dataset.q === key) os.querySelectorAll(".opt").forEach((r, j) => r.classList.toggle("on", chosen.has(q.options[j].label)));
+        });
       });
       opts.append(b);
     });
+    opts.dataset.q = key;
     it.append(opts);
     const other = el("input", "other");
     other.placeholder = "Other answer";
@@ -123,25 +228,35 @@ function renderQuestion(it, p) {
 }
 
 // ---- sessions ----
-function renderSessions(s) {
+let sfilter = "all", sessionKeys = "";
+document.querySelectorAll("input[name=sfilter]").forEach((r) => r.addEventListener("change", () => {
+  sfilter = r.value; syncThumbs(); if (snap) renderSessions(snap, true);
+}));
+function renderSessions(s, animate) {
+  const list = s.sessions.filter((x) => sfilter === "all" || x.provider === sfilter);
   $("sessions-meta").textContent = s.sessions.length ? `${s.sessions.length} running` : "";
+  renderRequests($("session-requests"), s);
   const box = $("sessions");
+  const keys = list.map((x) => x.key).join(",");
+  const changed = keys !== sessionKeys; sessionKeys = keys;
   box.replaceChildren();
-  box.style.display = s.sessions.length ? "" : "none";
-  if (!s.sessions.length) { if (!$("sessions-empty")) { const e = el("div", "empty", "No sessions yet. Turn on hooks in Settings, then start Claude Code or Codex."); e.id = "sessions-empty"; box.after(e); } return; }
-  if ($("sessions-empty")) $("sessions-empty").remove();
-  for (const x of s.sessions) {
-    const r = el("div", "r");
-    const state = x.state + (x.attention && x.state !== "waiting" ? ", needs you" : "") + (x.subagents ? ` · ${x.subagents} agents` : "");
-    r.append(el("span", "dot " + x.state), el("span", null, x.name || x.folder), prov(x.provider), el("span", "sub", state),
-      el("span", "mono sub num", x.context_tokens ? Math.round(x.context_tokens / 1000) + "k" : "—"),
-      el("span", "sub", ago(x.last_event_ms)),
-      btn("Jump", () => invoke("jump_session", { key: x.key }), "link"));
+  if (!list.length) { box.append(el("div", "empty", s.sessions.length ? "No sessions for this filter." : "No sessions yet. Turn on hooks in Settings, then start Claude Code or Codex.")); return; }
+  for (const x of list) {
+    const r = el("div", "ses");
+    const tl = el("div");
+    const parts = [x.folder, x.context_tokens ? Math.round(x.context_tokens / 1000) + "k context" : "", x.subagents ? `${x.subagents} agents` : ""].filter(Boolean);
+    tl.append(el("div", "n", x.name || x.folder), el("div", "sm", parts.join(" · ")));
+    const st = x.attention && x.state !== "waiting" ? "waiting" : x.state;
+    r.append(tile(x.provider), tl, el("span", "grow"), el("span", "pill " + st, STATE[st] || st), el("span", "ago", ago(x.last_event_ms)),
+      btn("Jump", () => invoke("jump_session", { key: x.key }), "ghost"));
     box.append(r);
   }
+  if ((animate || changed) && box.offsetParent) stagger(box.children);
 }
 
-// ---- usage ----
+// ---- usage: ring for the first window, bars for every window ----
+const ringVals = {}, barVals = {};
+function barColor(p, used) { return used >= 70 ? "var(--bad)" : used >= 50 ? "var(--warn)" : p === "codex" ? "var(--codex)" : "var(--claude)"; }
 function renderUsage(s) {
   const box = $("usage");
   box.replaceChildren();
@@ -150,40 +265,60 @@ function renderUsage(s) {
   if (!s.usage.length) box.append(el("div", "empty", "Loading"));
   for (const u of s.usage) {
     const c = el("div", "meter " + u.provider);
-    const top = el("div", "top");
-    top.append(prov(u.provider), el("span", "st" + (u.status === "ok" ? "" : " bad"), u.status === "ok" ? "" : (u.message || u.status)));
-    c.append(top);
-    for (const w of u.windows) {
-      const d = el("div", "win");
-      const wh = el("div", "wh");
-      const big = el("span", "big", String(Math.round(w.used_percent)));
-      big.append(el("small", null, "%"));
-      wh.append(big, el("span", "sub", resetIn(w.resets_at)));
-      const bar = el("div", "bar"), i = el("i");
-      i.style.width = Math.min(100, w.used_percent) + "%";
-      if (w.used_percent >= 70) i.className = "bad"; else if (w.used_percent >= 50) i.className = "warn";
-      bar.append(i);
-      d.append(wh, bar, el("div", "wl", LABEL[w.label] || w.label));
-      c.append(d);
+    const w0 = u.windows[0];
+    if (w0) {
+      const ring = el("div", "ring");
+      const pct = Math.min(100, w0.used_percent);
+      ring.innerHTML = `<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" stroke="var(--card-2)" stroke-width="3.2"/><circle class="arc" cx="18" cy="18" r="15.5" stroke="${barColor(u.provider, pct)}" stroke-width="3.2" stroke-dasharray="0 97.4"/></svg>`;
+      const v = el("div", "v"), inner = el("div"), b = el("b", null, "0%");
+      inner.append(b, el("small", null, (LABEL[w0.label] || w0.label).toLowerCase()));
+      v.append(inner); ring.append(v); c.append(ring);
+      // Counts up on the content spring from the last shown value.
+      const sp = new Spring(ringVals[u.provider] ?? 0, PRESET.content).to(pct);
+      ringVals[u.provider] = pct;
+      const arc = ring.querySelector(".arc");
+      new Animator({ sp }, (o) => {
+        const x = Math.max(0, Math.min(100, o.sp));
+        b.textContent = Math.round(x) + "%";
+        arc.setAttribute("stroke-dasharray", `${(x / 100) * 97.4} 97.4`);
+      }).kick();
     }
+    const body = el("div", "body");
+    const top = el("div", "top");
+    top.append(tile(u.provider), el("div", "ct", NAME[u.provider]));
+    if (u.status !== "ok") top.append(el("span", "st", u.message || u.status));
+    body.append(top);
+    for (const w of u.windows) {
+      const kv = el("div", "kv");
+      kv.append(el("span", null, LABEL[w.label] || w.label), el("span", null, `${Math.round(w.used_percent)}% · ${resetIn(w.resets_at)}`));
+      const bar = el("div", "bar"), i = el("i");
+      const k = u.provider + w.label, to = Math.min(100, w.used_percent);
+      i.style.width = (barVals[k] ?? 0) + "%"; i.style.background = barColor(u.provider, w.used_percent);
+      barVals[k] = to;
+      bar.append(i);
+      requestAnimationFrame(() => requestAnimationFrame(() => (i.style.width = to + "%")));
+      body.append(kv, bar);
+    }
+    c.append(body);
     box.append(c);
   }
 }
 
 // ---- alerts ----
+let alertCount = -1;
 function renderAlerts(s) {
   const box = $("alerts");
+  const grew = alertCount >= 0 && s.alerts.length > alertCount; alertCount = s.alerts.length;
   box.replaceChildren();
-  box.style.display = s.alerts.length ? "" : "none";
-  if (!s.alerts.length) { if (!$("alerts-empty")) { const e = el("div", "empty", "No alerts yet"); e.id = "alerts-empty"; box.after(e); } return; }
-  if ($("alerts-empty")) $("alerts-empty").remove();
+  if (!s.alerts.length) { box.append(el("div", "empty", "No alerts yet")); return; }
   for (const a of s.alerts) {
-    const r = el("div", "r");
-    const body = el("span", null, `${a.title} · ${a.body}`);
-    if (a.queued) body.append(el("span", "sub", "  during do not disturb"));
-    r.append(el("span", "mono sub", new Date(a.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), prov(a.provider), body);
+    const r = el("div", "al");
+    const tx = el("div", "tx", `${a.title} · ${a.body}`);
+    if (a.queued) tx.append(el("small", null, "during do not disturb"));
+    r.append(el("span", "tm", new Date(a.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), tile(a.provider), tx);
     box.append(r);
   }
+  if (grew && box.offsetParent) tween(box.firstChild, { y: -10, opacity: 0, blur: 6 }, {}, PRESET.open);
 }
 
 // ---- settings ----
@@ -193,10 +328,12 @@ function renderHooks(s) {
   for (const p of ["claude", "codex"]) {
     const on = !!s.hooks[p];
     const r = el("div", "row");
-    const left = el("div");
-    left.append(el("div", "rl", NAME[p]), el("div", "rd", p === "codex" && on ? "Run /hooks once in Codex to trust them" : p === "codex" ? "$CODEX_HOME/hooks.json" : "~/.claude/settings.json"));
+    const left = el("div", "hook");
+    const t = el("div");
+    t.append(el("div", "rl", NAME[p]), el("div", "rd", p === "codex" && on ? "Run /hooks once in Codex to trust them" : p === "codex" ? "$CODEX_HOME/hooks.json" : "~/.claude/settings.json"));
+    left.append(tile(p), t);
     const right = el("span", "hook");
-    right.append(el("span", "on-off" + (on ? " on" : ""), on ? "On" : "Off"),
+    right.append(el("span", "pill " + (on ? "working" : "idle"), on ? "On" : "Off"),
       btn(on ? "Turn off" : "Turn on", () => invoke("set_hooks", { provider: p, enable: !on }).catch((e) => alert(e))));
     r.append(left, right);
     box.append(r);
@@ -211,22 +348,34 @@ function fillForm(cfg) {
     if (i.type === "checkbox") i.checked = !!v;
     else i.value = v == null ? "" : String(v);
   }
+  syncDropdowns();
   modeFields();
+  window.nubiTheme.apply({ theme: cfg.theme, accent: cfg.accent, reduce_motion: cfg.reduce_motion });
+  requestAnimationFrame(syncThumbs);
 }
 function modeFields() {
   const m = $("settings").elements.display_mode.value;
   document.querySelectorAll(".mode-notch").forEach((e) => (e.style.display = m === "island" ? "" : "none"));
   document.querySelectorAll(".mode-taskbar").forEach((e) => (e.style.display = m === "taskbar" ? "" : "none"));
 }
-// Changes are a draft until Save. While there is a draft, state updates do not refill the form,
-// and the bar at the bottom offers Discard (back to the saved values) or Save.
-function setDirty(d) { formDirty = d; $("draftbar").hidden = !d; }
-$("settings").addEventListener("input", () => { setDirty(true); modeFields(); });
+// Changes are a draft until Save. Theme, accent and motion preview live; Discard reverts them.
+function setDirty(d) {
+  const was = formDirty;
+  formDirty = d; window.nubiTheme.hold = d;
+  $("draftbar").hidden = !d;
+  if (d && !was) tween($("draftbar"), { y: 16, opacity: 0, scale: 0.98 }, {}, PRESET.open);
+}
+$("settings").addEventListener("input", () => {
+  setDirty(true); modeFields(); syncThumbs();
+  const f = $("settings").elements;
+  window.nubiTheme.apply({ theme: f.theme.value, accent: f.accent.value, reduce_motion: f.reduce_motion.checked });
+});
 function discard() { setDirty(false); if (snap) fillForm(snap.settings); }
 $("discard").addEventListener("click", discard);
 $("leave-discard").addEventListener("click", () => { const to = leavingTo; discard(); closeLeave(); if (to) go(to); });
 $("leave-save").addEventListener("click", async () => { const to = leavingTo; if (await saveSettings()) { closeLeave(); if (to) go(to); } });
 $("settings").addEventListener("submit", (e) => { e.preventDefault(); saveSettings(); });
+let savedTimer = 0;
 async function saveSettings() {
   const f = $("settings").elements;
   const num = (v) => (v === "" ? null : Number(v));
@@ -249,6 +398,10 @@ async function saveSettings() {
     sounds: f.sounds.checked,
     toast_when_fullscreen: f.toast_when_fullscreen.checked,
     auto_update: f.auto_update.checked,
+    auto_start: f.auto_start.checked,
+    theme: f.theme.value,
+    accent: f.accent.value,
+    reduce_motion: f.reduce_motion.checked,
   };
   try {
     await invoke("save_settings", { settings });
@@ -258,24 +411,44 @@ async function saveSettings() {
   } catch (err) { $("saved").textContent = String(err); return false; }
 }
 
-let savedTimer = 0;
+// ---- about ----
+invoke("app_version").then((v) => ($("version").textContent = "Version " + v)).catch(() => {});
+$("check-update").addEventListener("click", async () => {
+  const b = $("check-update"); b.textContent = "Checking…"; b.disabled = true;
+  try { b.textContent = await invoke("check_update"); } catch (e) { b.textContent = "Check failed"; $("saved").textContent = String(e); }
+  setTimeout(() => { b.textContent = "Check for updates"; b.disabled = false; }, 3000);
+});
 
 // ---- shell ----
+let lastPending = 0;
 function render(s) {
   snap = s;
   $("dnd").checked = s.dnd;
-  $("dnd-hint").textContent = s.dnd && !s.dnd_manual ? "On from quiet hours" : (s.settings.dnd_hotkey || "");
+  $("dnd-wrap").title = s.dnd ? (s.dnd_manual ? "Do not disturb is on" : "Do not disturb, on from quiet hours") : "Do not disturb (" + (s.settings.dnd_hotkey || "off") + ")";
   $("pipe").textContent = s.pipe_error ? "Pipe error: " + s.pipe_error : "";
-  const ni = $("n-inbox"); ni.textContent = s.pending.length || ""; ni.classList.toggle("hot", s.pending.length > 0);
-  $("n-sessions").textContent = s.sessions.length || "";
-  renderInbox(s); renderSessions(s); renderUsage(s); renderAlerts(s); renderHooks(s);
+  const ni = $("n-inbox");
+  ni.textContent = s.pending.length || ""; ni.hidden = !s.pending.length;
+  if (s.pending.length > lastPending) tween(ni, { scale: 0.4, opacity: 0 }, {}, PRESET.press);
+  lastPending = s.pending.length;
+  $("inbox-meta").textContent = s.pending.length ? `${s.pending.length} waiting` : "";
+  renderRequests($("inbox"), s); renderSessions(s); renderUsage(s); renderAlerts(s); renderHooks(s);
   if (!formDirty) fillForm(s.settings);
 }
 $("dnd").addEventListener("change", (e) => invoke("set_dnd", { on: e.target.checked }));
 $("refresh").addEventListener("click", () => invoke("refresh_usage"));
 $("test").addEventListener("click", () => invoke("test_alert"));
 $("report").addEventListener("click", () => invoke("report_issue"));
-invoke("monitors").then((list) => list.forEach((label, i) => $("monitor").append(new Option(label.replace(/^\d+: /, "") || "Monitor " + (i + 1), String(i)))));
+invoke("monitors").then((list) => {
+  list.forEach((label, i) => $("monitor").append(new Option(label || "Display " + (i + 1), String(i))));
+  if (snap) $("monitor").value = String(snap.settings.monitor);
+  syncDropdowns();
+});
 listen("state", (e) => render(e.payload));
-invoke("get_state").then(render);
-setInterval(() => { if (snap) { renderInbox(snap); renderSessions(snap); } }, 1000);
+invoke("get_state").then((s) => {
+  render(s);
+  stagger(document.querySelectorAll("#v-inbox .item, #v-inbox .empty"));
+  // Theme crossfades only after the first paint, so startup does not flash.
+  requestAnimationFrame(() => document.documentElement.classList.add("ready"));
+});
+// Countdowns tick every second without rebuilding the cards.
+setInterval(() => { if (snap) { countdowns($("inbox"), snap); countdowns($("session-requests"), snap); } }, 1000);

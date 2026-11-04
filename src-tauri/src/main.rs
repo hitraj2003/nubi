@@ -62,6 +62,8 @@ fn main() {
             app::hide_overlay,
             app::show_panel,
             app::monitors,
+            updater::check_update,
+            updater::app_version,
             notch::report_hot,
             notch::report_overlay_hot,
             notch::report_island_hot,
