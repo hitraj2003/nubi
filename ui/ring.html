@@ -1,17 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-surface="notch">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 <title>Nubi</title>
 <!-- Drawn in the notch material (island.css). Drag and snap from yonathanamir/claude-usage-meter (MIT, commit 260e4f2). -->
 <style>
-  :root{--warn:#FFB340}
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;user-select:none;cursor:default}
   svg{display:block}
-  text{fill:#fff}
+  text{fill:var(--ink)}
   text.n{font:600 15px "Cascadia Mono",Consolas,monospace;font-variant-numeric:tabular-nums}
-  text.s{font:9px "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;fill:rgba(255,255,255,.38)}
+  text.s{font:9px "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;fill:var(--notch-ink-38)}
   text.n.h{font-size:12px}
+  #missed{cursor:pointer}
+  #missed:focus-visible rect{stroke:var(--ink);stroke-width:2}
+  text.missed-count{font:600 10px var(--mono);fill:var(--notch-inverse)}
   .stale{opacity:.5}
   .run{animation:run 1.1s linear infinite}
   @keyframes run{from{stroke-dashoffset:100}to{stroke-dashoffset:0}}

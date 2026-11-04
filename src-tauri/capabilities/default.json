@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "windows": [
-    "notch", "island",
+    "island",
     "overlay",
     "panel",
     "ring",

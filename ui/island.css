@@ -2,10 +2,6 @@
    Claude terracotta / Codex blue only where they name a provider. Size and corner radius are
    driven by a spring in island.js; CSS only handles the content crossfades. */
 :root{
-  --ink:#fff; --ink-2:rgba(255,255,255,.62); --ink-3:rgba(255,255,255,.38);
-  --row:rgba(255,255,255,.06); --row-hover:rgba(255,255,255,.1); --line:rgba(255,255,255,.08);
-  --ok:#4CD964; --warn:#FFB340; --info:#0A84FF; --bad:#FF6961;
-  --claude:#D97757; --codex:#6E9BEF;
   --mono:"Cascadia Mono",Consolas,monospace;
   --out:cubic-bezier(.22,1,.36,1);
 }
@@ -25,7 +21,7 @@ body[data-edge="bottom"] #shape{bottom:0;left:50%;transform:translateX(-50%)}
 body[data-edge="left"] #shape{left:0;top:50%;transform:translateY(-50%)}
 body[data-edge="right"] #shape{right:0;top:50%;transform:translateY(-50%)}
 #bg{position:absolute;top:0;left:0;overflow:visible;pointer-events:none}
-#bg path{fill:#000}
+#bg path{fill:var(--notch-bg)}
 #views{position:absolute;inset:0;overflow:hidden}
 #shape.dragging{cursor:grabbing}
 
@@ -44,6 +40,7 @@ body[data-edge="right"] .v{right:0;top:50%;--c:translateY(-50%);transform-origin
 
 /* Closed pill */
 #v-compact{display:flex;align-items:center;justify-content:space-between;height:38px;padding:0 14px 0 10px;gap:12px;white-space:nowrap;cursor:grab}
+body[data-edge="top"] #v-compact,body[data-edge="bottom"] #v-compact{height:44px;padding-top:3px;padding-bottom:3px}
 /* Side edges: the pill stands up, rings stacked, no text. */
 body[data-edge="left"] #v-compact,body[data-edge="right"] #v-compact{flex-direction:column;height:auto;width:46px;padding:12px 0;gap:10px}
 body[data-edge="left"] .c-left,body[data-edge="right"] .c-left,body[data-edge="left"] .c-right,body[data-edge="right"] .c-right{flex-direction:column;gap:10px}
@@ -53,8 +50,12 @@ body[data-edge="left"] .pr,body[data-edge="right"] .pr{flex-direction:column;gap
 .c-right{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .glyph{width:16px;height:16px;display:inline-flex}
 .glyph svg{width:100%;height:100%}
-.badge{min-width:18px;height:18px;padding:0 6px;border-radius:9px;background:var(--warn);color:#000;
+.badge{min-width:18px;height:18px;padding:0 6px;border-radius:9px;background:var(--warn);color:var(--notch-bg);
   font:600 11px/18px var(--mono);text-align:center}
+.dismiss{width:18px;height:18px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--ink-2);
+  font:500 14px/18px var(--mono);cursor:pointer}
+.dismiss:hover{background:var(--notch-ink-12);color:var(--ink)}
+.c-txt[title]{cursor:pointer}
 /* Working: three bars breathing, like an equaliser. */
 .eq{display:inline-flex;align-items:flex-end;gap:2px;height:12px}
 .eq i{width:2px;border-radius:1px;background:currentColor;animation:eq 1s ease-in-out infinite}
@@ -63,16 +64,16 @@ body[data-edge="left"] .pr,body[data-edge="right"] .pr{flex-direction:column;gap
 .p-claude{color:var(--claude)} .p-codex{color:var(--codex)}
 .ring{width:16px;height:16px;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:3}
-.ring .tr{stroke:rgba(255,255,255,.16)}
+.ring .tr{stroke:var(--notch-ink-16)}
 .ring .fg{stroke:currentColor;stroke-linecap:round;transition:stroke-dasharray .6s var(--out)}
 
 /* Alert */
 #v-alert{display:flex;align-items:center;gap:12px;height:56px;padding:0 20px 0 14px;white-space:nowrap}
 .a-icon{width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center}
 .a-icon svg{width:14px;height:14px}
-.a-icon.success{background:rgba(76,217,100,.16);color:var(--ok)}
-.a-icon.warning{background:rgba(255,179,64,.16);color:var(--warn)}
-.a-icon.info{background:rgba(10,132,255,.18);color:var(--info)}
+.a-icon.success{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.a-icon.warning{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.a-icon.info{background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)}
 .a-text{display:flex;flex-direction:column;min-width:0}
 .a-text b{font-weight:600}
 .a-text span{color:var(--ink-2);font-size:12px;overflow:hidden;text-overflow:ellipsis;max-width:300px}
@@ -84,12 +85,12 @@ body[data-edge="left"] .pr,body[data-edge="right"] .pr{flex-direction:column;gap
 .tabs button{position:relative;z-index:1;height:28px;padding:0 12px;border-radius:14px;color:var(--ink-2);font-size:12px;font-weight:500;
   display:flex;align-items:center;gap:6px;transition:color .2s}
 .tabs button:hover{color:var(--ink)}
-.tabs button.on{color:#000}
-.tab-hl{position:absolute;top:0;left:0;height:28px;border-radius:14px;background:#fff;will-change:transform,width}
-.tn{font:600 10px/16px var(--mono);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:rgba(255,255,255,.14);text-align:center}
+.tabs button.on{color:var(--notch-action-ink)}
+.tab-hl{position:absolute;top:0;left:0;height:28px;border-radius:14px;background:var(--notch-action);will-change:transform,width}
+.tn{font:600 10px/16px var(--mono);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--notch-ink-14);text-align:center}
 .tn:empty{display:none}
-.tabs button.on .tn{background:rgba(0,0,0,.12)}
-.tn.hot{background:var(--warn);color:#000}
+.tabs button.on .tn{background:color-mix(in srgb,var(--notch-action-ink) 12%,transparent)}
+.tn.hot{background:var(--warn);color:var(--notch-bg)}
 .grow{flex:1}
 .ib{width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;color:var(--ink-2);transition:background-color .15s,color .15s}
 .ib:hover{background:var(--row-hover);color:var(--ink)}
@@ -123,7 +124,7 @@ body[data-edge="left"] .pr,body[data-edge="right"] .pr{flex-direction:column;gap
 .mi{display:flex;align-items:center;gap:10px}
 .big-ring{width:44px;height:44px}
 .big-ring circle{fill:none;stroke-width:4}
-.big-ring .tr{stroke:rgba(255,255,255,.1)}
+.big-ring .tr{stroke:var(--notch-ink-10)}
 .big-ring .fg{stroke-linecap:round;transition:stroke-dasharray .8s var(--out)}
 .mi b{display:block;font:600 16px/1.1 var(--mono);font-variant-numeric:tabular-nums}
 .mi span{display:block;color:var(--ink-2);font-size:12px}
@@ -153,38 +154,38 @@ body[data-edge="left"] .pct,body[data-edge="right"] .pct{font-size:10px}
 .rh b{font-weight:600}
 .rh .w{color:var(--ink-3);font-size:12px}
 .rh .left{margin-left:auto;color:var(--ink-3);font:11px var(--mono);font-variant-numeric:tabular-nums}
-.cmd{font:12px/1.5 var(--mono);color:rgba(255,255,255,.82);background:rgba(255,255,255,.05);border-radius:10px;padding:8px 10px;
+.cmd{font:12px/1.5 var(--mono);color:var(--notch-ink-82);background:var(--notch-ink-5);border-radius:10px;padding:8px 10px;
   margin-bottom:10px;max-height:96px;overflow:auto;white-space:pre-wrap;word-break:break-all;user-select:text}
 .q{margin-bottom:8px;font-weight:500}
 .q .h{color:var(--ink-3);font-weight:400;margin-right:6px}
 .opts{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
-.opt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,.05);border:1px solid transparent;
+.opt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--notch-ink-5);border:1px solid transparent;
   border-radius:10px;padding:7px 10px;transition:background-color .15s,border-color .15s}
 .opt:hover{background:var(--row-hover)}
 .opt .n{font:11px var(--mono);color:var(--ink-3);width:10px}
 .opt .l{display:flex;flex-direction:column}
 .opt small{color:var(--ink-3);font-size:11px}
-.req.p-claude .opt.on{border-color:var(--claude);background:rgba(217,119,87,.14)}
-.req.p-codex .opt.on{border-color:var(--codex);background:rgba(110,155,239,.14)}
-.other{width:100%;font:inherit;font-size:12px;color:var(--ink);background:rgba(255,255,255,.05);border:1px solid transparent;border-radius:10px;
+.req.p-claude .opt.on{border-color:var(--claude);background:var(--pc-claude-soft)}
+.req.p-codex .opt.on{border-color:var(--codex);background:var(--pc-codex-soft)}
+.other{width:100%;font:inherit;font-size:12px;color:var(--ink);background:var(--notch-ink-5);border:1px solid transparent;border-radius:10px;
   padding:7px 10px;outline:none;margin-bottom:10px;user-select:text}
-.other:focus{border-color:rgba(255,255,255,.24)}
+.other:focus{border-color:var(--notch-ink-24)}
 .acts{display:flex;align-items:center;gap:6px}
 .btn{height:28px;padding:0 16px;border-radius:14px;font-size:12px;font-weight:600;transition:background-color .15s,transform .12s var(--out)}
 .btn:active{transform:scale(.96)}
-.btn.primary{background:#fff;color:#000}
-.btn.primary:hover{background:#e6e6e6}
-.btn.quiet{background:rgba(255,255,255,.12)}
-.btn.quiet:hover{background:rgba(255,255,255,.18)}
+.btn.primary{background:var(--notch-action);color:var(--notch-action-ink)}
+.btn.primary:hover{background:var(--notch-action-hover)}
+.btn.quiet{background:var(--notch-ink-12)}
+.btn.quiet:hover{background:var(--notch-ink-18)}
 .link{font-size:12px;color:var(--ink-2);padding:4px 6px}
 .link:hover{color:var(--ink)}
-.timebar{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(255,255,255,.05)}
+.timebar{position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--notch-ink-5)}
 .timebar i{display:block;height:100%;transform-origin:left center;background:var(--ink-3)}
 .req.p-claude .timebar i{background:var(--claude)} .req.p-codex .timebar i{background:var(--codex)}
 .leave{animation:none !important;transition:opacity .2s ease,transform .3s var(--out),filter .2s ease;opacity:0;transform:scale(.97);filter:blur(4px)}
 
 button:focus{outline:none}
-button:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+button:focus-visible{outline:none;box-shadow:0 0 0 2px var(--notch-ink-35)}
 .other:focus-visible{outline:none}
 
 @media (prefers-reduced-motion: reduce){
@@ -209,6 +210,18 @@ body[data-edge="left"] .pane,body[data-edge="right"] .pane{max-height:620px}
 .pr .pct{color:var(--ink-2)}
 /* System prompts approval: one row with the buttons beside the command. */
 .req.slim{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px}
-.req.slim .st{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--mono);color:rgba(255,255,255,.88)}
+.req.slim .st{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--mono);color:var(--notch-ink-88)}
 .req.slim .left{color:var(--ink-3);font:11px var(--mono);font-variant-numeric:tabular-nums}
 .req.slim .w{color:var(--ink-3);font-size:12px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+
+/* Usage refresh shares the bar's round icon control. */
+#refresh-usage[hidden]{display:none}
+#refresh-usage:disabled{cursor:default}
+#refresh-usage svg{display:block;transform-origin:50% 50%;transform-box:view-box}
+#refresh-usage.loading{color:var(--ink-3)}
+.usage-updated{position:relative;color:var(--ink-3);font-size:11px;margin-top:8px;animation:none}
+.usage-updated.failed{color:var(--warn)}
+.usage-previous{position:absolute;inset:0;background:var(--notch-bg)}
+.question-step .opt b{font-weight:500}
+html[data-motion="reduce"] #refresh-usage.loading svg{opacity:.5;transform:none !important}
+html[data-motion="reduce"] .big-ring .fg{transition:none}

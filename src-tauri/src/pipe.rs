@@ -174,12 +174,20 @@ async fn handle(app: App, pipe: NamedPipeServer) {
     let (tx, rx) = oneshot::channel();
     let id = app::add_pending(&app, &msg, tx, wait.as_millis() as u64);
     let mut probe = [0u8; 1];
+    let mut timed_out = false;
+    // Hovering a card pauses the countdown, up to the hook's own deadline.
+    let hard_ms = crate::state::now_ms() + msg.deadline_secs.min(cap).saturating_sub(5) * 1000;
+    let countdown = async {
+        while !app::pending_tick(&app, id, 250, hard_ms) {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    };
     let reply = tokio::select! {
         r = rx => r.ok(),
-        _ = tokio::time::sleep(wait) => None,
+        _ = countdown => { timed_out = true; None }
         _ = reader.read(&mut probe) => None, // provider moved on
     };
-    app::remove_pending(&app, id);
+    app::remove_pending(&app, id, timed_out);
     if let Some(rep) = reply {
         if let Ok(mut line) = serde_json::to_string(&rep) {
             line.push('\n');
@@ -222,8 +230,9 @@ pub fn start_sim(app: App) {
                     let wait = Duration::from_secs(app::takeover_secs(&app).max(3));
                     let (tx, rx) = oneshot::channel();
                     let id = app::add_pending(&app, &msg, tx, wait.as_millis() as u64);
-                    let reply = tokio::select! { r = rx => r.ok(), _ = tokio::time::sleep(wait) => None };
-                    app::remove_pending(&app, id);
+                    let mut timed_out = false;
+                    let reply = tokio::select! { r = rx => r.ok(), _ = tokio::time::sleep(wait) => { timed_out = true; None } };
+                    app::remove_pending(&app, id, timed_out);
                     let text = reply.and_then(|r| serde_json::to_string(&r).ok()).unwrap_or_else(|| "timeout".into());
                     let _ = std::fs::write(out, text);
                 });

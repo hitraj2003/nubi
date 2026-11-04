@@ -42,8 +42,12 @@ pub struct Settings {
     pub auto_start: bool,
     /// Panel theme: "system" | "dark" | "light"
     pub theme: String,
-    /// Accent everywhere: "yellow" | "terracotta" | "blue" | "green" | "violet" | "black"
+    /// Panel accent: "yellow" | "terracotta" | "blue" | "green" | "violet" | "black"
     pub accent: String,
+    /// Theme for the notch, toast, ring, ring tip and taskbar strip: "system" | "dark" | "light"
+    pub notch_theme: String,
+    /// Accent for the same surfaces (same values as `accent`).
+    pub notch_accent: String,
     /// Fades only, no springs (also on when Windows asks for less motion).
     pub reduce_motion: bool,
 }
@@ -73,6 +77,8 @@ impl Default for Settings {
             auto_start: false,
             theme: "system".into(),
             accent: "yellow".into(),
+            notch_theme: "dark".into(),
+            notch_accent: "yellow".into(),
             reduce_motion: false,
         }
     }

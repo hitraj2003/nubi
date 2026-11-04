@@ -11,6 +11,7 @@ mod notch;
 mod pipe;
 mod poller;
 mod protocol;
+mod report;
 mod ring;
 mod taskbar;
 mod settings;
@@ -53,6 +54,8 @@ fn main() {
             app::get_state,
             app::answer_permission,
             app::answer_question,
+            app::dismiss_missed,
+            app::hold_pending,
             app::jump_session,
             app::save_settings,
             app::set_dnd,
@@ -65,13 +68,17 @@ fn main() {
             updater::check_update,
             updater::app_version,
             app::open_release_notes,
-            notch::report_hot,
             notch::report_overlay_hot,
             notch::report_island_hot,
             island::island_offset,
             app::show_requests,
             app::log_js,
             app::report_issue,
+            report::report_context,
+            report::draft_report,
+            report::open_report,
+            report::list_releases,
+            report::open_release_link,
             notch::notch_drag,
             notch::notch_drag_end,
             ring::ring_move,

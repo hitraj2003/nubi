@@ -1,29 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-surface="notch">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 <title>Nubi</title>
 <!-- Layout after yonathanamir/claude-usage-meter tooltip_widget.py (MIT, commit 260e4f2); material and colours from the notch (island.css). -->
 <style>
-  :root{--ink:#fff;--ink-2:rgba(255,255,255,.62);--ink-3:rgba(255,255,255,.38);--row:rgba(255,255,255,.06);--line:rgba(255,255,255,.08);
-    --bad:#FF6961;--mono:"Cascadia Mono",Consolas,monospace}
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;user-select:none;
     font:13px/1.4 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
-  #tip{position:absolute;inset:4px;border-radius:16px;padding:12px 12px 10px;box-sizing:border-box;background:#000;
-    box-shadow:0 8px 20px -4px rgba(0,0,0,.4),0 2px 8px -2px rgba(0,0,0,.6);opacity:0}
+  #tip{position:absolute;inset:4px;border-radius:16px;padding:12px 12px 10px;box-sizing:border-box;background:var(--notch-bg);
+    box-shadow:var(--notch-tip-shadow);opacity:0}
   .title{font-size:14px;font-weight:600;line-height:1.2;letter-spacing:-.01em}
   .tier{font-size:11px;color:var(--ink-3);margin-top:2px}
   .div{height:1px;background:var(--line);margin:8px 0 6px}
   .row{position:relative;border-radius:10px;padding:5px 6px 3px;margin:0 -6px 2px}
   .row.on{background:var(--row)}
   .rh{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
-  .row.on .rh .l{color:var(--ink);font-weight:600}
+  .row.on .rh .l{color:var(--notch-active-label);font-weight:600}
   .rh .v{font:600 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
-  .bar{height:4px;border-radius:2px;background:rgba(255,255,255,.12);margin:5px 0 3px;overflow:hidden}
+  .bar{height:4px;border-radius:2px;background:var(--notch-ink-12);margin:5px 0 3px;overflow:hidden}
   .fill{height:100%;border-radius:2px;transform-origin:left center}
   .reset{font-size:10px;color:var(--ink-3)}
   .warn{margin-top:6px;border-radius:10px;background:var(--row);color:var(--bad);font-size:11px;padding:5px 8px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .waiting{color:var(--warn);font-size:12px;margin-top:6px}
   .foot{position:absolute;bottom:8px;left:12px;font-size:10px;color:var(--ink-3)}
   .loading{color:var(--ink-2);font-size:13px;text-align:center;margin-top:20px}
 </style>

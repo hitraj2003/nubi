@@ -26,9 +26,9 @@ function dur(sec) {
   return Math.round(s) + "s";
 }
 function line(u, label) {
-  if (!u || u.status === "loading") return { pct: null, text: "--" };
+  if (!u || u.status === "loading") return { pct: null, text: "Loading" };
   const w = u.windows.find((x) => x.label === label);
-  if (!w) return { pct: null, text: u.status === "ok" ? "--" : "!" };
+  if (!w) return { pct: null, text: u.status === "needs_auth" ? "Sign in" : "No data" };
   const pct = Math.round(w.used_percent);
   return { pct, text: w.resets_at ? `${pct}% · ${dur(w.resets_at)}` : `${pct}%` };
 }
@@ -71,17 +71,23 @@ function render() {
   const tips = rows.map(([p, lab]) => {
     const u = usage(p);
     const name = p === "codex" ? "Codex" : "Claude";
-    return `${name} ${lab}: ${line(u, lab).text}${u && u.message ? " (" + u.message + ")" : ""}`;
+    const w = u && u.windows.find((x) => x.label === lab);
+    const value = w ? `${Math.round(w.used_percent)}% used${w.resets_at ? ", resets in " + dur(w.resets_at) : ""}` : line(u, lab).text;
+    return `${name}, ${lab === "5h" ? "last 5 hours" : "this week"}: ${value}`;
   });
   const waiting = (snap.pending || []).length;
-  if (waiting) tips.push(`${waiting} waiting for you`);
+  const missed = (snap.missed || []).filter((m) => want === "both" || m.provider === want).length;
+  if (waiting) tips.push(`${waiting} questions & approvals need your OK`);
+  if (missed) tips.push(`${missed} waiting in terminal`);
+  dot.textContent = missed ? String(missed) : "";
+  dot.classList.toggle("count", missed > 0);
+  dot.title = missed ? `${missed} waiting in terminal` : "Needs your OK";
   document.body.title = tips.join("\n");
-  dot.style.display = waiting ? "block" : "none";
+  dot.style.display = waiting || missed ? "block" : "none";
 }
 
 document.addEventListener("click", () => invoke("show_panel"));
 document.addEventListener("contextmenu", (e) => { e.preventDefault(); invoke("show_panel"); });
-listen("taskbar_theme", (e) => document.body.classList.toggle("light", e.payload === "light"));
 listen("state", (e) => { snap = e.payload; render(); });
 invoke("get_state").then((s) => { snap = s; render(); });
 setInterval(render, 60000);

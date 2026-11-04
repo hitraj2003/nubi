@@ -1,22 +1,13 @@
-//! Edge notch window: placement, sizes and click-through, ported from vinzdg/codenotch
-//! (windows/codenotch/src/main.rs, MIT, commit 6522e9f). Sizes and the work-area placement are
-//! codenotch's; the drag, carry and orb features are not ported.
+//! Shared edge placement, dragging and click-through for the island and notification windows.
+//! Edge placement follows vinzdg/codenotch (MIT, commit 6522e9f).
 use crate::app::{App, Shared};
-use crate::settings::Settings;
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{Emitter, Manager};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-/// Logical width of the upright notch window (codenotch `NOTCH_W`).
-pub const NOTCH_W: f64 = 360.0;
-/// Logical long side (codenotch `NOTCH_LONG`).
-pub const NOTCH_LONG: f64 = 650.0;
-
-/// Interactive area reported by the page, in physical px relative to the window: x, y, w, h.
-static HOT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
-/// Same for the notification island window.
+/// Interactive area reported by the notification page, in physical px: x, y, w, h.
 static OVL_HOT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
 /// Same for the top island (display mode "island").
 static ISL_HOT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
@@ -30,15 +21,6 @@ pub fn edge_or_right(v: &str) -> String {
         v.to_string()
     } else {
         "right".into()
-    }
-}
-
-/// codenotch `notch_window_size`: upright = 360 x 650, flat = 650 x 650.
-pub fn window_size(edge: &str) -> (f64, f64) {
-    if edge_is_vertical(edge) {
-        (NOTCH_W, NOTCH_LONG)
-    } else {
-        (NOTCH_LONG, NOTCH_LONG)
     }
 }
 
@@ -58,32 +40,6 @@ pub fn edge_origin(area: (i32, i32, i32, i32), edge: &str, ww: i32, wh: i32, rat
     }
 }
 
-pub fn place(app: &App, s: &Settings) {
-    let Some(w) = app.get_webview_window("notch") else { return };
-    if s.display_mode != "notch" {
-        let _ = w.hide();
-        return;
-    }
-    let mons = app.available_monitors().unwrap_or_default();
-    let Some(m) = mons.get(s.monitor).or(mons.first()) else { return };
-    let edge = edge_or_right(&s.edge);
-    let scale = m.scale_factor();
-    let (lw, lh) = window_size(&edge);
-    let (ww, wh) = ((lw * scale).round() as i32, (lh * scale).round() as i32);
-    let wa = m.work_area();
-    let mut area = (wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32);
-    if area.2 <= 0 || area.3 <= 0 {
-        area = (m.position().x, m.position().y, m.size().width as i32, m.size().height as i32);
-    }
-    let (x, y) = edge_origin(area, &edge, ww, wh, s.notch_along.clamp(0.0, 1.0));
-    let _ = w.set_size(PhysicalSize::new(ww as u32, wh as u32));
-    let _ = w.set_position(PhysicalPosition::new(x, y));
-    let _ = w.set_ignore_cursor_events(true);
-    let _ = w.set_shadow(false);
-    let _ = w.show();
-    let _ = w.emit_to(w.label(), "notch_edge", &edge);
-}
-
 /// Drag along the edge: the pointer's screen position (physical px) becomes the notch's centre.
 #[tauri::command]
 pub fn notch_drag(app: App, x: f64, y: f64) {
@@ -99,7 +55,6 @@ pub fn notch_drag(app: App, x: f64, y: f64) {
         g.settings.notch_along = r.clamp(0.0, 1.0);
         g.settings.clone()
     };
-    place(&app, &s);
     crate::island::place(&app, &s);
 }
 
@@ -123,16 +78,9 @@ pub fn report_island_hot(rect: Option<[f64; 4]>) {
     *ISL_HOT.lock().unwrap() = rect;
 }
 
-/// Page reports its interactive rect (pill, plus card when open).
-#[tauri::command]
-pub fn report_hot(rect: Option<[f64; 4]>) {
-    *HOT.lock().unwrap() = rect;
-}
-
 /// Watch the system cursor: over the hot rect the window takes clicks, elsewhere it lets them
 /// through. Tells the page when the pointer arrives or leaves (fold on hover).
 pub fn start_watch(app: App) {
-    watch(app.clone(), "notch", &HOT, "notch_pointer", Some("notch"));
     watch(app.clone(), "island", &ISL_HOT, "island_pointer", Some("island"));
     watch(app, "overlay", &OVL_HOT, "overlay_pointer", None);
 }

@@ -10,20 +10,6 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "label": "notch",
-        "url": "notch.html",
-        "width": 360,
-        "height": 650,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "resizable": false,
-        "visible": false,
-        "shadow": false,
-        "focus": false
-      },
-      {
         "label": "island",
         "url": "island.html",
         "width": 720,

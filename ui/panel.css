@@ -26,7 +26,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .rail nav{display:flex;flex-direction:column;gap:6px}
 /* Active tile slides between rail items on the notch spring (motion.js). */
 .rail-hl{position:absolute;left:12px;top:0;width:40px;border-radius:12px;background:var(--acc);box-shadow:0 4px 12px -4px color-mix(in srgb,var(--acc) 70%,transparent);opacity:0;pointer-events:none}
-.logo{width:34px;height:34px;border-radius:11px;background:var(--t1);color:var(--canvas);display:grid;place-items:center;font:700 15px var(--display);margin-bottom:14px}
+.logo{width:34px;height:34px;border-radius:11px;display:block;margin-bottom:14px}
 .rail nav button,.dndbtn{position:relative;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--t2);transition:background-color .2s,color .2s,transform .3s var(--spring)}
 .rail nav button:hover,.dndbtn:hover{background:var(--card-2);color:var(--t1)}
 .rail nav button:active{transform:scale(.92)}
@@ -52,6 +52,7 @@ h2{margin:24px 0 10px 4px;font:600 13px/18px var(--font);color:var(--t2)}
 /* Cards */
 .card{background:var(--card);border-radius:18px;box-shadow:var(--sh);padding:4px 18px}
 .card > .ct:first-child{padding-top:14px}
+.card + .card{margin-top:14px}
 .ct{font-weight:600;font-size:14px}
 .cd{color:var(--t3);font-size:12px;margin-top:2px}
 .row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 0;border-top:1px solid var(--line);min-height:62px}
@@ -238,3 +239,19 @@ html[data-theme=dark] .ico.codex{background:#f3efe7;color:#111}
 
 /* Theme change crossfades (only after first paint, see panel.js). */
 html.ready body,html.ready .rail,html.ready .card,html.ready .ses,html.ready .al,html.ready .meter,html.ready .item,html.ready .chip,html.ready .seg{transition:background-color .35s var(--ease),color .35s var(--ease),box-shadow .35s var(--ease)}
+
+/* Report an issue dialog */
+.modal .box.wide{width:540px;max-height:88vh;overflow:auto}
+textarea{font:inherit;color:var(--t1);background:var(--card-2);border:none;box-shadow:inset 0 0 0 1px var(--line);border-radius:10px;padding:8px 12px;width:100%;resize:vertical;box-sizing:border-box}
+textarea:focus{outline:none;box-shadow:inset 0 0 0 1.5px var(--acc)}
+.rep-draft{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
+#rep-fields{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+#rep-fields[hidden]{display:none}
+.fl{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--t2)}
+.fl3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.fl3 .dd>button{min-width:0;width:100%}
+.btn:disabled{opacity:.5;pointer-events:none}
+/* Version history */
+.releases{display:flex;flex-direction:column}
+.rel{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
+.rel:first-child{border-top:none}

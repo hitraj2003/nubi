@@ -218,7 +218,7 @@ function decide() {
   const hoverOpens = hovering && (clicked || !(snap && snap.settings.notch_on_hover));
   if (hoverOpens || requestsUp || typing) { folded = false; clearTimeout(foldTimer2); show("open"); return; }
   if (alertUp) { show("alert"); return; }
-  const canFold = snap && snap.settings.notch_on_hover && !pending().length;
+  const canFold = snap && snap.settings.notch_on_hover && !pending().length && !missed().length;
   if (!canFold) { folded = false; clearTimeout(foldTimer2); show("compact"); return; }
   if (hovering) { folded = false; clearTimeout(foldTimer2); show("compact"); return; }
   if (folded) { show("tab"); return; }
@@ -310,6 +310,8 @@ addEventListener("pointerup", () => {
 // ---------- content ----------
 const wanted = (p) => { const w = snap.settings.providers; return w === "both" || w === p.provider; };
 const pending = () => (snap ? (snap.pending || []).filter(wanted) : []);
+// Requests whose takeover time ran out: they wait in the terminal until dismissed or answered there.
+const missed = () => (snap ? (snap.missed || []).filter(wanted) : []);
 const mode = () => (snap && snap.settings.questions_mode) || "system";
 
 // Provider mark inside its rings: session usage (thick), week (thin, outside), and activity
@@ -334,10 +336,10 @@ function provRing(provider) {
   const wrap = el("span", "prw");
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("class", "rr"); svg.setAttribute("viewBox", "0 0 30 30");
-  svg.append(circ(11, "rgba(255,255,255,.12)", 2.6));
+  svg.append(circ(11, "var(--notch-ink-12)", 2.6));
   if (h) svg.append(gradArc(15, 11, 2.6, h.used_percent, true));
-  if (wk && wk !== h) { svg.append(circ(14.4, "rgba(255,255,255,.08)", 1.6)); svg.append(gradArc(15, 14.4, 1.6, wk.used_percent, false)); }
-  if (act === "working") { const g = document.createElementNS(SVGNS, "g"); g.setAttribute("class", "spin"); g.append(circ(7.6, "rgba(255,255,255,.85)", 1.4, 0.28)); svg.append(g); }
+  if (wk && wk !== h) { svg.append(circ(14.4, "var(--notch-ink-8)", 1.6)); svg.append(gradArc(15, 14.4, 1.6, wk.used_percent, false)); }
+  if (act === "working") { const g = document.createElementNS(SVGNS, "g"); g.setAttribute("class", "spin"); g.append(circ(7.6, "var(--notch-activity)", 1.4, 0.28)); svg.append(g); }
   if (act === "attention") svg.append(circ(7.6, "var(--warn)", 1.4, null, "pulse"));
   const gl = glyph(provider);
   if (h && h.used_percent >= 100) gl.classList.add("dim");
@@ -350,6 +352,7 @@ function provRing(provider) {
 function renderCompact() {
   const left = $("c-left"), right = $("c-right");
   const p = pending();
+  const m = missed();
   const working = snap.sessions.filter((s) => s.state === "working");
   const want = snap.settings.providers;
   const provs = want === "both" ? ["claude", "codex"] : [want];
@@ -357,19 +360,20 @@ function renderCompact() {
   const rings = provs.map(provRing);
   rings.forEach((r) => L.push(r.el));
   if (p.length) {
-    L.push(el("span", "c-txt", p[0].kind === "question" ? "Question" : "Needs approval"));
+    L.push(el("span", "c-txt", p[0].kind === "question" ? "Question" : "Needs your OK"));
     R.push(el("span", "badge", String(p.length)));
-  } else if (working.length) {
-    // One session: its folder and working bars. Several: a count only.
-    if (working.length === 1) {
-      const eq = el("span", "eq p-" + working[0].provider); eq.append(el("i"), el("i"), el("i"));
-      L.push(el("span", "c-txt", working[0].name || working[0].folder));
-      R.push(eq);
-    } else {
-      L.push(el("span", "c-txt", `${working.length} working`));
-    }
+  } else if (m.length) {
+    const t = el("span", "c-txt", m.length === 1 ? (m[0].kind === "question" ? "Question in terminal" : "Approval in terminal") : `${m.length} waiting in terminal`);
+    t.title = "Open terminal";
+    t.addEventListener("click", (e) => { e.stopPropagation(); invoke("jump_session", { key: m[0].session_key }).catch(() => {}); });
+    t.addEventListener("pointerdown", (e) => e.stopPropagation());
+    L.push(t);
+    const x = btn("×", "dismiss", () => invoke("dismiss_missed", { id: null }).catch(() => {}));
+    x.title = "Dismiss";
+    x.addEventListener("pointerdown", (e) => e.stopPropagation());
+    R.push(el("span", "badge", String(m.length)), x);
   }
-  const sig = JSON.stringify([p.map((x) => x.id), working.map((s) => s.key), rings.map((r) => r.sig), provs, edge]);
+  const sig = JSON.stringify([p.map((x) => x.id), m.map((x) => x.id), working.map((s) => s.key), rings.map((r) => r.sig), provs, edge]);
   if (left.dataset.sig === sig) return;
   left.dataset.sig = sig;
   left.replaceChildren(...L);
@@ -377,12 +381,12 @@ function renderCompact() {
 }
 
 function renderSessions(pane) {
-  if (!snap.sessions.length) { pane.append(el("div", "empty", "No sessions yet. Start Claude Code or Codex with hooks on.")); return; }
+  if (!snap.sessions.length) { pane.append(el("div", "empty", "No sessions yet. Start Claude Code or Codex.")); return; }
   const list = [...snap.sessions].sort((a, b) => b.last_event_ms - a.last_event_ms).slice(0, 8);
   list.forEach((x, i) => {
     const r = el("button", "srow");
     r.type = "button";
-    r.title = "Jump to terminal";
+    r.title = "Open terminal";
     r.style.setProperty("--i", i);
     r.addEventListener("click", () => invoke("jump_session", { key: x.key }).catch(() => {}));
     const s = el("span", "s");
@@ -404,7 +408,81 @@ function renderSessions(pane) {
   });
 }
 
+const usageMeters = new Map();
+const usageValues = new Map();
+let usageRefresh = null, usageFailed = false, updatedStamp = 0;
+const newestUsage = () => Math.max(0, ...(snap?.usage || []).map((u) => Number(u.fetched_ms) || 0));
+function updateUsageLine() {
+  const line = $("usage-updated");
+  if (!line) return;
+  const stamp = newestUsage();
+  const minutes = Math.max(0, Math.floor((Date.now() - stamp) / 60000));
+  const text = usageFailed ? "Couldn't refresh, try again" : !stamp ? "Not updated yet" : minutes < 1 ? "Updated just now" : `Updated ${minutes} min ago`;
+  if (line.dataset.text !== text || updatedStamp !== stamp) {
+    const previous = line.dataset.text || "";
+    line.dataset.text = text;
+    line.textContent = text;
+    line.classList.toggle("failed", usageFailed);
+    if (previous) {
+      const old = el("span", "usage-previous", previous);
+      line.append(old);
+      const duration = Motion.reduced.matches ? 100 : PRESET.snappy.response * 1000;
+      old.animate([{ opacity: 1 }, { opacity: 0 }], { duration }).finished.finally(() => old.remove());
+      line.animate([{ opacity: 0 }, { opacity: 1 }], { duration });
+    }
+    updatedStamp = stamp;
+  }
+}
+function stopUsageRefresh(failed) {
+  const loading = usageRefresh;
+  if (!loading || loading.stopping) return;
+  loading.stopping = true;
+  clearTimeout(loading.timeout);
+  usageFailed = failed;
+  updateUsageLine();
+  const finish = () => {
+    if (usageRefresh !== loading) return;
+    loading.animation?.cancel();
+    $("refresh-usage").disabled = false;
+    $("refresh-usage").classList.remove("loading");
+    $("refresh-usage").setAttribute("aria-busy", "false");
+    usageRefresh = null;
+  };
+  if (failed || !loading.animation || Motion.reduced.matches) { finish(); return; }
+  const elapsed = Number(loading.animation.currentTime) || 0;
+  const end = (Math.floor(elapsed / 700) + 1) * 700;
+  loading.animation.effect.updateTiming({ iterations: end / 700 });
+  loading.animation.finished.then(finish, finish);
+}
+$("refresh-usage").addEventListener("click", () => {
+  if (usageRefresh) return;
+  const button = $("refresh-usage");
+  usageFailed = false;
+  usageRefresh = { stamp: newestUsage() };
+  button.disabled = true;
+  button.classList.add("loading");
+  button.setAttribute("aria-busy", "true");
+  if (!Motion.reduced.matches) usageRefresh.animation = button.querySelector("svg").animate(
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    { duration: 700, iterations: Infinity, easing: "linear" });
+  usageRefresh.timeout = setTimeout(() => stopUsageRefresh(true), 15000);
+  updateUsageLine();
+  invoke("refresh_usage").catch(() => stopUsageRefresh(true));
+});
+function updateUsageMeters() {
+  for (const u of snap.usage) for (const w of u.windows.slice(0, 2)) {
+    const meter = usageMeters.get(u.provider + ":" + w.label);
+    if (!meter) continue;
+    meter.spring.to(Math.max(0, Math.min(100, w.used_percent)), PRESET.content);
+    meter.anim.kick();
+    meter.reset.textContent = resetIn(w.resets_at);
+  }
+  updateUsageLine();
+}
+
 function renderUsage(pane) {
+  for (const meter of usageMeters.values()) cancelAnimationFrame(meter.anim.raf);
+  usageMeters.clear();
   const want = snap.settings.providers;
   const provs = want === "both" ? ["claude", "codex"] : [want];
   const g = el("div", "meters");
@@ -422,7 +500,8 @@ function renderUsage(pane) {
       if (u.status !== "ok") h.append(el("span", "st", u.message || u.status));
       const ws = el("div", "mw");
       for (const w of u.windows.slice(0, 2)) {
-        const pct = Math.round(w.used_percent);
+        const key = pv + ":" + w.label;
+        const pct = usageValues.get(key) ?? Math.round(w.used_percent);
         const it = el("div", "mi");
         const txt = el("div");
         txt.append(el("b", null, pct + "%"), el("span", null, LABEL[w.label] || w.label), el("small", null, resetIn(w.resets_at)));
@@ -430,7 +509,18 @@ function renderUsage(pane) {
         big.setAttribute("class", "big-ring"); big.setAttribute("viewBox", "0 0 44 44");
         const tr = document.createElementNS(SVGNS, "circle");
         tr.setAttribute("cx", 22); tr.setAttribute("cy", 22); tr.setAttribute("r", 20); tr.setAttribute("class", "tr");
-        big.append(tr, gradArc(22, 20, 4, pct, !w.label.startsWith("7d")));
+        const arc = gradArc(22, 20, 4, pct, !w.label.startsWith("7d"));
+        big.append(tr, arc);
+        const spring = new Spring(pct, PRESET.content);
+        const meterAnim = new Animator({ pct: spring }, (value) => {
+          const percent = Math.max(0, Math.min(100, value.pct));
+          usageValues.set(key, percent);
+          arc.setAttribute("stroke-dasharray", `${2 * Math.PI * 20 * percent / 100} ${2 * Math.PI * 20}`);
+          arc.setAttribute("stroke-opacity", percent > 0 ? "1" : "0");
+          arc.setAttribute("stroke", usageColor(percent, !w.label.startsWith("7d")));
+          txt.querySelector("b").textContent = Math.round(percent) + "%";
+        });
+        usageMeters.set(key, { spring, anim: meterAnim, reset: txt.querySelector("small") });
         it.append(big, txt);
         ws.append(it);
       }
@@ -438,64 +528,124 @@ function renderUsage(pane) {
     }
     g.append(m);
   });
-  pane.append(g);
+  const line = el("div", "usage-updated");
+  line.id = "usage-updated"; line.setAttribute("role", "status");
+  pane.append(g, line);
+  updateUsageMeters();
 }
 
 // Requests: one card per request, built once (never re-rendered while it waits, so it never blinks).
 const cards = new Map();
 const picks = {};
 function sendAnswer(id, answers) { invoke("answer_question", { id, answers }).catch(() => {}); delete picks[id]; }
+function questionBody(a, body) {
+  const sel = picks[a.id] || (picks[a.id] = {});
+  const qs = a.questions || [];
+  let index = 0, submitted = false;
+  const step = el("div", "question-step");
+  body.append(step);
+  function draw() {
+    step.replaceChildren();
+    const q = qs[index];
+    if (!q) return;
+    const chosen = sel[q.question] || (sel[q.question] = new Set());
+    const advance = () => {
+      if (!chosen.size || submitted) return;
+      if (index + 1 < qs.length) { index++; draw(); return; }
+      const answers = {};
+      for (const question of qs) answers[question.question] = [...sel[question.question]].join(", ");
+      submitted = true;
+      step.querySelectorAll("button,input").forEach((node) => { node.disabled = true; });
+      sendAnswer(a.id, answers);
+    };
+    const qt = el("div", "q");
+    if (qs.length > 1) qt.append(el("span", "h", `${index + 1} of ${qs.length}`));
+    if (q.header) qt.append(el("span", "h", q.header));
+    qt.append(document.createTextNode(q.question));
+    const list = el("div", "opts");
+    (q.options || []).forEach((o, i) => {
+      const row = btn("", "opt", () => {
+        if (q.multiSelect) chosen.has(o.label) ? chosen.delete(o.label) : chosen.add(o.label);
+        else { chosen.clear(); chosen.add(o.label); }
+        list.querySelectorAll(".opt").forEach((node, j) => {
+          node.classList.toggle("on", chosen.has(q.options[j].label));
+          node.setAttribute("aria-pressed", String(chosen.has(q.options[j].label)));
+        });
+        if (!q.multiSelect) advance();
+      });
+      row.setAttribute("aria-pressed", "false");
+      const label = el("span", "l");
+      label.append(el("b", null, o.label));
+      if (o.description) label.append(el("small", null, o.description));
+      row.append(el("span", "n", String(i + 1)), label);
+      list.append(row);
+    });
+    const other = el("input", "other");
+    other.placeholder = "Other answer";
+    other.setAttribute("aria-label", "Your answer: " + q.question);
+    const updateTyped = () => {
+      for (const label of [...chosen]) if (!(q.options || []).some((o) => o.label === label)) chosen.delete(label);
+      if (other.value.trim()) { if (!q.multiSelect) chosen.clear(); chosen.add(other.value.trim()); }
+    };
+    other.addEventListener("input", updateTyped);
+    other.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing || !other.value.trim()) return;
+      event.preventDefault(); updateTyped(); advance();
+    });
+    other.addEventListener("blur", () => setTimeout(decide, 50));
+    step.append(qt, list, other);
+    if (q.multiSelect) {
+      const acts = el("div", "acts");
+      acts.append(btn("Done", "btn quiet", advance));
+      step.append(acts);
+    }
+    if (index > 0) step.querySelector("button,input")?.focus({ preventScroll: true });
+  }
+  draw();
+  if (mode() === "full") {
+    const acts = el("div", "acts");
+    acts.append(btn("Answer in terminal", "link", () => sendAnswer(a.id, {})),
+      btn("Open terminal", "link", () => invoke("jump_session", { key: a.session_key })));
+    body.append(acts);
+  }
+}
+// Hold locally immediately; snapshots also carry holds from the other surface.
+function requestClock(c, a) {
+  const state = { a, total: Math.max(1, a.expires_ms - a.created_ms), over: false, held: false, left: Math.max(0, a.expires_ms - Date.now()) };
+  const fill = c.querySelector(".timebar i");
+  function tick() {
+    const held = state.over || state.a.held;
+    if (!state.held) state.left = Math.max(0, state.a.expires_ms - Date.now());
+    state.held = held;
+    const n = c.querySelector(".count, .left");
+    if (n) n.textContent = Math.ceil(state.left / 1000) + "s";
+    if (fill) {
+      fill.style.transition = "none";
+      fill.style.transform = `scaleX(${Math.min(1, state.left / state.total)})`;
+    }
+  }
+  function hold(on) {
+    if (state.over === on) return;
+    if (on) tick();
+    state.over = on;
+    invoke("hold_pending", { id: state.a.id, on }).catch(() => {});
+    tick();
+  }
+  c.addEventListener("pointerenter", () => hold(true));
+  c.addEventListener("pointerleave", () => hold(false));
+  state.tick = tick;
+  state.release = () => hold(false);
+  tick();
+  return state;
+}
 function makeReq(a) {
   const c = el("div", "req p-" + a.provider);
   const h = el("div", "rh");
   const left = el("span", "left");
-  h.append(glyph(a.provider), el("b", null, a.kind === "question" ? "Question" : `Allow ${a.tool_name || "tool"}?`), el("span", "w", a.name || a.folder || "session"), left);
+  h.append(glyph(a.provider), el("b", null, a.kind === "question" ? "Question" : `Let it use ${a.tool_name || "a tool"}?`), el("span", "w", a.name || a.folder || "session"), left);
   c.append(h);
   if (a.kind === "question") {
-    const full = mode() === "full";
-    const sel = picks[a.id] || (picks[a.id] = {});
-    const qs = a.questions || [];
-    const instant = !full && qs.length === 1 && !qs[0].multiSelect;
-    const answers = () => { const o = {}; for (const q of qs) { const s = sel[q.question]; if (!s || !s.size) return null; o[q.question] = [...s].join(", "); } return o; };
-    for (const q of qs) {
-      const chosen = sel[q.question] || (sel[q.question] = new Set());
-      const qt = el("div", "q");
-      if (q.header) qt.append(el("span", "h", q.header));
-      qt.append(document.createTextNode(q.question));
-      const list = el("div", "opts");
-      (q.options || []).forEach((o, i) => {
-        const row = el("button", "opt");
-        row.type = "button";
-        const lab = el("span", "l");
-        lab.append(el("span", null, o.label));
-        if (o.description) lab.append(el("small", null, o.description));
-        row.append(el("span", "n", String(i + 1)), lab);
-        row.addEventListener("click", () => {
-          if (q.multiSelect) chosen.has(o.label) ? chosen.delete(o.label) : chosen.add(o.label);
-          else { chosen.clear(); chosen.add(o.label); }
-          list.querySelectorAll(".opt").forEach((r, j) => r.classList.toggle("on", chosen.has(q.options[j].label)));
-          if (instant) sendAnswer(a.id, answers());
-        });
-        list.append(row);
-      });
-      c.append(qt, list);
-      if (full) {
-        const other = el("input", "other");
-        other.placeholder = "Other answer";
-        other.addEventListener("input", () => {
-          for (const l of [...chosen]) if (!(q.options || []).some((o) => o.label === l)) chosen.delete(l);
-          if (other.value.trim()) { if (!q.multiSelect) chosen.clear(); chosen.add(other.value.trim()); }
-        });
-        other.addEventListener("blur", () => setTimeout(decide, 50));
-        c.append(other);
-      }
-    }
-    if (!instant) {
-      const acts = el("div", "acts");
-      acts.append(btn("Send", "btn primary", () => { const x = answers(); if (x) sendAnswer(a.id, x); }));
-      if (full) acts.append(el("span", "grow"), btn("Answer in terminal", "link", () => sendAnswer(a.id, {})), btn("Jump", "link", () => invoke("jump_session", { key: a.session_key })));
-      c.append(acts);
-    }
+    questionBody(a, c);
   } else if (mode() !== "full") {
     // System prompts: one row. Mark, "Allow: command?", Allow and Deny beside it.
     c.classList.add("slim");
@@ -511,26 +661,27 @@ function makeReq(a) {
     const answer = (d) => invoke("answer_permission", { id: a.id, decision: d }).catch(() => {});
     const acts = el("div", "acts");
     acts.append(btn("Allow", "btn primary", () => answer("allow")), btn("Deny", "btn quiet", () => answer("deny")));
-    if (mode() === "full") acts.append(el("span", "grow"), btn("Jump", "link", () => invoke("jump_session", { key: a.session_key })));
+    if (mode() === "full") acts.append(el("span", "grow"), btn("Open terminal", "link", () => invoke("jump_session", { key: a.session_key })));
     c.append(acts);
   }
   // Time left before the terminal takes over: a thin bar draining along the bottom edge.
   const bar = el("div", "timebar"), fill = el("i");
   bar.append(fill); c.append(bar);
-  const total = Math.max(1, a.expires_ms - a.created_ms), rest = Math.max(0, a.expires_ms - Date.now());
-  fill.style.transform = `scaleX(${rest / total})`;
-  requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.transition = `transform ${rest}ms linear`; fill.style.transform = "scaleX(0)"; }));
-  return { el: c, left, a };
+  return { el: c, left, a, clock: requestClock(c, a) };
 }
 function renderRequests(pane, fresh) {
   const live = pending();
   const ids = new Set(live.map((a) => a.id));
   for (const [id, x] of cards) {
     if (ids.has(id)) continue;
+    x.clock.release();
     cards.delete(id);
     if (x.el.isConnected && !fresh) { x.el.style.animation = "none"; leave(x.el).then(() => x.el.remove()); }
   }
-  for (const a of live) if (!cards.has(a.id)) cards.set(a.id, makeReq(a));
+  for (const a of live) {
+    if (!cards.has(a.id)) cards.set(a.id, makeReq(a));
+    cards.get(a.id).a = a; cards.get(a.id).clock.a = a;
+  }
   if (fresh) {
     if (!live.length) { pane.append(el("div", "empty", "Nothing is waiting for you.")); return; }
     live.forEach((a, i) => { const x = cards.get(a.id); x.el.style.setProperty("--i", i); x.el.style.animation = ""; x.el.style.transform = x.el.style.opacity = x.el.style.filter = ""; pane.append(x.el); });
@@ -542,7 +693,8 @@ function renderRequests(pane, fresh) {
   if (!live.length && !pane.querySelector(".empty")) setTimeout(() => { if (!pending().length && tab === "requests") renderPane(true); }, 320);
 }
 function tickCountdowns() {
-  for (const x of cards.values()) x.left.textContent = Math.max(0, Math.round((x.a.expires_ms - Date.now()) / 1000)) + "s";
+  for (const x of cards.values()) x.clock.tick();
+  if (tab === "usage" && snap) { updateUsageLine(); for (const u of snap.usage) for (const w of u.windows.slice(0, 2)) { const meter = usageMeters.get(u.provider + ":" + w.label); if (meter) meter.reset.textContent = resetIn(w.resets_at); } }
   document.querySelectorAll("[data-ago]").forEach((t) => (t.textContent = ago(Number(t.dataset.ago))));
 }
 setInterval(tickCountdowns, 1000);
@@ -552,10 +704,11 @@ function renderPane(fresh) {
   const pane = $("pane");
   if (tab === "requests" && !fresh && pane.dataset.tab === "requests") { renderRequests(pane, false); tickCountdowns(); return; }
   const sig = tab === "sessions" ? JSON.stringify(snap.sessions.map((s) => [s.key, s.state, s.attention, s.name, s.folder, s.subagents, s.context_tokens]))
-    : tab === "usage" ? JSON.stringify([snap.settings.providers, snap.usage.map((u) => [u.provider, u.status, u.windows.map((w) => Math.round(w.used_percent))])]) : "";
-  if (!fresh && pane.dataset.tab === tab && sig === paneSig) return;
+    : tab === "usage" ? JSON.stringify([snap.settings.providers, snap.usage.map((u) => [u.provider, u.status, u.message, u.windows.slice(0, 2).map((w) => w.label)])]) : "";
+  if (!fresh && pane.dataset.tab === tab && sig === paneSig) { if (tab === "usage") updateUsageMeters(); return; }
   paneSig = sig;
   pane.dataset.tab = tab;
+  for (const x of cards.values()) x.clock.release();
   pane.replaceChildren();
   if (tab === "requests") renderRequests(pane, true);
   else if (tab === "sessions") renderSessions(pane);
@@ -579,7 +732,16 @@ function setEdge(e) {
   requestAnimationFrame(() => snapTo(current));
 }
 function onState(s) {
+  const previousStamp = newestUsage();
   snap = s;
+  if (usageRefresh && newestUsage() > usageRefresh.stamp) stopUsageRefresh(false);
+  else if (newestUsage() > previousStamp) usageFailed = false;
+  const liveIds = new Set((s.pending || []).map((a) => a.id));
+  for (const [id, card] of cards) {
+    const data = (s.pending || []).find((a) => a.id === id);
+    if (data) card.clock.a = card.a = data;
+    if (!liveIds.has(id)) card.clock.release();
+  }
   // The page can load before the app has read its settings; every update carries the edge.
   setEdge(s.settings.edge);
   fetchOffset();

@@ -8,7 +8,7 @@ let snap = null, cur = { provider: "claude", mode: "5h" };
 let shownFor = "";
 
 const NAME = { claude: "Claude", codex: "Codex" };
-const LABEL = { "5h": "Current session (5h)", "7d": "Weekly (all models)", "7d Opus": "Weekly (Opus)", "7d Sonnet": "Weekly (Sonnet)" };
+const LABEL = { "5h": "Last 5 hours", "7d": "This week", "7d Opus": "This week, Opus", "7d Sonnet": "This week, Sonnet" };
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
 function resetText(w, session) {
@@ -23,17 +23,16 @@ function render() {
   tip.replaceChildren();
   if (!snap) return;
   const p = cur.provider;
-  const u = (snap.usage || []).find((x) => x.provider === p);
-  if (!u || !u.windows) { tip.append(el("div", "loading", "Loading...")); return; }
+  const u = (snap.usage || []).find((x) => x.provider === p) || { status: "loading", windows: [] };
   tip.append(el("div", "title", NAME[p]));
-  tip.append(el("div", "tier", u.status === "ok" ? "Usage limits" : u.status));
+  tip.append(el("div", "tier", u.status === "ok" ? "Share of your limit used" : ({ loading: "Loading usage...", needs_auth: "Sign in again", no_auth: "Sign in to see usage", backoff: "Waiting to try again", error: "Could not update usage" }[u.status] || "Usage unavailable")));
   tip.append(el("div", "div"));
   const sweep = shownFor !== p + cur.mode; // new hover: bars sweep in from zero
   for (const w of u.windows) {
     const session = w.label === "5h";
     const row = el("div", "row" + (w.label === cur.mode ? " on" : ""));
     const head = el("div", "rh");
-    head.append(el("span", "l", LABEL[w.label] || w.label), el("span", "v", Math.round(w.used_percent) + "%"));
+    head.append(el("span", "l", LABEL[w.label] || w.label), el("span", "v", Math.round(w.used_percent) + "% used"));
     const bar = el("div", "bar"), fill = el("div", "fill");
     const frac = Math.min(100, w.used_percent) / 100;
     fill.style.background = usageColor(w.used_percent, session);
@@ -46,7 +45,15 @@ function render() {
       new Motion.Animator({ s }, (v) => { fill.style.transform = `scaleX(${Math.max(0, v.s)})`; }).kick();
     }
   }
-  if (u.message && u.status !== "ok") tip.append(el("div", "warn", u.message));
+
+  const waiting = (snap.missed || []).filter((x) => {
+    const want = snap.settings.providers;
+    return want === "both" || x.provider === want;
+  }).length;
+  if (waiting) {
+    tip.append(el("div", "waiting", `${waiting} waiting in terminal`));
+    tip.append(el("div", "reset", "Click the ring count to open terminal. Right-click the count to dismiss."));
+  }
   const m = u.fetched_ms ? Math.round((Date.now() - u.fetched_ms) / 60000) : null;
   tip.append(el("div", "foot", m == null ? "" : m < 1 ? "Updated just now" : `Updated ${m}m ago`));
   if (sweep) { tip.style.opacity = "0"; Motion.enter(tip); }

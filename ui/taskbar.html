@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-surface="notch">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 <title>Nubi taskbar strip</title>
 <!-- Layout and colours from CodeZeno/Claude-Code-Usage-Monitor classic theme (MIT, commit dea72c9). -->
 <style>
-  :root{--div-a:#505050;--div-b:#282828;--label:rgba(255,255,255,.62);--track:rgba(255,255,255,.16);--value:#fff;--warn:#FFB340}
-  body.light{--div-a:#A0A0A0;--div-b:#E6E6E6;--label:rgba(0,0,0,.62);--track:rgba(0,0,0,.14);--value:#000}
   html,body{margin:0;padding:0;background:transparent;overflow:hidden;user-select:none;
     font:500 12px "Segoe UI",system-ui,sans-serif;width:233px;height:46px;cursor:default}
   #div{position:absolute;left:0;top:10px;width:2px;height:25px;background:var(--div-a)}
@@ -19,6 +19,7 @@
   .seg{width:10px;height:13px;border-radius:2px;background:var(--track)}
   .val{margin-left:4px;width:62px;color:var(--value);line-height:13px;white-space:nowrap;font-variant-numeric:tabular-nums}
   .dot{position:absolute;right:2px;top:19px;width:7px;height:7px;border-radius:50%;background:var(--warn);display:none;animation:p 1.4s ease-in-out infinite}
+  .dot.count{top:17px;width:auto;min-width:14px;height:12px;padding:0 2px;box-sizing:border-box;border-radius:6px;color:var(--notch-inverse);font:600 9px/12px var(--mono);text-align:center}
   @keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
   @media (prefers-reduced-motion: reduce){.dot{animation:none}}
 </style>
@@ -26,7 +27,7 @@
 <body>
   <div id="div"></div>
   <div id="rows"></div>
-  <div class="dot" id="dot" title="Something is waiting for you"></div>
+  <div class="dot" id="dot" title="Needs your OK"></div>
   <script src="motion.js"></script>
   <script src="usage-color.js"></script>
   <script src="taskbar.js"></script>

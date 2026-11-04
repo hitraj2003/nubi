@@ -3,3 +3,6 @@ src-tauri/gen/
 *.log
 gui.log
 p.json
+
+# Signing key backup (never commit)
+secrets/

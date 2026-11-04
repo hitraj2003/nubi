@@ -54,7 +54,22 @@ pub struct Pending {
     pub tool_input: Option<Value>,
     pub created_ms: u64,
     pub expires_ms: u64,
+    /// The pointer is over the card: the countdown is paused.
+    pub held: bool,
     pub tx: Option<oneshot::Sender<Reply>>,
+}
+
+/// A request the notch held until its takeover time ran out; it now waits in the terminal.
+/// Kept so the notch can say so until the user dismisses it or the session moves on.
+#[derive(Serialize, Clone, Debug)]
+pub struct Missed {
+    pub id: u64,
+    pub kind: String,
+    pub provider: String,
+    pub session_key: String,
+    pub folder: String,
+    pub name: String,
+    pub created_ms: u64,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -96,6 +111,7 @@ pub struct Inner {
     pub claude_live_ms: u64,
     pub sessions: BTreeMap<String, Session>,
     pub pending: HashMap<u64, Pending>,
+    pub missed: Vec<Missed>,
     pub alerts: VecDeque<Alert>,
     pub usage: BTreeMap<String, Usage>,
     pub dnd_manual: bool,
@@ -143,6 +159,10 @@ impl Inner {
     /// Update session state from a hook event. Returns an alert to show, if any.
     pub fn on_event(&mut self, m: &HookMsg) -> Option<Alert> {
         let key = format!("{}:{}", m.provider, m.session_id);
+        // Any later event from the session (not its idle Notification) means the terminal got an answer.
+        if m.event != "Notification" {
+            self.missed.retain(|x| x.session_key != key);
+        }
         if m.event == "SessionEnd" {
             self.sessions.remove(&key);
             return None;
@@ -282,6 +302,7 @@ impl Inner {
                 tool_input: m.tool_input.clone(),
                 created_ms: now,
                 expires_ms: now + ttl_ms,
+                held: false,
                 tx: Some(tx),
             },
         );
@@ -334,8 +355,10 @@ impl Inner {
                 "tool_name": p.tool_name,
                 "tool_input": p.tool_input.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()),
                 "expires_ms": p.expires_ms,
+                "held": p.held,
                 "created_ms": p.created_ms,
             })).collect::<Vec<_>>(),
+            "missed": self.missed.iter().filter(|x| wants(&x.provider)).collect::<Vec<_>>(),
             "alerts": self.alerts,
             "usage": self.usage.values().filter(|u| wants(&u.provider)).collect::<Vec<_>>(),
         })

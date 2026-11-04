@@ -15,7 +15,7 @@ pub type App = AppHandle;
 
 pub struct Shared(pub Mutex<Inner>);
 
-fn with<R>(app: &App, f: impl FnOnce(&mut Inner) -> R) -> R {
+pub fn with<R>(app: &App, f: impl FnOnce(&mut Inner) -> R) -> R {
     let st = app.state::<Shared>();
     let mut g = st.0.lock().unwrap_or_else(|e| e.into_inner());
     f(&mut g)
@@ -114,9 +114,63 @@ pub fn add_pending(app: &App, m: &HookMsg, tx: oneshot::Sender<Reply>, ttl_ms: u
     id
 }
 
-pub fn remove_pending(app: &App, id: u64) {
-    with(app, |i| i.pending.remove(&id));
+/// `timed_out`: the takeover time ran out with no answer, so the request moves to `missed`.
+pub fn remove_pending(app: &App, id: u64, timed_out: bool) {
+    with(app, |i| {
+        if let Some(p) = i.pending.remove(&id) {
+            if timed_out {
+                i.missed.push(crate::state::Missed {
+                    id: p.id,
+                    kind: p.kind,
+                    provider: p.provider,
+                    session_key: p.session_key,
+                    folder: p.folder,
+                    name: p.name,
+                    created_ms: p.created_ms,
+                });
+            }
+        }
+    });
     emit_state(app);
+}
+
+/// Pause (pointer over the card) or resume a request's countdown.
+#[tauri::command]
+pub fn hold_pending(app: App, id: u64, on: bool) {
+    with(&app, |i| {
+        if let Some(p) = i.pending.get_mut(&id) {
+            p.held = on;
+        }
+    });
+    emit_state(&app);
+}
+
+/// One tick of a request's countdown. While held, the deadline moves forward by `step_ms`, but
+/// never past `hard_ms` (the hook's own deadline). True when the time is up.
+pub fn pending_tick(app: &App, id: u64, step_ms: u64, hard_ms: u64) -> bool {
+    let now = now_ms();
+    let (up, moved) = with(app, |i| match i.pending.get_mut(&id) {
+        Some(p) => {
+            let mut moved = false;
+            if p.held && p.expires_ms < hard_ms {
+                p.expires_ms = (p.expires_ms + step_ms).min(hard_ms);
+                moved = true;
+            }
+            (now >= p.expires_ms, moved)
+        }
+        None => (true, false),
+    });
+    if moved && now % 1000 < step_ms {
+        emit_state(app); // about once a second, so cards show the paused time
+    }
+    up
+}
+
+/// Dismiss one missed request, or all of them when `id` is None.
+#[tauri::command]
+pub fn dismiss_missed(app: App, id: Option<u64>) {
+    with(&app, |i| i.missed.retain(|x| id.is_some_and(|id| x.id != id)));
+    emit_state(&app);
 }
 
 /// Pill normally; Windows toast when a full-screen app is in front; queue only during DND.
@@ -181,7 +235,6 @@ pub fn place_overlay<R: Runtime>(app: &AppHandle<R>, s: &Settings) {
 /// Place every display surface for the current settings.
 pub fn place_all(app: &App, s: &Settings) {
     place_overlay(app, s);
-    crate::notch::place(app, s);
     crate::island::place(app, s);
     crate::ring::place(app);
     crate::taskbar::place_now(app);
@@ -314,7 +367,7 @@ pub fn test_alert(app: App) {
 
 #[tauri::command]
 pub fn refresh_usage(app: App) {
-    crate::poller::kick(&app);
+    crate::poller::force(&app);
 }
 
 /// Re-open request cards in the island (from the notch, ring or strip).
@@ -445,7 +498,7 @@ pub fn monitors(app: App) -> Vec<String> {
 const CHOICES: &[(&str, &str, &[(&str, &str)])] = &[
     ("display_mode", "Display", &[("island", "Notch"), ("ring", "Floating ring"), ("taskbar", "Taskbar strip")]),
     ("providers", "Providers", &[("both", "Claude and Codex"), ("claude", "Claude"), ("codex", "Codex")]),
-    ("questions_mode", "Claude questions", &[("off", "Off, answer in terminal"), ("system", "System prompts only"), ("full", "Full")]),
+    ("questions_mode", "Answer Claude's questions in Nubi", &[("off", "Off, answer in terminal"), ("system", "Choices only"), ("full", "Full")]),
     ("request_layout", "Waiting cards", &[("stack", "Stacked"), ("list", "Side by side")]),
     ("edge", "Notch edge", &[("right", "Right"), ("left", "Left"), ("top", "Top"), ("bottom", "Bottom")]),
     ("taskbar_side", "Taskbar side", &[("right", "Right, beside the tray"), ("left", "Left")]),
@@ -484,9 +537,9 @@ pub fn build_menu(app: &App) -> tauri::Result<Menu<tauri::Wry>> {
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&CheckMenuItem::with_id(app, "dnd", "Do not disturb", true, dnd, None::<&str>)?)?;
     menu.append(&CheckMenuItem::with_id(app, "sounds", "Sounds", true, s.sounds, None::<&str>)?)?;
-    menu.append(&CheckMenuItem::with_id(app, "fold", "Fold notch until hovered", true, s.notch_on_hover, None::<&str>)?)?;
+    menu.append(&CheckMenuItem::with_id(app, "fold", "Shrink notch when not in use", true, s.notch_on_hover, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, "refresh", "Refresh usage", true, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(app, "test", "Send a test alert", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "test", "Show a test alert", true, None::<&str>)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
     Ok(menu)
@@ -550,7 +603,7 @@ fn on_menu(app: &App, id: &str) {
             s.notch_on_hover = !s.notch_on_hover;
             apply_settings(app, s);
         }
-        "refresh" => crate::poller::kick(app),
+        "refresh" => crate::poller::force(app),
         "test" => test_alert(app.clone()),
         "quit" => app.exit(0),
         _ => {}
@@ -584,7 +637,7 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     if let Err(e) = register_hotkey(app, &s.dnd_hotkey) {
         eprintln!("[nubi] {e}");
     }
-    for l in ["notch", "island", "overlay", "ring", "ringtip", "taskbar"] {
+    for l in ["island", "overlay", "ring", "ringtip", "taskbar"] {
         if let Some(w) = app.get_webview_window(l) {
             let _ = w.set_shadow(false);
         }

@@ -1,7 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-surface="notch">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 <title>Nubi</title>
 <!--
   Island look, motion, icons and sounds from Terryxxx/Navi src/renderer (Apache-2.0, commit e8e0c40).
@@ -10,10 +12,6 @@
 <style>
   :root{
     --ease:cubic-bezier(.16,1,.3,1);
-    --ink:#fff; --ink-2:rgba(255,255,255,.6); --ink-3:rgba(255,255,255,.38);
-    --row:rgba(255,255,255,.06); --row-hover:rgba(255,255,255,.1); --line:rgba(255,255,255,.08);
-    --success:#4CD964; --warning:#FFD60A; --info:#0A84FF;
-    --shadow:0 20px 50px -12px rgba(0,0,0,.5),0 8px 20px -4px rgba(0,0,0,.4),0 2px 8px -2px rgba(0,0,0,.6);
   }
   html,body{margin:0;padding:0;overflow:hidden;background:transparent !important;height:100vh;
     font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;user-select:none;color:var(--ink)}
@@ -21,7 +19,7 @@
 
   /* ---- Alert island (Navi) ---- */
   /* Size, scale and opacity are driven by springs in overlay.js (ui/motion.js); no CSS transitions. */
-  .island{background:#000;border-radius:28px;cursor:pointer;padding:0 20px;
+  .island{background:var(--notch-bg);border-radius:28px;cursor:pointer;padding:0 20px;
     display:flex;align-items:center;justify-content:center;overflow:hidden;box-sizing:border-box;will-change:transform,opacity,width,height;
     width:120px;height:0;opacity:0;transform:scale(.8);margin-bottom:-8px}
   .island.expanded{box-shadow:var(--shadow)}
@@ -31,15 +29,15 @@
   .text-group{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
   .title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em;line-height:1.2}
   .message{color:var(--ink-2);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
-  .type-success .icon{color:var(--success);filter:drop-shadow(0 0 8px rgba(76,217,100,.5))}
-  .type-warning .icon{color:var(--warning);filter:drop-shadow(0 0 8px rgba(255,214,10,.5))}
-  .type-info .icon{color:var(--info);filter:drop-shadow(0 0 8px rgba(10,132,255,.5))}
+  .type-success .icon{color:var(--success);filter:drop-shadow(0 0 8px color-mix(in srgb,var(--success) 50%,transparent))}
+  .type-warning .icon{color:var(--warning);filter:drop-shadow(0 0 8px color-mix(in srgb,var(--warning) 50%,transparent))}
+  .type-info .icon{color:var(--info);filter:drop-shadow(0 0 8px color-mix(in srgb,var(--info) 50%,transparent))}
   @keyframes icon-pop{0%{transform:scale(.4) rotate(-15deg);opacity:0}50%{transform:scale(1.25) rotate(5deg);opacity:1}100%{transform:none;opacity:1}}
   .island.expanded .icon svg,.card.in .icon svg{animation:icon-pop .6s cubic-bezier(.175,.885,.32,1.275) .1s both}
 
   /* ---- Request cards: same black material and motion as the island ---- */
   #deck{position:relative}
-  .card{width:340px;box-sizing:border-box;background:#000;border-radius:24px;padding:16px;box-shadow:var(--shadow);
+  .card{width:340px;box-sizing:border-box;background:var(--notch-bg);border-radius:24px;padding:16px;box-shadow:var(--shadow);
     transform-origin:50% 0;opacity:0;will-change:transform,opacity}
   .card.leave{pointer-events:none}
   .card .body{transition:opacity .3s var(--ease)}
@@ -59,30 +57,30 @@
   .opt{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;text-align:left;font:inherit;color:var(--ink);
     background:var(--row);border:1px solid transparent;border-radius:12px;padding:8px 12px;cursor:pointer;transition:background-color .15s,border-color .15s}
   .opt:hover{background:var(--row-hover)}
-  .opt.on{border-color:var(--info);background:rgba(10,132,255,.12)}
+  .opt.on{border-color:var(--info);background:var(--acc-soft)}
   .opt .n{width:16px;color:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums;flex:none}
   .opt .l{display:flex;flex-direction:column;gap:1px;min-width:0}
   .opt .l b{font-weight:500;font-size:13px}
   .opt .l small{color:var(--ink-2);font-size:11px}
   .other{width:100%;box-sizing:border-box;margin-top:4px;font:inherit;font-size:13px;color:var(--ink);background:var(--row);
     border:1px solid transparent;border-radius:12px;padding:8px 12px;outline:none}
-  .other:focus{border-color:rgba(255,255,255,.24)}
-  .cmd{font:12px "Cascadia Mono",Consolas,monospace;color:rgba(255,255,255,.8);background:rgba(255,255,255,.06);border-radius:12px;
+  .other:focus{border-color:var(--notch-ink-24)}
+  .cmd{font:12px "Cascadia Mono",Consolas,monospace;color:var(--notch-ink-80);background:var(--notch-ink-6);border-radius:12px;
     padding:8px 12px;max-height:96px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-bottom:12px}
   .acts{display:flex;align-items:center;gap:8px;margin-top:12px}
   .btn{font:inherit;font-size:12px;font-weight:500;border:none;border-radius:999px;padding:7px 14px;cursor:pointer;transition:background-color .15s,transform .1s}
   .btn:active{transform:scale(.97)}
-  .btn.primary{background:#fff;color:#000}
-  .btn.primary:hover{background:#e6e6e6}
-  .btn.quiet{background:rgba(255,255,255,.12);color:var(--ink)}
-  .btn.quiet:hover{background:rgba(255,255,255,.18)}
+  .btn.primary{background:var(--notch-action);color:var(--notch-action-ink)}
+  .btn.primary:hover{background:var(--notch-action-hover)}
+  .btn.quiet{background:var(--notch-ink-12);color:var(--ink)}
+  .btn.quiet:hover{background:var(--notch-ink-18)}
   .link{font:inherit;font-size:12px;color:var(--ink-2);background:none;border:none;padding:4px;cursor:pointer}
   .link:hover{color:var(--ink)}
   .grow{flex:1}
   .count{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
   /* Provider colours */
-  .card.p-claude{--pc:#D97757;--pc-soft:rgba(217,119,87,.14)}
-  .card.p-codex{--pc:#6E9BEF;--pc-soft:rgba(110,155,239,.14)}
+  .card.p-claude{--pc:var(--claude);--pc-soft:var(--pc-claude-soft)}
+  .card.p-codex{--pc:var(--codex);--pc-soft:var(--pc-codex-soft)}
   .card .head .icon{color:var(--pc) !important;filter:none !important}
   .card .opt.on{border-color:var(--pc);background:var(--pc-soft)}
   .card .other:focus{border-color:var(--pc)}
@@ -92,21 +90,21 @@
   /* Time bar: the card's bottom edge counts down to the terminal takeover */
   .card{position:relative;overflow:hidden}
   #deck.stack .card{position:absolute}
-  .timebar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.06)}
-  .timebar i{display:block;height:100%;background:rgba(255,255,255,.55);transform-origin:left center}
+  .timebar{position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--notch-ink-6)}
+  .timebar i{display:block;height:100%;background:var(--notch-ink-55);transform-origin:left center}
   .card.slim .timebar{left:18px;right:18px;bottom:0;border-radius:2px}
   /* Slim approval pill */
   .card.slim{width:auto;max-width:600px;display:flex;align-items:center;gap:12px;height:48px;padding:0 10px 0 18px;border-radius:24px}
-  .slim .sdot{width:8px;height:8px;border-radius:4px;background:#F08A24;flex:none}
+  .slim .sdot{width:8px;height:8px;border-radius:4px;background:var(--warn);flex:none}
   .slim .st{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;margin-right:8px}
   .sbtn{font:inherit;font-size:12px;font-weight:600;border:none;border-radius:999px;padding:6px 18px;cursor:pointer;flex:none;transition:filter .15s,transform .1s}
   .sbtn:hover{filter:brightness(1.08)} .sbtn:active{transform:scale(.97)}
-  .sbtn.ok{background:#B9DE9C;color:#1E3A10}
-  .sbtn.no{background:#3B2220;color:#F0857A}
-  .slim .pm{width:22px;height:22px;display:flex;align-items:center;justify-content:center;color:#fff;flex:none}
+  .sbtn.ok{background:var(--notch-approve);color:var(--notch-approve-ink)}
+  .sbtn.no{background:var(--notch-no);color:var(--notch-no-ink)}
+  .slim .pm{width:22px;height:22px;display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none}
   .slim .pm svg{width:18px;height:18px;fill:currentColor}
   @media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important}}
-  .sw{color:rgba(255,255,255,.45);font-size:12px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;flex:none}
+  .sw{color:var(--notch-ink-45);font-size:12px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;flex:none}
 </style>
 </head>
 <body>

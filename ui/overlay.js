@@ -141,59 +141,104 @@ function send(id, answers) {
 }
 
 function questionBody(a, body) {
-  const full = mode() === "full";
   const sel = picks[a.id] || (picks[a.id] = {});
   const qs = a.questions || [];
-  const instant = !full && qs.length === 1 && !qs[0].multiSelect;
-  const answers = () => {
-    const out = {};
-    for (const q of qs) { const c = sel[q.question]; if (!c || !c.size) return null; out[q.question] = [...c].join(", "); }
-    return out;
-  };
-  qs.forEach((q) => {
+  let index = 0, submitted = false;
+  const step = el("div", "question-step");
+  body.append(step);
+  function draw() {
+    step.replaceChildren();
+    const q = qs[index];
+    if (!q) return;
     const chosen = sel[q.question] || (sel[q.question] = new Set());
+    const advance = () => {
+      if (!chosen.size || submitted) return;
+      if (index + 1 < qs.length) { index++; draw(); return; }
+      const answers = {};
+      for (const question of qs) answers[question.question] = [...sel[question.question]].join(", ");
+      submitted = true;
+      step.querySelectorAll("button,input").forEach((node) => { node.disabled = true; });
+      send(a.id, answers);
+    };
     const qt = el("div", "q");
+    if (qs.length > 1) qt.append(el("span", "h", `${index + 1} of ${qs.length}`));
     if (q.header) qt.append(el("span", "h", q.header));
     qt.append(document.createTextNode(q.question));
-    body.append(qt);
     const list = el("div", "opts");
     (q.options || []).forEach((o, i) => {
-      const row = el("button", "opt" + (chosen.has(o.label) ? " on" : ""));
-      row.type = "button";
-      const lab = el("span", "l");
-      lab.append(el("b", null, o.label));
-      if (o.description) lab.append(el("small", null, o.description));
-      row.append(el("span", "n", String(i + 1)), lab);
-      row.addEventListener("click", () => {
+      const row = btn("", "opt", () => {
         if (q.multiSelect) chosen.has(o.label) ? chosen.delete(o.label) : chosen.add(o.label);
         else { chosen.clear(); chosen.add(o.label); }
-        if (instant) { send(a.id, answers()); return; }
-        list.querySelectorAll(".opt").forEach((r, j) => r.classList.toggle("on", chosen.has(q.options[j].label)));
+        list.querySelectorAll(".opt").forEach((node, j) => {
+          node.classList.toggle("on", chosen.has(q.options[j].label));
+          node.setAttribute("aria-pressed", String(chosen.has(q.options[j].label)));
+        });
+        if (!q.multiSelect) advance();
       });
+      row.setAttribute("aria-pressed", "false");
+      const label = el("span", "l");
+      label.append(el("b", null, o.label));
+      if (o.description) label.append(el("small", null, o.description));
+      row.append(el("span", "n", String(i + 1)), label);
       list.append(row);
     });
-    body.append(list);
-    if (full) {
-      const other = el("input", "other");
-      other.placeholder = "Other answer";
-      other.addEventListener("input", () => {
-        const known = (l) => (q.options || []).some((o) => o.label === l);
-        for (const l of [...chosen]) if (!known(l)) chosen.delete(l);
-        if (other.value.trim()) { if (!q.multiSelect) chosen.clear(); chosen.add(other.value.trim()); }
-      });
-      body.append(other);
+    const other = el("input", "other");
+    other.placeholder = "Other answer";
+    other.setAttribute("aria-label", "Your answer: " + q.question);
+    const updateTyped = () => {
+      for (const label of [...chosen]) if (!(q.options || []).some((o) => o.label === label)) chosen.delete(label);
+      if (other.value.trim()) { if (!q.multiSelect) chosen.clear(); chosen.add(other.value.trim()); }
+    };
+    other.addEventListener("input", updateTyped);
+    other.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing || !other.value.trim()) return;
+      event.preventDefault(); updateTyped(); advance();
+    });
+
+    step.append(qt, list, other);
+    if (q.multiSelect) {
+      const acts = el("div", "acts");
+      acts.append(btn("Done", "btn quiet", advance));
+      step.append(acts);
     }
-  });
-  if (!instant) {
+    if (index > 0) step.querySelector("button,input")?.focus({ preventScroll: true });
+  }
+  draw();
+  if (mode() === "full") {
     const acts = el("div", "acts");
-    acts.append(btn("Send", "btn primary", () => { const a2 = answers(); if (a2) send(a.id, a2); }));
-    if (full) {
-      acts.append(el("div", "grow"),
-        btn("Answer in terminal", "link", () => send(a.id, {})),
-        btn("Jump", "link", () => invoke("jump_session", { key: a.session_key })));
-    }
+    acts.append(btn("Answer in terminal", "link", () => send(a.id, {})),
+      btn("Open terminal", "link", () => invoke("jump_session", { key: a.session_key })));
     body.append(acts);
   }
+}
+// Hold locally immediately; snapshots also carry holds from the other surface.
+function requestClock(c, a) {
+  const state = { a, total: Math.max(1, a.expires_ms - a.created_ms), over: false, held: false, left: Math.max(0, a.expires_ms - Date.now()) };
+  const fill = c.querySelector(".timebar i");
+  function tick() {
+    const held = state.over || state.a.held;
+    if (!state.held) state.left = Math.max(0, state.a.expires_ms - Date.now());
+    state.held = held;
+    const n = c.querySelector(".count, .left");
+    if (n) n.textContent = `Terminal takes over in ${Math.ceil(state.left / 1000)}s`;
+    if (fill) {
+      fill.style.transition = "none";
+      fill.style.transform = `scaleX(${Math.min(1, state.left / state.total)})`;
+    }
+  }
+  function hold(on) {
+    if (state.over === on) return;
+    if (on) tick();
+    state.over = on;
+    invoke("hold_pending", { id: state.a.id, on }).catch(() => {});
+    tick();
+  }
+  c.addEventListener("pointerenter", () => hold(true));
+  c.addEventListener("pointerleave", () => hold(false));
+  state.tick = tick;
+  state.release = () => hold(false);
+  tick();
+  return state;
 }
 
 function permissionBody(a, body) {
@@ -201,7 +246,7 @@ function permissionBody(a, body) {
   const acts = el("div", "acts");
   const answer = (d) => invoke("answer_permission", { id: a.id, decision: d }).catch(() => {});
   acts.append(btn("Allow", "btn primary", () => answer("allow")), btn("Deny", "btn quiet", () => answer("deny")));
-  if (mode() === "full") acts.append(el("div", "grow"), btn("Jump", "link", () => invoke("jump_session", { key: a.session_key })));
+  if (mode() === "full") acts.append(el("div", "grow"), btn("Open terminal", "link", () => invoke("jump_session", { key: a.session_key })));
   body.append(acts);
 }
 
@@ -247,22 +292,12 @@ function makeCard(a) {
 }
 
 function updateCountdown(c, a) {
-  const n = c.querySelector(".count");
-  if (n) n.textContent = `Terminal takes over in ${secsLeft(a)}s`;
+  const x = cards.get(a.id);
+  if (x?.clock) { x.clock.a = a; x.clock.tick(); }
 }
-// Thin bar along the card's bottom edge, shrinking to nothing as the terminal takeover nears.
-function addTimeBar(c, a) {
+function addTimeBar(c) {
   const bar = el("div", "timebar");
-  const fill = el("i");
-  bar.append(fill);
-  c.append(bar);
-  const total = Math.max(1, a.expires_ms - a.created_ms || 10000);
-  const left = Math.max(0, a.expires_ms - Date.now());
-  fill.style.transform = `scaleX(${left / total})`;
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    fill.style.transition = `transform ${left}ms linear`;
-    fill.style.transform = "scaleX(0)";
-  }));
+  bar.append(el("i")); c.append(bar);
 }
 
 // Each card rides its own springs (y, scale, opacity, blur). Layout only sets targets.
@@ -330,6 +365,7 @@ function renderCards() {
   // Leave
   for (const [id, x] of cards) {
     if (!showIds.has(id) && !x.leaving) {
+      x.clock.release();
       x.leaving = true;
       x.el.classList.add("leave");
       // Leaves straight up, shrinking toward the island; nothing moves sideways.
@@ -347,6 +383,7 @@ function renderCards() {
     deck.append(c);
     const nx = cardSprings(c, a.id);
     nx.data = a;
+    nx.clock = requestClock(c, a);
     cards.set(a.id, nx);
     updateCountdown(c, a);
     added = true;

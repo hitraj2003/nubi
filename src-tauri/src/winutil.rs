@@ -8,6 +8,8 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
+use windows_sys::Win32::System::Console::GetConsoleWindow;
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOTOWNER};
 use windows_sys::Win32::UI::Shell::SHQueryUserNotificationState;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindow, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
@@ -17,6 +19,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 /// Parent chain of the current process, nearest first (excludes self).
 pub fn ancestors() -> Vec<u32> {
     let mut parent: HashMap<u32, u32> = HashMap::new();
+    // explorer.exe: the shell. Its windows are File Explorer folders, never the terminal.
+    let mut shell: Vec<u32> = vec![];
     unsafe {
         let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snap == INVALID_HANDLE_VALUE {
@@ -27,6 +31,10 @@ pub fn ancestors() -> Vec<u32> {
         if Process32FirstW(snap, &mut e) != 0 {
             loop {
                 parent.insert(e.th32ProcessID, e.th32ParentProcessID);
+                let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+                if String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case("explorer.exe") {
+                    shell.push(e.th32ProcessID);
+                }
                 if Process32NextW(snap, &mut e) == 0 {
                     break;
                 }
@@ -38,11 +46,24 @@ pub fn ancestors() -> Vec<u32> {
     let mut cur = unsafe { GetCurrentProcessId() };
     for _ in 0..16 {
         match parent.get(&cur) {
-            Some(&p) if p != 0 && !out.contains(&p) => {
+            Some(&p) if p != 0 && !out.contains(&p) && !shell.contains(&p) => {
                 out.push(p);
                 cur = p;
             }
             _ => break,
+        }
+    }
+    // Windows Terminal hosts the shell without being its parent. The console window of this
+    // process is owned by the terminal window, so add the owner's process as a last choice.
+    unsafe {
+        let con = GetConsoleWindow();
+        if !con.is_null() {
+            let top = GetAncestor(con, GA_ROOTOWNER);
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(if top.is_null() { con } else { top }, &mut pid);
+            if pid != 0 && !out.contains(&pid) && !shell.contains(&pid) {
+                out.push(pid);
+            }
         }
     }
     out

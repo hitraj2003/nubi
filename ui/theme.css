@@ -41,3 +41,62 @@ html[data-theme=dark][data-accent=black]{--acc:#f3efe7; --acc-ink:#1d1b17}
 :root{--acc-soft:color-mix(in srgb,var(--acc) 16%,transparent)}
 html[data-motion=reduce] *,html[data-motion=reduce] *::before,html[data-motion=reduce] *::after{transition-timing-function:ease !important;animation-duration:.01ms !important}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{transition-timing-function:ease !important;animation-duration:.01ms !important}}
+
+/* Notch surfaces keep their black material in dark mode, independent of the panel. */
+html[data-surface=notch]{
+  --notch-bg:#fdfcfa; --notch-rgb:29,27,23; --notch-ink:#1d1b17;
+  --notch-inverse:#fff; --notch-primary-hover:#34312b;
+  --notch-toast-warn:#a96900; --notch-ok:#24865a; --notch-warn:#a96900; --notch-bad:#bc4945; --notch-info:#0071dd;
+  --notch-div-a:#A0A0A0; --notch-div-b:#E6E6E6;
+  --notch-yes:#dcebd2; --notch-yes-ink:#1E3A10; --notch-no:#fae5e1; --notch-no-ink:#a33329;
+  --notch-shadow:0 20px 50px -12px rgba(0,0,0,.16),0 8px 20px -4px rgba(0,0,0,.12),0 2px 8px -2px rgba(0,0,0,.18);
+  --ink:var(--notch-ink); --ink-2:rgba(var(--notch-rgb),.62); --ink-3:rgba(var(--notch-rgb),.38);
+  --row:rgba(var(--notch-rgb),.06); --row-hover:rgba(var(--notch-rgb),.1); --line:rgba(var(--notch-rgb),.08);
+  --ok:var(--notch-ok); --warn:var(--notch-warn); --bad:var(--notch-bad); --info:var(--notch-info);
+  --success:var(--notch-ok); --warning:var(--notch-toast-warn); --shadow:var(--notch-shadow);
+  --claude:#D97757; --codex:#6E9BEF;
+  --pc-claude-soft:rgba(217,119,87,.14); --pc-codex-soft:rgba(110,155,239,.14);
+  --label:var(--ink-2); --track:rgba(var(--notch-rgb),.16); --value:var(--ink);
+  --div-a:var(--notch-div-a); --div-b:var(--notch-div-b);
+  --notch-action:var(--acc); --notch-action-ink:var(--acc-ink);
+}
+html[data-surface=notch][data-theme=dark]{
+  --notch-bg:#000; --notch-rgb:255,255,255; --notch-ink:#fff; --notch-inverse:#000; --notch-primary-hover:#e6e6e6;
+  --notch-toast-warn:#FFD60A; --notch-ok:#4CD964; --notch-warn:#FFB340; --notch-bad:#FF6961; --notch-info:#0A84FF;
+  --notch-div-a:#505050; --notch-div-b:#282828;
+  --notch-yes:#B9DE9C; --notch-no:#3B2220; --notch-no-ink:#F0857A;
+  --notch-shadow:0 20px 50px -12px rgba(0,0,0,.5),0 8px 20px -4px rgba(0,0,0,.4),0 2px 8px -2px rgba(0,0,0,.6);
+}
+/* The default accent preserves the original white controls on the black notch. */
+html[data-surface=notch][data-accent=yellow]{--notch-action:var(--ink);--notch-action-ink:var(--notch-inverse)}
+html[data-surface=notch]{
+  --notch-ink-5:rgba(var(--notch-rgb),0.05);
+  --notch-ink-6:rgba(var(--notch-rgb),0.06);
+  --notch-ink-8:rgba(var(--notch-rgb),0.08);
+  --notch-ink-10:rgba(var(--notch-rgb),0.1);
+  --notch-ink-12:rgba(var(--notch-rgb),0.12);
+  --notch-ink-14:rgba(var(--notch-rgb),0.14);
+  --notch-ink-16:rgba(var(--notch-rgb),0.16);
+  --notch-ink-18:rgba(var(--notch-rgb),0.18);
+  --notch-ink-24:rgba(var(--notch-rgb),0.24);
+  --notch-ink-35:rgba(var(--notch-rgb),0.35);
+  --notch-ink-38:rgba(var(--notch-rgb),0.38);
+  --notch-ink-45:rgba(var(--notch-rgb),0.45);
+  --notch-ink-55:rgba(var(--notch-rgb),0.55);
+  --notch-ink-80:rgba(var(--notch-rgb),0.8);
+  --notch-ink-82:rgba(var(--notch-rgb),0.82);
+  --notch-ink-85:rgba(var(--notch-rgb),0.85);
+  --notch-ink-88:rgba(var(--notch-rgb),0.88);
+}
+html[data-surface=notch]{
+  --notch-tip-shadow:0 8px 20px -4px rgba(0,0,0,.4),0 2px 8px -2px rgba(0,0,0,.6);
+  --notch-ring-shadow:rgba(0,0,0,.35); --notch-clear:rgba(0,0,0,0);
+  --notch-activity:var(--notch-ink-85); --notch-approve:var(--notch-yes); --notch-approve-ink:var(--notch-yes-ink);
+  --notch-active-label:var(--ink); --notch-outline:transparent;
+  --notch-action-hover:var(--notch-primary-hover);
+}
+html[data-surface=notch]:not([data-accent=yellow]){
+  --notch-outline:var(--acc); --notch-action-hover:color-mix(in srgb,var(--acc) 90%,var(--notch-bg));
+  --notch-activity:var(--acc); --div-a:var(--acc); --notch-active-label:var(--acc);
+  --notch-approve:var(--acc); --notch-approve-ink:var(--acc-ink);
+}

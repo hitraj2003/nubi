@@ -23,7 +23,7 @@ function resetIn(sec) {
   return "resets in " + (m < 60 ? m + "m" : m < 1440 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : Math.round(m / 1440) + "d");
 }
 const tile = (p) => el("span", "ico " + p, p === "codex" ? "X" : "C");
-const LABEL = { "5h": "Session", "7d": "Week", "7d Opus": "Week, Opus", "7d Sonnet": "Week, Sonnet" };
+const LABEL = { "5h": "Last 5 hours", "7d": "This week", "7d Opus": "This week, Opus", "7d Sonnet": "This week, Sonnet" };
 const STATE = { working: "Working", waiting: "Waiting", done: "Done", idle: "Idle" };
 
 // Children come in one after another on the notch's content spring (blur + rise).
@@ -165,7 +165,7 @@ function renderRequests(box, s) {
       const a = el("div", "acts");
       a.append(btn("Allow", () => invoke("answer_permission", { id: p.id, decision: "allow" }), "primary"),
         btn("Deny", () => invoke("answer_permission", { id: p.id, decision: "deny" })), el("span", "grow"),
-        btn("Jump to terminal", () => invoke("jump_session", { key: p.session_key }), "link"));
+        btn("Open terminal", () => invoke("jump_session", { key: p.session_key }), "link"));
       it.append(a);
     }
     box.append(it);
@@ -223,7 +223,7 @@ function renderQuestion(it, p) {
     }, "primary"),
     el("span", "grow"),
     btn("Answer in terminal", () => { invoke("answer_question", { id: p.id, answers: {} }); delete picks[p.id]; }, "link"),
-    btn("Jump to terminal", () => invoke("jump_session", { key: p.session_key }), "link"));
+    btn("Open terminal", () => invoke("jump_session", { key: p.session_key }), "link"));
   it.append(a);
 }
 
@@ -240,7 +240,7 @@ function renderSessions(s, animate) {
   const keys = list.map((x) => x.key).join(",");
   const changed = keys !== sessionKeys; sessionKeys = keys;
   box.replaceChildren();
-  if (!list.length) { box.append(el("div", "empty", s.sessions.length ? "No sessions for this filter." : "No sessions yet. Turn on hooks in Settings, then start Claude Code or Codex.")); return; }
+  if (!list.length) { box.append(el("div", "empty", s.sessions.length ? "No sessions for this filter." : "No sessions yet. Turn on Connections in Settings, then start Claude Code or Codex.")); return; }
   for (const x of list) {
     const r = el("div", "ses");
     const tl = el("div");
@@ -248,7 +248,7 @@ function renderSessions(s, animate) {
     tl.append(el("div", "n", x.name || x.folder), el("div", "sm", parts.join(" · ")));
     const st = x.attention && x.state !== "waiting" ? "waiting" : x.state;
     r.append(tile(x.provider), tl, el("span", "grow"), el("span", "pill " + st, STATE[st] || st), el("span", "ago", ago(x.last_event_ms)),
-      btn("Jump", () => invoke("jump_session", { key: x.key }), "ghost"));
+      btn("Open terminal", () => invoke("jump_session", { key: x.key }), "ghost"));
     box.append(r);
   }
   if ((animate || changed) && box.offsetParent) stagger(box.children);
@@ -262,7 +262,7 @@ function renderUsage(s) {
   box.replaceChildren();
   const ok = s.usage.find((u) => u.fetched_ms);
   $("usage-meta").textContent = ok ? "Updated " + ago(ok.fetched_ms) : "";
-  if (!s.usage.length) box.append(el("div", "empty", "Loading"));
+  if (!s.usage.length) box.append(el("div", "empty", "Loading usage..."));
   for (const u of s.usage) {
     const c = el("div", "meter " + u.provider);
     const w0 = u.windows[0];
@@ -271,7 +271,7 @@ function renderUsage(s) {
       const pct = Math.min(100, w0.used_percent);
       ring.innerHTML = `<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" stroke="var(--card-2)" stroke-width="3.2"/><circle class="arc" cx="18" cy="18" r="15.5" stroke="${barColor(u.provider, pct)}" stroke-width="3.2" stroke-dasharray="0 97.4"/></svg>`;
       const v = el("div", "v"), inner = el("div"), b = el("b", null, "0%");
-      inner.append(b, el("small", null, (LABEL[w0.label] || w0.label).toLowerCase()));
+      inner.append(b, el("small", null, "used, " + (LABEL[w0.label] || w0.label).toLowerCase()));
       v.append(inner); ring.append(v); c.append(ring);
       // Counts up on the content spring from the last shown value.
       const sp = new Spring(ringVals[u.provider] ?? 0, PRESET.content).to(pct);
@@ -286,7 +286,10 @@ function renderUsage(s) {
     const body = el("div", "body");
     const top = el("div", "top");
     top.append(tile(u.provider), el("div", "ct", NAME[u.provider]));
-    if (u.status !== "ok") top.append(el("span", "st", u.message || u.status));
+    if (u.status !== "ok") top.append(el("span", "st", {
+      loading: "Loading usage...", needs_auth: "Sign in again", no_auth: "Sign in to see usage",
+      backoff: "Waiting to try again", error: "Could not update usage",
+    }[u.status] || "Usage unavailable"));
     body.append(top);
     for (const w of u.windows) {
       const kv = el("div", "kv");
@@ -314,7 +317,7 @@ function renderAlerts(s) {
   for (const a of s.alerts) {
     const r = el("div", "al");
     const tx = el("div", "tx", `${a.title} · ${a.body}`);
-    if (a.queued) tx.append(el("small", null, "during do not disturb"));
+    if (a.queued) tx.append(el("small", null, "Received while Do not disturb was on"));
     r.append(el("span", "tm", new Date(a.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), tile(a.provider), tx);
     box.append(r);
   }
@@ -330,7 +333,7 @@ function renderHooks(s) {
     const r = el("div", "row");
     const left = el("div", "hook");
     const t = el("div");
-    t.append(el("div", "rl", NAME[p]), el("div", "rd", p === "codex" && on ? "Run /hooks once in Codex to trust them" : p === "codex" ? "$CODEX_HOME/hooks.json" : "~/.claude/settings.json"));
+    t.append(el("div", "rl", NAME[p]), el("div", "rd", p === "codex" && on ? "In Codex, run /hooks once and allow Nubi" : p === "codex" ? "$CODEX_HOME/hooks.json" : "~/.claude/settings.json"));
     left.append(tile(p), t);
     const right = el("span", "hook");
     right.append(el("span", "pill " + (on ? "working" : "idle"), on ? "On" : "Off"),
@@ -401,6 +404,8 @@ async function saveSettings() {
     auto_start: f.auto_start.checked,
     theme: f.theme.value,
     accent: f.accent.value,
+    notch_theme: f.notch_theme.value,
+    notch_accent: f.notch_accent.value,
     reduce_motion: f.reduce_motion.checked,
   };
   try {
@@ -438,7 +443,64 @@ function render(s) {
 $("dnd").addEventListener("change", (e) => invoke("set_dnd", { on: e.target.checked }));
 $("refresh").addEventListener("click", () => invoke("refresh_usage"));
 $("test").addEventListener("click", () => invoke("test_alert"));
-$("report").addEventListener("click", () => invoke("report_issue"));
+// ---- report an issue: optional draft by the local Claude/Codex CLI, then the prefilled GitHub form ----
+let repCtx = null;
+const repF = (k) => document.querySelector(`#rep [data-f="${k}"]`);
+document.querySelectorAll("#rep select").forEach(enhanceSelect);
+function repShowFields() { $("rep-fields").hidden = false; $("rep-open").disabled = false; syncDropdowns(); }
+$("report").addEventListener("click", async () => {
+  $("rep").hidden = false; $("rep-status").textContent = ""; $("rep-text").focus();
+  repCtx = await invoke("report_context").catch(() => null);
+  if (repCtx && !repF("setup").value) repF("setup").value = repCtx.setup || "";
+});
+$("rep-cancel").addEventListener("click", () => ($("rep").hidden = true));
+$("rep-manual").addEventListener("click", () => { if (!repF("what-happened").value) repF("what-happened").value = $("rep-text").value; repShowFields(); });
+document.querySelectorAll("#rep [data-agent]").forEach((b) => b.addEventListener("click", async () => {
+  const text = $("rep-text").value.trim();
+  if (!text) { $("rep-status").textContent = "Write a sentence first."; $("rep-text").focus(); return; }
+  const agent = b.dataset.agent, btns = document.querySelectorAll("#rep [data-agent]");
+  btns.forEach((x) => (x.disabled = true));
+  $("rep-status").textContent = (agent === "claude" ? "Claude" : "Codex") + " is drafting…";
+  try {
+    const f = await invoke("draft_report", { agent, text, context: repCtx || {} });
+    for (const [k, v] of Object.entries(f)) {
+      const i = repF(k); if (!i) continue;
+      if (i.tagName === "SELECT") { if ([...i.options].some((o) => o.value === v)) i.value = v; } else i.value = v;
+    }
+    $("rep-status").textContent = "Check the draft, then open it on GitHub.";
+    repShowFields();
+  } catch (e) { $("rep-status").textContent = String(e); }
+  btns.forEach((x) => (x.disabled = false));
+}));
+$("rep-open").addEventListener("click", () => {
+  const fields = { ...(repCtx || {}) };
+  document.querySelectorAll("#rep [data-f]").forEach((i) => (fields[i.dataset.f] = i.value));
+  invoke("open_report", { fields });
+  $("rep").hidden = true;
+});
+
+// ---- version history ----
+async function loadReleases() {
+  const box = $("releases");
+  try {
+    const list = await invoke("list_releases");
+    if (!list.length) { box.replaceChildren(el("div", "rd", "No releases yet.")); return; }
+    box.replaceChildren(...list.map((r) => {
+      const row = el("div", "rel");
+      const info = el("div");
+      info.append(el("div", "rl", "Version " + r.version + (r.current ? " (installed)" : "") + (r.prerelease ? " · pre-release" : "")), el("div", "rd", r.date));
+      const notes = el("button", "btn ghost", "Notes"); notes.type = "button";
+      notes.addEventListener("click", () => invoke("open_release_link", { url: r.notes }));
+      const dl = el("button", "btn", "Download"); dl.type = "button";
+      if (r.download) dl.addEventListener("click", () => invoke("open_release_link", { url: r.download }));
+      else { dl.disabled = true; dl.title = "No Windows installer in this release"; }
+      const acts = el("span", "hook"); acts.append(notes, dl);
+      row.append(info, acts);
+      return row;
+    }));
+  } catch (e) { box.replaceChildren(el("div", "rd", "Could not load versions. " + e)); }
+}
+loadReleases();
 invoke("monitors").then((list) => {
   list.forEach((label, i) => $("monitor").append(new Option(label || "Display " + (i + 1), String(i))));
   if (snap) $("monitor").value = String(snap.settings.monitor);
