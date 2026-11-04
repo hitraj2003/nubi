@@ -28,7 +28,8 @@
 
 ## After the build is done: distribution
 - [x] Published v0.1.0 (2026-11-04): public repo `hitraj2003/nubi` (source pushed 2026-11-04, MIT), release `v0.1.0` with `Nubi_0.1.0_x64-setup.exe` and `latest.json` (both in `src-tauri/target/release/bundle/nsis/`). Updater (tauri-plugin-updater, passive NSIS) checks `releases/latest/download/latest.json` 20 s after start and every 6 h; release builds only. Not yet tested end to end.
-- [ ] Each new release: bump `version` in `tauri.conf.json`, build with `TAURI_SIGNING_PRIVATE_KEY` from `~/.tauri/nubi.key` (no password), run `node scripts/latest-json.mjs "notes"`, upload both files. Back up `~/.tauri/nubi.key`: losing it breaks updates for installed copies.
+- [ ] Each new release: bump version, tag `vX.Y.Z`, push; `.github/workflows/build.yml` builds and publishes (see README "Releasing"). Needs repo secret `TAURI_SIGNING_PRIVATE_KEY`; manual fallback: `scripts/latest-json.mjs`.
+- [ ] Owner: set the secret (`gh secret set TAURI_SIGNING_PRIVATE_KEY -R hitraj2003/nubi < ~/.tauri/nubi.key`), then push; first CI run not yet checked. Back up `~/.tauri/nubi.key`: losing it breaks updates for installed copies.
 - [ ] Portable exe with self-update (option B, chosen 2026-11-04): the app checks GitHub Releases, downloads `<name>.new.exe`, verifies SHA256/signature, renames the running exe to `<name>.old.exe`, swaps in the new one, restarts, and deletes `.old.exe` on the next start. No installer; not `tauri-plugin-updater` (it runs an NSIS/MSI installer on Windows).
 - [ ] Code signing (owner signs as an individual in India; Azure Trusted Signing does not cover that):
   1. Make the repo public with an OSI license (e.g. MIT).
