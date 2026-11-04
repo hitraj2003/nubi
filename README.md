@@ -1,70 +1,97 @@
 # Nubi
 
-Windows overlay for **Claude Code** and **Codex CLI**. One `nubi.exe`, built with
-Tauri 2 and Rust.
-
-Status: full build with all three display modes, awaiting the owner's review. Plan:
-[`docs/plans/2026-11-03-claude-overlay.md`](docs/plans/2026-11-03-claude-overlay.md).
+Nubi is a small Windows app for people who run Claude Code or Codex CLI in a terminal. It tells
+you when a session finishes or needs you, lets you approve tool calls and answer Claude's
+questions without switching windows, and shows how much of your usage limit is left. It is one
+`nubi.exe`, built with Tauri 2 and Rust.
 
 ## Download
 
-- **Latest:** [latest release](https://github.com/hitraj2003/nubi/releases/latest), file
-  `Nubi_<version>_x64-setup.exe`. Installs per user, no admin needed. Windows SmartScreen may warn
-  because the installer is not code-signed yet: choose More info, then Run anyway.
-- **Older versions:** [all releases](https://github.com/hitraj2003/nubi/releases). Every version
-  stays there with its own installer.
-- Installed copies update themselves from the latest release (checked at start and every 6 hours).
+Get `Nubi_<version>_x64-setup.exe` from the
+[latest release](https://github.com/hitraj2003/nubi/releases/latest). It installs for your user
+account and needs no admin rights. The installer is not code-signed yet, so Windows SmartScreen
+may stop it: choose More info, then Run anyway.
 
-## Releasing a new version
+Older installers stay on the [releases page](https://github.com/hitraj2003/nubi/releases).
+Nubi checks for a new version when it starts and every 6 hours after that, and updates itself.
+You can turn that off in Settings.
 
-1. Bump `version` in `src-tauri/tauri.conf.json` (and `src-tauri/Cargo.toml`).
-2. Commit, then tag and push: `git tag v0.1.1 && git push origin main v0.1.1`.
-3. GitHub Actions (`.github/workflows/build.yml`) builds, signs the update, and publishes the
-   release with the installer and `latest.json`. Needs the repo secret
-   `TAURI_SIGNING_PRIVATE_KEY` (contents of `~/.tauri/nubi.key`).
+## Display modes
 
-## Display modes (pick one in Settings)
+Pick one in Settings > Display.
 
-- **Edge notch** (from codenotch): pinned to any screen edge, folds to a small tab until the
-  pointer reaches it, one ring per provider (5h arc, 7d outer ring, spinning arc while working,
-  yellow pulse when something waits). Hover a ring for the card: limits, sessions, approvals and
-  Claude's questions. Approvals and questions pop out beside the notch on their own, stacked or
-  side by side (Settings). Drag the notch along its edge to move it; the spot is saved.
-- **Floating ring** (from claude-usage-meter): draggable, snaps to the nearest side edge. With
-  both providers on it is one ring split in half: left Claude, right Codex. Click toggles 5h/7d; hover shows the tooltip; right-click opens the panel.
-- **Taskbar strip** (from Claude-Code-Usage-Monitor): sits inside the taskbar, right beside the
-  tray or at the left. Claude + Codex on: row 1 Claude 5h, row 2 Codex 5h. Click opens the panel.
-- **Alert island** (from Navi): top-centre pill with sound for done / permission / question /
-  waiting, in every mode.
+Notch: a black island at the top of the screen, or on any other edge. It shows one ring per
+tool (5-hour limit inside, weekly limit outside), spins while a session works, and pulses when
+something waits for you. Hover it for the card with limits, sessions, approvals and questions.
+Drag it along its edge to move it; Nubi remembers the spot.
 
-## Answer Claude's questions from the overlay
+Floating ring: a ring you can drag anywhere; it snaps to the nearest side of the screen. With
+Claude and Codex both on, the left half is Claude and the right half is Codex. Click to switch
+between the 5-hour and weekly limit, right-click to open the panel.
 
-When Claude Code asks a multiple-choice question (`AskUserQuestion`), the question appears in the
-notch card and the panel Inbox. Pick an option (or type your own) and press **Send**. Claude
-receives it as your answer. **Answer in terminal**, or no answer within ~4 minutes, hands the
-question back to the terminal. Codex has no documented way to do this, so its questions stay in
-the terminal.
+Taskbar strip: sits inside the Windows taskbar, next to the tray or at the left end. With both
+tools on, the top row is Claude and the bottom row is Codex. Click it to open the panel.
 
-## What works now
+In every mode, alerts appear as a pill at the top centre of the screen, with a short sound for
+each kind (done, permission, question, waiting).
 
-- **Alerts:** task complete, permission needed, waiting for input. A pill window with a
-  sound, or a Windows toast when a full-screen app is in front.
-- **Inline approve/deny** for Claude Code and Codex `PermissionRequest` hooks, from the
-  panel. No answer within ~95 s, or any error: the hook prints nothing and the CLI shows
-  its own prompt.
-- **Session list:** state per session (idle / working / waiting / done / stale),
-  sub-agent count, context size, jump to the terminal window.
-- **Usage limits:** Claude (5 h, 7 d) and Codex (5 h, weekly). Read-only use of each CLI's
-  own sign-in. Polled every 5 minutes; HTTP 429 backs off.
-- **Providers setting:** Claude, Codex, or both.
-- **Do Not Disturb:** tray item, panel button, global hotkey (default `Ctrl+Alt+D`), quiet
-  hours, Windows quiet time. Alerts during DND are queued in the panel, not shown.
-- **Display settings:** mode (notch / ring / taskbar), monitor, notch edge, taskbar side.
-  Placement is basic until the UI pass.
+## Approve and answer from Nubi
 
-## Build and run
+When Claude Code or Codex asks to run a tool, the request appears in the notch and in the panel
+(Inbox, and on top of Sessions). Allow or Deny it there. If you don't answer within the time set
+in Settings > Requests (10 seconds by default), the terminal asks you instead. The same happens
+if anything goes wrong.
 
-Needs Rust stable, VS 2022 C++ Build Tools, WebView2 (included in Windows 11), and
+When Claude Code asks a multiple-choice question (`AskUserQuestion`), pick an option or type
+your own and press Send. Claude gets it as your answer. Answer in terminal hands the question
+back. Codex has no documented way to answer its questions from outside, so those stay in the
+terminal.
+
+## The panel
+
+Open it from the tray icon. Closing it sends it back to the tray.
+
+Inbox lists waiting approvals and questions. Sessions lists every running session with its
+state, context size and sub-agents; Jump brings its terminal to the front. Usage shows the
+5-hour and weekly limits for Claude and Codex. Alerts keeps the last 50.
+
+Settings covers display mode, monitor, theme (System, Light or Dark) and accent colour, request
+timing, sounds, do not disturb, start with Windows, automatic updates and hooks.
+
+Do not disturb can be turned on from the panel, the tray, a hotkey (`Ctrl+Alt+D` by default),
+quiet hours, or Windows quiet time. Alerts that arrive meanwhile wait in the panel.
+
+## Where the usage numbers come from
+
+Claude's limits come from the status line Claude Code passes to Nubi. If you already had a
+status line, Nubi runs it and prints its output, so it still shows; turning Claude hooks off
+puts it back. Codex limits come from Codex's own sign-in. Nubi only reads them and never sends
+your credentials anywhere except the provider's own usage endpoint.
+
+## Turn on hooks
+
+In the panel, open Settings > Hooks and turn on Claude, Codex, or both.
+
+Claude: Nubi adds its entries to `~/.claude/settings.json`.
+
+Codex: Nubi adds its entries to `$CODEX_HOME/hooks.json` (default `~/.codex`). Run `/hooks` once
+inside Codex to trust them; Codex ignores new hooks until you do.
+
+The hooks call a fixed copy of the app at `%LOCALAPPDATA%\nubi\nubi-hook.exe`, so you can move
+or update Nubi without breaking them. Turning hooks off removes only Nubi's entries. The first
+time Nubi changes one of these files it keeps a backup next to it as `*.json.nubi.bak`.
+
+## Security
+
+Nubi talks to the hooks over the pipe `\\.\pipe\nubi-<user>`. Only your user and SYSTEM can
+open it, network clients are refused, and Nubi only accepts clients running its own exe or the
+hook copy. If another process already owns the pipe name, Nubi won't start.
+
+Tool input larger than 32 KB is not shown, and you can't approve it from Nubi.
+
+## Build from source
+
+You need Rust stable, the Visual Studio 2022 C++ build tools, WebView2 (part of Windows 11) and
 `cargo install tauri-cli --version "^2"`.
 
 ```
@@ -75,28 +102,20 @@ cargo tauri build      # installer in target/release/bundle/nsis
 nubi.exe --diag   # print usage and hook status (no tokens)
 ```
 
-## Turn on hooks
+## Releasing a new version
 
-Open the panel from the tray icon, then **Hooks › Enable** for Claude and/or Codex.
+Bump `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and
+push:
 
-- Claude: entries are added to `~/.claude/settings.json`.
-- Codex: entries are added to `$CODEX_HOME/hooks.json` (default `~/.codex`). Then run
-  `/hooks` once inside Codex to trust them; Codex does not run new hooks until you do.
+```
+git tag v0.1.1 && git push origin main v0.1.1
+```
 
-Hooks call a stable copy of the app at
-`%LOCALAPPDATA%\nubi\nubi-hook.exe`, so moving the app is safe.
-**Disable** removes only our entries. A backup of each file is kept as
-`*.json.nubi.bak` the first time we change it.
-
-## Security notes
-
-- The pipe `\\.\pipe\nubi-<user>` only allows the current user and SYSTEM,
-  rejects network clients, refuses to start if another process already owns the name,
-  and only accepts clients running this exe or the hook copy.
-- Tool input larger than 32 KB is not shown and cannot be approved from the overlay.
-- Credentials stay in the Rust process. They are never logged or sent anywhere except the
-  provider's own usage endpoint.
+GitHub Actions (`.github/workflows/build.yml`) builds the installer, signs the update and
+publishes the release with `latest.json`. It needs the repo secret `TAURI_SIGNING_PRIVATE_KEY`,
+which holds the contents of `~/.tauri/nubi.key`.
 
 ## Credits
 
-See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Nubi borrows ideas from codenotch, claude-usage-meter, Claude-Code-Usage-Monitor and Navi. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
