@@ -51,6 +51,29 @@ pub fn set_pipe_error(app: &App, e: String) {
 }
 
 pub fn on_hook(app: &App, m: &HookMsg) {
+    // Usage numbers from Claude Code's status line (see hook_client::statusline).
+    if m.event == "StatusLine" {
+        if let Some(rl) = &m.tool_input {
+            let windows = crate::usage::parse_statusline(rl);
+            if !windows.is_empty() {
+                with(app, |i| {
+                    i.claude_live_ms = crate::state::now_ms();
+                    i.usage.insert(
+                        "claude".into(),
+                        crate::state::Usage {
+                            provider: "claude".into(),
+                            status: "ok".into(),
+                            message: None,
+                            windows,
+                            fetched_ms: Some(crate::state::now_ms()),
+                        },
+                    );
+                });
+                emit_state(app);
+            }
+        }
+        return;
+    }
     let (alert, wanted) = with(app, |i| (i.on_event(m), i.settings.wants(&m.provider)));
     if let (Some(a), true) = (alert, wanted) {
         show_alert(app, a);

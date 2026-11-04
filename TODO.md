@@ -23,7 +23,7 @@
 ## Next
 - [ ] Taskbar strip: recreate the window after Explorer restarts (CodeZeno listens for `TaskbarCreated`).
 - [ ] Taskbar strip hover tooltip (web view inside the taskbar gets no mouse input).
-- [ ] Claude usage fallback when the saved token is stale or rate-limited (codenotch asks `claude` for `/usage`).
+- [ ] Check on screen: Claude usage from the status line (`--statusline`), owner's status line still shows, turning Claude hooks off restores it.
 - [ ] Codex usage fallbacks: native app-server read, rollout log; keyring storage.
 
 ## After the build is done: distribution

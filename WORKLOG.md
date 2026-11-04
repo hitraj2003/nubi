@@ -1,5 +1,11 @@
 # Worklog (newest first)
 
+## 2026-11-04 (evening) — Claude Opus 5.5 — local commits, not pushed
+- Single instance (tauri-plugin-single-instance): a second launch opens the panel; fixes "pipe already in use". Pushed to main before the owner asked to approve pushes (no release).
+- CI: `.github/workflows/build.yml` (tests + build on main, signed release on `v*` tags). First run passed in 10.5 min.
+- Claude usage now comes from Claude Code's status line input (`rate_limits.five_hour/seven_day`), not the rate-limited `/api/oauth/usage`. Nubi takes `statusLine` (`nubi-hook.exe --statusline`), saves the previous one to `%APPDATA%\nubi\statusline_prev.json`, runs it and prints its output; turning Claude hooks off restores it. API is a fallback at most every 30 min when no status line has reported for 30 min.
+- Verified: 24 tests; `--statusline` with the owner's `statusline.js` prints the same line. Not verified: live update in the GUI, restore on disable.
+
 ## 2026-11-04 (later) — Claude Opus 5.5 — release v0.1.0 published
 - Renamed to Nubi: Cargo package `nubi`, productName `Nubi`, identifier `dev.nubi.app`, pipe `nubi-<user>`, hook exe `nubi-hook.exe` in `%LOCALAPPDATA%
 ubi`, settings in `%APPDATA%
