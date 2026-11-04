@@ -413,6 +413,7 @@ async function saveSettings() {
 
 // ---- about ----
 invoke("app_version").then((v) => ($("version").textContent = "Version " + v)).catch(() => {});
+$("whats-new").addEventListener("click", () => invoke("open_release_notes"));
 $("check-update").addEventListener("click", async () => {
   const b = $("check-update"); b.textContent = "Checking…"; b.disabled = true;
   try { b.textContent = await invoke("check_update"); } catch (e) { b.textContent = "Check failed"; $("saved").textContent = String(e); }

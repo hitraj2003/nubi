@@ -64,6 +64,7 @@ fn main() {
             app::monitors,
             updater::check_update,
             updater::app_version,
+            app::open_release_notes,
             notch::report_hot,
             notch::report_overlay_hot,
             notch::report_island_hot,

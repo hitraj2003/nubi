@@ -362,6 +362,50 @@ pub fn report_issue(app: App) {
     let _ = std::process::Command::new("explorer").arg(url).spawn();
 }
 
+/// After an update, say so once: an alert pill "Updated to X" (the panel's About has the notes).
+/// The last version that ran is kept in %APPDATA%\nubi\last_version. A missing file with an
+/// existing settings.json means the user came from a version before this check (0.1.1 or older).
+fn announce_update(app: &App) {
+    let dir = settings::data_dir();
+    let file = dir.join("last_version");
+    let ver = app.package_info().version.to_string();
+    let last = std::fs::read_to_string(&file).ok().map(|t| t.trim().to_string());
+    let updated = match &last {
+        Some(v) => v != &ver,
+        None => dir.join("settings.json").exists(),
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(&file, &ver);
+    if !updated {
+        return;
+    }
+    let a = app.clone();
+    std::thread::spawn(move || {
+        // Let the windows load first.
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        show_alert(
+            &a,
+            Alert {
+                ts: now_ms(),
+                provider: "claude".into(),
+                kind: "done".into(),
+                title: format!("Nubi updated to {ver}"),
+                body: "See what's new in Settings > About".into(),
+                session_key: None,
+                queued: false,
+            },
+        );
+        emit_state(&a);
+    });
+}
+
+/// About > What's new: the GitHub release notes for this version.
+#[tauri::command]
+pub fn open_release_notes(app: App) {
+    let url = format!("https://github.com/hitraj2003/nubi/releases/tag/v{}", app.package_info().version);
+    let _ = std::process::Command::new("explorer").arg(url).spawn();
+}
+
 /// Page errors end up in the app log.
 #[tauri::command]
 pub fn log_js(msg: String) {
@@ -549,6 +593,7 @@ pub fn setup(app: &App) -> tauri::Result<()> {
         let _ = w.set_ignore_cursor_events(true);
     }
     place_all(app, &s);
+    announce_update(app);
     crate::notch::start_watch(app.clone());
     #[cfg(debug_assertions)]
     crate::pipe::start_sim(app.clone());
