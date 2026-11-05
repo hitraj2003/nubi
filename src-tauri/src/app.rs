@@ -658,37 +658,21 @@ fn setting_value(s: &Settings, key: &str) -> String {
 }
 
 pub fn build_menu(app: &App) -> tauri::Result<Menu<tauri::Wry>> {
-    let (s, dnd, hooks) = with(app, |i| (i.settings.clone(), i.dnd_manual, i.hooks.clone()));
+    let (s, dnd) = with(app, |i| (i.settings.clone(), i.dnd_manual));
     let menu = Menu::new(app)?;
-    menu.append(&MenuItem::with_id(app, "open", "Open panel", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "open", "Open settings", true, None::<&str>)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    for (key, title, opts) in CHOICES {
-        let cur = setting_value(&s, key);
-        let sub = Submenu::new(app, *title, true)?;
-        for (val, label) in *opts {
-            let id = format!("set:{key}:{val}");
-            sub.append(&CheckMenuItem::with_id(app, id, *label, true, cur == *val, None::<&str>)?)?;
-        }
-        menu.append(&sub)?;
+    let (key, _, opts) = CHOICES[0];
+    let cur = setting_value(&s, key);
+    let style = Submenu::new(app, "Change style", true)?;
+    for (val, label) in opts {
+        style.append(&CheckMenuItem::with_id(app, format!("set:{key}:{val}"), *label, true, cur == *val, None::<&str>)?)?;
     }
-    let take = Submenu::new(app, "Terminal takes over after", true)?;
-    for n in [5u32, 10, 20, 30, 60, 90] {
-        take.append(&CheckMenuItem::with_id(app, format!("takeover:{n}"), format!("{n} seconds"), true, s.takeover_secs == n, None::<&str>)?)?;
-    }
-    menu.append(&take)?;
-    let hooks_menu = Submenu::new(app, "Hooks", true)?;
-    for p in ["claude", "codex"] {
-        let on = hooks.get(p).copied().unwrap_or(false);
-        let label = if p == "claude" { "Claude Code" } else { "Codex" };
-        hooks_menu.append(&CheckMenuItem::with_id(app, format!("hooks:{p}"), label, true, on, None::<&str>)?)?;
-    }
-    menu.append(&hooks_menu)?;
+    menu.append(&style)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&CheckMenuItem::with_id(app, "dnd", "Do not disturb", true, dnd, None::<&str>)?)?;
     menu.append(&CheckMenuItem::with_id(app, "sounds", "Sounds", true, s.sounds, None::<&str>)?)?;
-    menu.append(&CheckMenuItem::with_id(app, "fold", "Shrink notch when not in use", true, s.notch_on_hover, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, "refresh", "Refresh usage", true, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(app, "test", "Show a test alert", true, None::<&str>)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
     Ok(menu)

@@ -34,7 +34,7 @@
   </aside>
 
   <main>
-    <div id="pipe" class="err"></div>
+    <div id="pipe" class="err" role="alert"></div>
 
     <section id="v-inbox" class="view on">
       <header><h1>Inbox</h1><span class="meta" id="inbox-meta"></span></header>
@@ -54,7 +54,7 @@
     </section>
 
     <section id="v-alerts" class="view">
-      <header><h1>Alerts</h1><span class="meta">Latest 50 alerts</span><span class="grow"></span><button id="test" class="chip">Show a test alert</button></header>
+      <header><h1>Alerts</h1><span class="meta" id="alerts-meta"></span><span class="grow"></span><button id="test" class="chip">Show a test alert</button></header>
       <div id="alerts"></div>
     </section>
 
@@ -105,11 +105,11 @@
                 <label title="Blue"><input type="radio" name="accent" value="blue"><i style="--c:#5B8DEF"></i></label>
                 <label title="Green"><input type="radio" name="accent" value="green"><i style="--c:#3FB37A"></i></label>
                 <label title="Violet"><input type="radio" name="accent" value="violet"><i style="--c:#9B7BF3"></i></label>
-                <label title="Black"><input type="radio" name="accent" value="black"><i style="--c:var(--t1)"></i></label>
+                <label title="Ink (black in light, white in dark)"><input type="radio" name="accent" value="black"><i style="--c:var(--t1)"></i></label>
               </div></div>
           </div>
           <div class="card">
-            <div class="ct">Notch theme</div><div class="cd">For the notch, pop-up cards, floating ring and taskbar strip. System follows Windows.</div>
+            <div class="ct">Notch theme</div><div class="cd">For the notch, pop-up cards and floating ring. System follows Windows. The taskbar strip always matches the taskbar.</div>
             <div class="themes">
               <label class="th l"><input type="radio" name="notch_theme" value="light"><span class="lab">Light</span><span class="sk"><i></i><i></i><i></i><i class="tall"></i><i></i><i></i></span><span class="rad"></span></label>
               <label class="th d"><input type="radio" name="notch_theme" value="dark"><span class="lab">Dark</span><span class="sk"><i></i><i></i><i></i><i class="tall"></i><i></i><i></i></span><span class="rad"></span></label>
@@ -122,7 +122,7 @@
                 <label title="Blue"><input type="radio" name="notch_accent" value="blue"><i style="--c:#5B8DEF"></i></label>
                 <label title="Green"><input type="radio" name="notch_accent" value="green"><i style="--c:#3FB37A"></i></label>
                 <label title="Violet"><input type="radio" name="notch_accent" value="violet"><i style="--c:#9B7BF3"></i></label>
-                <label title="Black"><input type="radio" name="notch_accent" value="black"><i style="--c:var(--t1)"></i></label>
+                <label title="Ink (black in light, white in dark)"><input type="radio" name="notch_accent" value="black"><i style="--c:var(--t1)"></i></label>
               </div></div>
           </div>
           <div class="card">
@@ -167,8 +167,8 @@
           <h2>Do not disturb</h2>
           <div class="card">
             <div class="row"><div><div class="rl">Keyboard shortcut</div><div class="rd">Turns Do not disturb on or off. Click the box and press the keys.</div></div><input name="dnd_hotkey" placeholder="ctrl+alt+d" class="key" readonly></div>
-            <div class="row"><div><div class="rl">Quiet hours</div><div class="rd">From hour to hour, 0–23. Leave empty to turn off.</div></div>
-              <span class="unit"><input name="quiet_start" type="number" min="0" max="23" class="num"> to <input name="quiet_end" type="number" min="0" max="23" class="num"></span></div>
+            <div class="row"><div><div class="rl">Quiet hours</div><div class="rd">Nubi stays quiet between these hours. Off turns it off.</div></div>
+              <span class="unit"><select name="quiet_start" class="hours" data-name="from"></select> to <select name="quiet_end" class="hours" data-name="to"></select></span></div>
             <div class="row"><div><div class="rl">Follow Windows Focus</div><div class="rd">Stay quiet while Windows Focus or Do not disturb is on</div></div><span class="switch"><input type="checkbox" name="follow_quiet_time"><i></i></span></div>
           </div>
         </div>
@@ -176,13 +176,29 @@
         <div class="pane" data-pane="desktime">
           <header><h1>DeskTime</h1><span class="meta">Shows your DeskTime hours in the notch</span></header>
           <div class="card">
-            <div class="row"><div><div class="rl">Show DeskTime in the notch</div><div class="rd">When off, the DeskTime tab is hidden and Nubi stops reading DeskTime</div></div><span class="switch"><input type="checkbox" name="desktime_tab"><i></i></span></div>
-            <div class="row"><div><div class="rl">DeskTime account</div><div class="rd" id="dt-status">Not connected</div></div>
-              <span class="hook"><button type="button" id="dt-login" class="btn primary">Open DeskTime</button><button type="button" id="dt-logout" class="btn ghost" hidden>Log out</button></span></div>
-            <div class="row"><div><div class="rl">Browser extension</div><div class="rd">In Chrome, Brave or Edge, open chrome://extensions (edge://extensions in Edge), turn on Developer mode, click Load unpacked and pick this folder: <span class="dt-path" id="dt-ext-path"></span></div></div>
+            <div class="ct">Account</div>
+            <div class="row"><div><div class="rl">Status</div><div class="rd" id="dt-status">Not connected</div></div>
+              <span class="hook"><span class="pill idle" id="dt-pill">Off</span><button type="button" id="dt-signin" class="btn primary">Log in with email</button><button type="button" id="dt-login" class="btn">Use browser</button><button type="button" id="dt-dash" class="btn" hidden>Open dashboard</button><button type="button" id="dt-logout" class="btn ghost" hidden>Log out</button></span></div>
+            <div class="row dt-diag" id="dt-diag" hidden>
+              <dl class="dt-facts"><dt>Last read</dt><dd id="dt-read">Never</dd><dt>Browser session</dt><dd id="dt-sync">Not received since Nubi started</dd><dt>Last error</dt><dd id="dt-err">None</dd></dl>
+              <button type="button" id="dt-refresh" class="btn">Read now</button></div>
+            <div class="row"><div><div class="rl">Browser extension</div><div class="rd" id="dt-ext-note">Install it in Chrome, Brave or Edge:</div>
+                <ol class="steps" id="dt-ext-steps"><li>Open chrome://extensions (edge://extensions in Edge)</li><li>Turn on Developer mode</li><li>Click Load unpacked</li><li>Pick this folder</li></ol>
+                <div class="dt-path" id="dt-ext-path"></div></div>
               <span class="hook"><button type="button" id="dt-ext-open" class="btn ghost">Open folder</button></span></div>
           </div>
           <div class="card">
+            <div class="ct">Notch tab</div><div class="cd">What the DeskTime tab shows. Hidden sections are not read from DeskTime.</div>
+            <div class="dt-preview" id="dt-preview" aria-hidden="true"></div>
+            <div class="row"><div><div class="rl">Sections</div><div class="rd">Pick at least one</div></div>
+              <span class="days" id="dt-views"><label><input type="checkbox" value="day"><span>Today</span></label><label><input type="checkbox" value="week"><span>Week</span></label><label><input type="checkbox" value="month"><span>Month</span></label></span></div>
+            <div class="row"><div><div class="rl">Show in the closed notch</div><div class="rd">A short DeskTime line next to the rings, at the top edge</div></div><span class="switch"><input type="checkbox" name="dt_glance"><i></i></span></div>
+            <div class="row"><div><div class="rl">Closed notch shows</div></div>
+              <select name="dt_glance_kind"><option value="left">Time left today</option><option value="done">Done / target</option><option value="leave">Leave-at time</option></select></div>
+            <div class="row"><div><div class="rl">Target reached alert</div><div class="rd">A notification when today's productive target is reached</div></div><span class="switch"><input type="checkbox" name="dt_alert_target"><i></i></span></div>
+          </div>
+          <div class="card">
+            <div class="ct">Targets</div>
             <div class="row"><div><div class="rl">Daily target</div><div class="rd">Hours to work on a normal day</div></div><input type="time" name="daily_target" class="key" required></div>
             <div class="row"><div><div class="rl">End of day</div><div class="rd">Used to project where you will end up today</div></div><input type="time" name="end_of_day" class="key" required></div>
             <div class="row"><div><div class="rl">Start of day</div><div class="rd">Optional. Lets the month view show a latest arrival time.</div></div><input type="time" name="start_of_day" class="key"></div>
@@ -190,9 +206,11 @@
               <span class="days" id="dt-days"><label><input type="checkbox" value="1"><span>Mon</span></label><label><input type="checkbox" value="2"><span>Tue</span></label><label><input type="checkbox" value="3"><span>Wed</span></label><label><input type="checkbox" value="4"><span>Thu</span></label><label><input type="checkbox" value="5"><span>Fri</span></label><label><input type="checkbox" value="6"><span>Sat</span></label><label><input type="checkbox" value="0"><span>Sun</span></label></span></div>
           </div>
           <div class="card">
-            <div class="ct">Days off</div><div class="cd">One date per line as YYYY-MM-DD. Public holidays shown by DeskTime are picked up automatically.</div>
-            <div class="row"><div><div class="rl">Holidays</div><div class="rd">No target on these days</div></div><textarea name="dt_holidays" rows="3" class="dates" spellcheck="false"></textarea></div>
-            <div class="row"><div><div class="rl">Half days</div><div class="rd">Half the daily target</div></div><textarea name="dt_half_days" rows="3" class="dates" spellcheck="false"></textarea></div>
+            <div class="ct">Days off</div><div class="cd">Public holidays shown by DeskTime are added automatically</div>
+            <div class="row dt-dates" data-list="holidays"><div><div class="rl">Holidays</div><div class="rd">No target on these days</div></div>
+              <div class="dt-pick"><span class="dt-add"><input type="date" class="key"></span><span class="dt-note hint" role="status"></span><span class="dt-chips"></span></div></div>
+            <div class="row dt-dates" data-list="half_days"><div><div class="rl">Half days</div><div class="rd">Half the daily target</div></div>
+              <div class="dt-pick"><span class="dt-add"><input type="date" class="key"></span><span class="dt-note hint" role="status"></span><span class="dt-chips"></span></div></div>
           </div>
         </div>
 
@@ -210,17 +228,18 @@
               <button type="button" id="report" class="btn">Report an issue</button></div>
           </div>
           <div class="card">
-            <div class="ct">Version history</div><div class="cd">Download any version and run its installer to switch to it.</div>
+            <div class="ct">Version history</div><div class="cd">Download any version and run its installer to switch to it</div>
             <div id="releases" class="releases"><div class="rd">Loading…</div></div>
           </div>
         </div>
 
         <div class="draftbar" id="draftbar" hidden>
           <span class="dt">Unsaved changes</span>
+          <span class="draft-err" id="draft-err" role="alert"></span>
           <button type="button" id="discard" class="btn ghost">Discard</button>
           <button type="submit" class="btn primary">Save</button>
         </div>
-        <span id="saved" class="hint"></span>
+        <span id="saved" class="hint" role="status"></span>
       </form>
     </section>
   </main>
@@ -232,7 +251,7 @@
       <textarea id="rep-text" rows="3" placeholder="What went wrong? For example: the notch stays open after I answer a question."></textarea>
       <div class="rep-draft"><span class="rd">Draft the form with</span>
         <button type="button" class="btn" data-agent="claude">Claude</button><button type="button" class="btn" data-agent="codex">Codex</button>
-        <button type="button" class="btn link" id="rep-manual">Fill in myself</button><span class="rd" id="rep-status"></span></div>
+        <button type="button" class="btn link" id="rep-manual">Fill in myself</button><span class="rd" id="rep-status" role="status"></span></div>
       <div id="rep-fields" hidden>
         <label class="fl">What happened<textarea data-f="what-happened" rows="3"></textarea></label>
         <label class="fl">What you expected<textarea data-f="expected" rows="2"></textarea></label>

@@ -65,6 +65,14 @@ pub struct Settings {
     pub day_targets: std::collections::BTreeMap<u8, String>,
     pub holidays: Vec<String>,
     pub half_days: Vec<String>,
+    /// DeskTime sections shown in the notch tab: any of "day", "week", "month" (at least one).
+    pub dt_views: Vec<String>,
+    /// Small DeskTime text in the collapsed notch.
+    pub dt_glance: bool,
+    /// Glance content: "left" | "done" | "leave".
+    pub dt_glance_kind: String,
+    /// Notification when the productive target for today is reached.
+    pub dt_alert_target: bool,
 }
 
 impl Default for Settings {
@@ -106,6 +114,10 @@ impl Default for Settings {
             day_targets: Default::default(),
             holidays: Vec::new(),
             half_days: Vec::new(),
+            dt_views: vec!["day".into(), "week".into(), "month".into()],
+            dt_glance: false,
+            dt_glance_kind: "left".into(),
+            dt_alert_target: true,
         }
     }
 }

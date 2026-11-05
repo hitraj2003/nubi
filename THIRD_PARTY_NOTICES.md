@@ -24,3 +24,10 @@ Full licence texts are in [`third_party/`](third_party/).
   activity ring); with both providers the ring splits into halves.
 - Claude-Code-Usage-Monitor: drawn in HTML; rows are Claude 5h + Codex 5h when both providers are
   on; clicks are read natively because a web view inside the taskbar does not receive them.
+
+## Fonts
+
+- JetBrains Mono (variable, Latin subset), Copyright 2020 The JetBrains Mono Project Authors.
+  SIL Open Font License 1.1, full text in `ui/fonts/OFL-JetBrainsMono.txt`.
+- Geist (variable, Latin subset), Copyright 2023 Vercel, in collaboration with basement.studio.
+  SIL Open Font License 1.1, full text in `ui/fonts/OFL-Geist.txt`.

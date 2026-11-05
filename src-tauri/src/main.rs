@@ -67,6 +67,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             app::get_state,
             desktime::desktime_open,
+            desktime::desktime_login,
             desktime::desktime_logout,
             desktime::desktime_state,
             desktime::desktime_refresh,

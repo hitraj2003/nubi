@@ -36,8 +36,6 @@ function btn(text, cls, fn) {
   b.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
   return b;
 }
-const secsLeft = (a) => Math.max(0, Math.round((a.expires_ms - Date.now()) / 1000));
-
 let snap = null;
 const stage = document.getElementById("stage");
 const island = document.getElementById("island");
@@ -220,7 +218,7 @@ function requestClock(c, a) {
     if (!state.held) state.left = Math.max(0, state.a.expires_ms - Date.now());
     state.held = held;
     const n = c.querySelector(".count, .left");
-    if (n) n.textContent = `Terminal takes over in ${Math.ceil(state.left / 1000)}s`;
+    if (n) n.textContent = `Terminal takes over in ${clock(state.left)}`;
     if (fill) {
       fill.style.transition = "none";
       fill.style.transform = `scaleX(${Math.min(1, state.left / state.total)})`;
@@ -242,7 +240,14 @@ function requestClock(c, a) {
 }
 
 function permissionBody(a, body) {
-  if (a.tool_input) body.append(el("div", "cmd", a.tool_input));
+  const what = summary(a) || a.tool_input;
+  if (what) body.append(el("div", "cmd", what));
+  // The summary shows one value; every other parameter stays one click away before Allow.
+  if (a.tool_input && a.tool_input !== what) {
+    const more = el("details", "more");
+    more.append(el("summary", null, "All parameters"), el("div", "cmd", a.tool_input));
+    body.append(more);
+  }
   const acts = el("div", "acts");
   const answer = (d) => invoke("answer_permission", { id: a.id, decision: d }).catch(() => {});
   acts.append(btn("Allow", "btn primary", () => answer("allow")), btn("Deny", "btn quiet", () => answer("deny")));
@@ -253,6 +258,11 @@ function permissionBody(a, body) {
 const glyphs = {};
 for (const p of ["claude", "codex"]) {
   fetch("glyphs/" + p + ".svg").then((r) => r.text()).then((t) => { glyphs[p] = t.replace(/<metadata>[\s\S]*?<\/metadata>/, ""); }).catch(() => {});
+}
+// Seconds left as 45s or 9:56.
+function clock(ms) {
+  const s = Math.ceil(ms / 1000);
+  return s < 60 ? s + "s" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 }
 // Short text for a tool call: the command, path or first value of its input.
 function summary(a) {

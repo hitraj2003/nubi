@@ -50,6 +50,11 @@ function resetIn(sec) {
   if (m <= 0) return "resetting";
   return "resets in " + (m < 60 ? m + "m" : m < 1440 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : Math.round(m / 1440) + "d");
 }
+// Seconds left as 45s or 9:56.
+function clock(ms) {
+  const s = Math.ceil(ms / 1000);
+  return s < 60 ? s + "s" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
 function summary(a) {
   try {
     const v = JSON.parse(a.tool_input || "{}");
@@ -70,10 +75,6 @@ function ring(cls, size, stroke, pct, color) {
   }
   return svg;
 }
-// Week ring: always amber orange, so it never reads as the session ring.
-// usageColor() comes from usage-color.js (shared with the ring, tooltip and taskbar).
-const pctColor = (p) => usageColor(p, false);
-
 // A ring arc in one solid colour: the colour for its current percent (see usageColor). Starts
 // at 12 o'clock and runs clockwise up to `pct`.
 function gradArc(cx, r, width, pct, light) {
@@ -351,7 +352,8 @@ function provRing(provider) {
   wrap.append(svg, gl);
   const pct = h ? Math.round(h.used_percent) : -1;
   box.append(wrap, el("span", "pct", pct >= 0 ? pct + "%" : u.status === "loading" ? "…" : "—"));
-  box.title = `${NAME[provider]}: ${pct >= 0 ? pct + "% of session" : u.message || u.status}${wk ? ", " + Math.round(wk.used_percent) + "% of week" : ""}`;
+  // aria-label, not title: hovering opens the card, and the native tooltip then hung over its tabs.
+  box.setAttribute("aria-label", `${NAME[provider]}: ${pct >= 0 ? pct + "% of session" : u.message || u.status}${wk ? ", " + Math.round(wk.used_percent) + "% of week" : ""}`);
   return { el: box, sig: [pct, wk ? Math.round(wk.used_percent) : -1, act, u.status].join() };
 }
 function renderCompact() {
@@ -379,7 +381,14 @@ function renderCompact() {
     x.addEventListener("pointerdown", (e) => e.stopPropagation());
     R.push(b, x);
   }
-  const sig = JSON.stringify([p.map((x) => x.id), m.map((x) => x.id), working.map((s) => s.key), rings.map((r) => r.sig), provs, edge]);
+  // DeskTime glance (Settings > DeskTime): only while nothing is waiting.
+  const glance = !p.length && !m.length && dt && dt.glance ? dt.glance : "";
+  if (glance) {
+    const g = el("span", "c-dt", glance);
+    g.setAttribute("aria-label", "DeskTime today: " + glance);
+    R.push(g);
+  }
+  const sig = JSON.stringify([p.map((x) => x.id), m.map((x) => x.id), working.map((s) => s.key), rings.map((r) => r.sig), provs, edge, glance]);
   if (left.dataset.sig === sig) return;
   left.dataset.sig = sig;
   left.replaceChildren(...L);
@@ -423,7 +432,7 @@ function showSessionMenu(event, x, row) {
     buttons.forEach((b) => { b.disabled = true; });
     try {
       const result = await invoke(command, { key: x.key, ...args });
-      if (command === "jump_session" && !result) throw new Error("Terminal window not found.");
+      if (command === "jump_session" && !result) throw new Error("Terminal window not found");
       closeSessionMenu();
     } catch (error) {
       if (!box.isConnected) return;
@@ -535,7 +544,8 @@ let usageRefresh = null;
 const newestUsage = () => Math.max(0, ...(snap?.usage || []).map((u) => Number(u.fetched_ms) || 0));
 function updateUsageLine() {
   document.querySelectorAll("[data-usage-provider]").forEach((node) => {
-    node.textContent = UsageStatus.text(snap.usage.find((u) => u.provider === node.dataset.usageProvider));
+    const u = snap.usage.find((x) => x.provider === node.dataset.usageProvider);
+    node.textContent = UsageStatus.stale(u) ? UsageStatus.text(u) : "";
   });
 }
 function stopUsageRefresh(failed) {
@@ -601,7 +611,8 @@ function renderUsage(pane) {
       const why = !u ? "No usage data yet" : u.status === "needs_auth" ? "Sign in again: the saved Claude token has expired" : (u.message || u.status);
       m.append(el("div", "mnone", why));
     } else {
-      const status = el("span", "st", UsageStatus.text(u));
+      // Owner (2026-11-05): no "Updated just now"; only stale data gets an amber note.
+      const status = el("span", "st warn", UsageStatus.stale(u) ? UsageStatus.text(u) : "");
       status.dataset.usageProvider = pv;
       h.append(status);
       const ws = el("div", "mw");
@@ -661,7 +672,8 @@ function renderUsage(pane) {
 // ---------- DeskTime ----------
 // The snapshot comes from the "desktime" event. The pane is built once per mode and then updated in
 // place, so a refresh never blinks: old numbers stay, changed ones are swapped and flash.
-const DT_STEPS = ["Opening DeskTime", "Reading today", "Reading this week", "Reading this month"];
+const DT_READ = { day: "Reading today", week: "Reading this week", month: "Reading this month" };
+const DT_STEP_VIEW = [null, "day", "week", "month"]; // backend step number to view
 const clockText = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 function setNum(node, text, flash) {
   if (node.textContent === text) return;
@@ -688,13 +700,16 @@ function onDesktime(s) {
   dtChrome();
   const pane = $("pane");
   if (tab === "desktime" && pane.dataset.tab === "desktime") paintDesktime(pane);
+  if (snap) renderCompact(); // the glance chip
 }
 function dtEmpty(pane, title, text, action, fn) {
   const box = el("div", "dt-empty");
   box.append(el("b", null, title), el("p", null, text), btn(action, "dt-btn", fn));
   pane.replaceChildren(box);
 }
-function dtSkeleton(pane) {
+function dtSkeleton(pane, d) {
+  const shown = new Set(d.views && d.views.length ? d.views : ["day", "week", "month"]);
+  const fetch = d.fetch && d.fetch.length ? d.fetch : ["day", "week", "month"];
   const line = (w, h, m) => { const x = el("div", "sk"); x.style.cssText = `width:${w};height:${h}px;${m || ""}`; return x; };
   const root = el("div", "dt");
   root.setAttribute("aria-busy", "true");
@@ -702,8 +717,9 @@ function dtSkeleton(pane) {
   const rows = el("div", "dt-rows");
   for (let i = 0; i < 4; i++) { const c = el("div"); c.append(line("48px", 10, "margin-bottom:6px"), line("64px", 14)); rows.append(c); }
   day.append(line("96px", 28), line("140px", 12), el("div", "dt-bar"), rows);
-  const period = el("div", "dt-period");
-  for (let i = 0; i < 2; i++) {
+  const n = ["week", "month"].filter((v) => shown.has(v)).length;
+  const period = el("div", "dt-period" + (n === 1 ? " one" : ""));
+  for (let i = 0; i < n; i++) {
     const p = el("div", "dt-p");
     p.append(line("60px", 12, "margin-bottom:12px"));
     for (let j = 0; j < 4; j++) p.append(line("100%", 10, "margin:8px 0"));
@@ -711,11 +727,14 @@ function dtSkeleton(pane) {
   }
   const steps = el("div", "dt-steps");
   const pips = el("span", "pips");
-  for (let i = 0; i < 4; i++) pips.append(el("i"));
+  const labels = ["Opening DeskTime", ...fetch.map((v) => DT_READ[v])];
+  for (let i = 0; i < labels.length; i++) pips.append(el("i"));
   steps.append(pips, el("span", "msg"));
-  root.append(day, period, steps);
+  if (shown.has("day")) root.append(day);
+  if (n) root.append(period);
+  root.append(steps);
   pane.replaceChildren(root);
-  return { root, steps, pips, msg: steps.querySelector(".msg"), shown: -1 };
+  return { root, steps, pips, labels, fetch, msg: steps.querySelector(".msg"), shown: -1, sig: fetch.join() + "|" + (d.views || []).join() };
 }
 function dtBuild(pane, d) {
   const root = el("div", "dt dt-live");
@@ -748,9 +767,12 @@ function dtBuild(pane, d) {
   }
   const periods = d.sections.filter((s) => s.view !== "day");
   if (periods.length) {
-    const wrap = el("div", "dt-period");
+    // A lone week or month card spans the full width with its rows in two columns.
+    const wide = periods.length === 1;
+    const wrap = el("div", "dt-period" + (wide ? " one" : ""));
     for (const s of periods) {
-      const card = el("div", "dt-p");
+      const card = el("div", "dt-p" + (wide ? " wide" : ""));
+      const list = el("div", "dt-list");
       const head = el("div", "mh"), note = el("span", "st");
       head.append(el("span", null, s.title), note);
       card.append(head);
@@ -758,15 +780,17 @@ function dtBuild(pane, d) {
         const kv = el("div", "dt-kv"), v = el("b"), num = el("span", "num"), n = el("small");
         v.append(num, document.createTextNode(" "), n);
         kv.append(el("span", null, r.label), v);
-        card.append(kv);
+        list.append(kv);
         ui.rows.set(s.view + "." + r.key, { num, note: n, b: v });
       }
+      card.append(list);
       wrap.append(card);
       ui.views.set(s.view, note);
     }
     root.append(wrap);
   }
   ui.foot = el("div", "dt-foot");
+  ui.foot.setAttribute("role", "status");
   root.append(ui.foot);
   pane.replaceChildren(root);
   return ui;
@@ -793,13 +817,10 @@ function dtFill(ui, d, first) {
       if (cell.b) cell.b.className = r.tone;
     }
   }
-  ui.foot.replaceChildren(el("span", "dt-state", "Active"), el("span", null, "·"));
-  if (d.error) {
-    ui.foot.append(el("span", "stale", `Couldn't refresh · showing data from ${clockText(d.updated_ms)}`));
-  } else {
-    ui.foot.append(el("span", null, `Last updated ${clockText(d.updated_ms)}`), el("span", null, "·"), el("span", null, "refreshes every 5 min"));
-  }
-  ui.foot.append(el("span", "grow"), btn("Log out", "dt-link", () => invoke("desktime_logout").catch(() => {})));
+  // Owner (2026-11-05): no footer while all is well; Log out and status live in Settings > DeskTime.
+  // A failed refresh shows one readable line, so keyboard and screen-reader users get it too.
+  ui.foot.hidden = !d.error;
+  ui.foot.replaceChildren(...(d.error ? [el("span", "dt-state warn", `Couldn't refresh. Showing data from ${clockText(d.updated_ms)}.`)] : []));
 }
 function paintDesktime(pane) {
   const d = dt;
@@ -814,12 +835,14 @@ function paintDesktime(pane) {
   } else if (mode === "error") {
     if (pane.dataset.dtmode !== "error") dtEmpty(pane, "Couldn't read DeskTime", d.error, "Try again", () => invoke("desktime_refresh").catch(() => {}));
   } else if (mode === "load") {
-    if (pane.dataset.dtmode !== "load" || !dtUi?.steps?.isConnected) dtUi = dtSkeleton(pane);
-    const i = Math.max(0, Math.min(3, d.step || 0));
+    const skSig = (d.fetch || []).join() + "|" + (d.views || []).join();
+    if (pane.dataset.dtmode !== "load" || !dtUi?.steps?.isConnected || dtUi.sig !== skSig) dtUi = dtSkeleton(pane, d);
+    const view = DT_STEP_VIEW[d.step || 0];
+    const i = view ? Math.max(0, dtUi.fetch.indexOf(view) + 1) : 0;
     if (dtUi.shown !== i) {
       dtUi.shown = i;
       dtUi.pips.querySelectorAll("i").forEach((p, j) => p.classList.toggle("on", j <= i));
-      dtUi.msg.textContent = DT_STEPS[i] + "…";
+      dtUi.msg.textContent = dtUi.labels[i] + "…";
       dtUi.msg.style.animation = "none"; void dtUi.msg.offsetWidth; dtUi.msg.style.animation = "";
     }
   } else {
@@ -915,7 +938,7 @@ function requestClock(c, a) {
     if (!state.held) state.left = Math.max(0, state.a.expires_ms - Date.now());
     state.held = held;
     const n = c.querySelector(".count, .left");
-    if (n) n.textContent = Math.ceil(state.left / 1000) + "s";
+    if (n) n.textContent = clock(state.left);
     if (fill) {
       fill.style.transition = "none";
       fill.style.transform = `scaleX(${Math.min(1, state.left / state.total)})`;
@@ -939,7 +962,7 @@ function makeReq(a) {
   const c = el("div", "req p-" + a.provider);
   const h = el("div", "rh");
   const left = el("span", "left");
-  h.append(glyph(a.provider), el("b", null, a.kind === "question" ? "Question" : `Let it use ${a.tool_name || "a tool"}?`), el("span", "w", a.name || a.folder || "session"), left);
+  h.append(glyph(a.provider), el("b", null, a.kind === "question" ? "Question" : `Allow ${a.tool_name || "tool"}?`), el("span", "w", a.name || a.folder || "session"), left);
   c.append(h);
   if (a.kind === "question") {
     questionBody(a, c);
@@ -997,7 +1020,7 @@ function renderRequests(pane, fresh) {
     cards.get(a.id).a = a; cards.get(a.id).clock.a = a;
   }
   if (fresh) {
-    if (!waiting().length) { pane.append(el("div", "empty", "Nothing is waiting for you.")); return; }
+    if (!waiting().length) { pane.append(el("div", "empty", "Nothing is waiting for you")); return; }
     live.forEach((a, i) => { const x = cards.get(a.id); x.el.style.setProperty("--i", i); x.el.style.animation = ""; x.el.style.transform = x.el.style.opacity = x.el.style.filter = ""; pane.append(x.el); });
     renderTerminalRequests(pane);
     return;

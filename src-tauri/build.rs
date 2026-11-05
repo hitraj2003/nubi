@@ -4,6 +4,7 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "get_state",
             "desktime_open",
+            "desktime_login",
             "desktime_logout",
             "desktime_state",
             "desktime_refresh",

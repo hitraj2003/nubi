@@ -108,7 +108,7 @@ Bump `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit
 push:
 
 ```
-git tag v0.1.2 && git push origin main v0.1.2
+git tag v0.1.3 && git push origin main v0.1.3
 ```
 
 GitHub Actions (`.github/workflows/build.yml`) builds the installer, signs the update and
@@ -117,5 +117,4 @@ which holds the contents of `~/.tauri/nubi.key`.
 
 ## Credits
 
-Nubi borrows ideas from codenotch, claude-usage-meter, Claude-Code-Usage-Monitor and Navi. See
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Nubi borrows ideas from codenotch, claude-usage-meter, Claude-Code-Usage-Monitor and Navi.

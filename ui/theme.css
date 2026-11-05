@@ -1,12 +1,17 @@
 /* Shared theme for every Nubi surface (panel, notch, toast, ring, taskbar strip).
    html[data-theme=light|dark], html[data-accent=...], html[data-motion=reduce] are set by theme.js
    from Settings > Appearance. Warm neutrals; provider colours only mark Claude and Codex. */
+/* Bundled fonts (offline app). JetBrains Mono: times, durations, shortcuts, paths; Cascadia's
+   slab "1" read like a typewriter at 12px. Geist: page titles and big figures only. Both SIL OFL 1.1,
+   licences in ui/fonts. The interface itself stays Segoe UI Variable. */
+@font-face{font-family:"JetBrains Mono";src:url("fonts/jetbrains-mono.woff2") format("woff2");font-weight:100 800;font-display:block}
+@font-face{font-family:"Geist";src:url("fonts/geist.woff2") format("woff2");font-weight:100 900;font-display:block}
 :root,html[data-theme=light]{
   color-scheme:light;
   --canvas:#f4f2ee; --dot:rgba(60,50,30,.10);
   --card:#fdfcfa; --card-2:#f6f4ef; --card-3:#ece8e0; --rail:#ffffff;
   --line:rgba(40,30,10,.07); --line-2:rgba(40,30,10,.13);
-  --t1:#1d1b17; --t2:#6b665d; --t3:#a39d92;
+  --t1:#1d1b17; --t2:#6b665d; --t3:#767066; /* t3 was #a39d92 (2.4:1 on canvas); now 4.5:1 */
   --sh:0 1px 0 rgba(255,255,255,.9) inset,0 1px 2px rgba(40,30,10,.04),0 8px 24px -10px rgba(40,30,10,.14);
   --sh-pop:0 16px 40px -12px rgba(40,30,10,.28),0 0 0 1px var(--line);
   --switch-off:#e3dfd6;
@@ -27,8 +32,11 @@ html[data-theme=dark]{
   --claude:#D97757; --codex:#5B8DEF; --ok:#3FB37A; --warn:#E0A526; --bad:#EF5A4C;
   --acc:#F5C842; --acc-ink:#3a2e05;
   --font:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
-  --display:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
-  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace;
+  --display:"Geist","Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  /* Figures (times, durations, percentages) use Geist with tabular digits; mono is only for paths
+     and commands. A mono font for numbers read like a typewriter. */
+  --num:"Geist","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Mono",Consolas,monospace;
   --ease:cubic-bezier(.2,.9,.25,1);
   --spring:cubic-bezier(.34,1.4,.5,1);
 }
@@ -50,7 +58,8 @@ html[data-surface=notch]{
   --notch-div-a:#A0A0A0; --notch-div-b:#E6E6E6;
   --notch-yes:#dcebd2; --notch-yes-ink:#1E3A10; --notch-no:#fae5e1; --notch-no-ink:#a33329;
   --notch-shadow:0 20px 50px -12px rgba(0,0,0,.16),0 8px 20px -4px rgba(0,0,0,.12),0 2px 8px -2px rgba(0,0,0,.18);
-  --ink:var(--notch-ink); --ink-2:rgba(var(--notch-rgb),.62); --ink-3:rgba(var(--notch-rgb),.38);
+  /* Light notch: muted text at .72/.60 so small labels pass 4.5:1 on white (.62/.38 did not). */
+  --ink:var(--notch-ink); --ink-2:rgba(var(--notch-rgb),.72); --ink-3:rgba(var(--notch-rgb),.6);
   --row:rgba(var(--notch-rgb),.06); --row-hover:rgba(var(--notch-rgb),.1); --line:rgba(var(--notch-rgb),.08);
   --ok:var(--notch-ok); --warn:var(--notch-warn); --bad:var(--notch-bad); --info:var(--notch-info);
   --success:var(--notch-ok); --warning:var(--notch-toast-warn); --shadow:var(--notch-shadow);
@@ -64,6 +73,7 @@ html[data-surface=notch][data-theme=dark]{
   --notch-bg:#000; --notch-rgb:255,255,255; --notch-ink:#fff; --notch-inverse:#000; --notch-primary-hover:#e6e6e6;
   --notch-toast-warn:#FFD60A; --notch-ok:#4CD964; --notch-warn:#FFB340; --notch-bad:#FF6961; --notch-info:#0A84FF;
   --notch-div-a:#505050; --notch-div-b:#282828;
+  --ink-2:rgba(var(--notch-rgb),.62); --ink-3:rgba(var(--notch-rgb),.38);
   --notch-yes:#B9DE9C; --notch-no:#3B2220; --notch-no-ink:#F0857A;
   --notch-shadow:0 20px 50px -12px rgba(0,0,0,.5),0 8px 20px -4px rgba(0,0,0,.4),0 2px 8px -2px rgba(0,0,0,.6);
 }
@@ -92,11 +102,32 @@ html[data-surface=notch]{
   --notch-tip-shadow:0 8px 20px -4px rgba(0,0,0,.4),0 2px 8px -2px rgba(0,0,0,.6);
   --notch-ring-shadow:rgba(0,0,0,.35); --notch-clear:rgba(0,0,0,0);
   --notch-activity:var(--notch-ink-85); --notch-approve:var(--notch-yes); --notch-approve-ink:var(--notch-yes-ink);
-  --notch-active-label:var(--ink); --notch-outline:transparent;
+  --notch-active-label:var(--ink); --notch-outline:var(--line);
   --notch-action-hover:var(--notch-primary-hover);
 }
 html[data-surface=notch]:not([data-accent=yellow]){
-  --notch-outline:var(--acc); --notch-action-hover:color-mix(in srgb,var(--acc) 90%,var(--notch-bg));
+  --notch-action-hover:color-mix(in srgb,var(--acc) 90%,var(--notch-bg));
   --notch-activity:var(--acc); --div-a:var(--acc); --notch-active-label:var(--acc);
   --notch-approve:var(--acc); --notch-approve-ink:var(--acc-ink);
 }
+/* Light notch: white text on a bright accent misses 4.5:1, so buttons, the accent label and its
+   hover use a darker shade of the accent. */
+html[data-surface=notch][data-theme=light]:not([data-accent=yellow]){
+  --notch-action:color-mix(in srgb,var(--acc) 72%,#000); --notch-action-ink:#fff;
+  --notch-action-hover:color-mix(in srgb,var(--acc) 64%,#000);
+  --notch-active-label:color-mix(in srgb,var(--acc) 72%,#000);
+  --notch-approve:color-mix(in srgb,var(--acc) 72%,#000); --notch-approve-ink:#fff;
+}
+
+/* Custom tooltip (theme.js). Panel: raised card. Notch surfaces: the notch's own ink. */
+.nubi-tip{position:fixed;z-index:10000;max-width:280px;padding:6px 8px;border-radius:8px;
+  font:400 12px/16px var(--font);white-space:pre-line;pointer-events:none;
+  background:var(--card-3);color:var(--t1);box-shadow:var(--sh-pop);
+  opacity:0;transform:translateY(-2px);transition:opacity .12s ease,transform .12s var(--ease)}
+.nubi-tip.up{transform:translateY(2px)}
+.nubi-tip.on{opacity:1;transform:none}
+/* Tooltip follows the theme: a light tip in light mode, a dark tip in dark mode (no inverted box). */
+html[data-theme=light] .nubi-tip{background:var(--card);color:var(--t1);box-shadow:0 6px 16px -6px rgba(40,30,10,.22),0 0 0 1px var(--line-2)}
+html[data-theme=dark] .nubi-tip{background:var(--card-3);color:var(--t1);box-shadow:0 8px 20px -6px rgba(0,0,0,.7),0 0 0 1px var(--line-2)}
+html[data-surface=notch][data-theme=light] .nubi-tip{background:#fff;color:var(--ink);box-shadow:0 6px 16px -6px rgba(0,0,0,.22),0 0 0 1px var(--notch-ink-12)}
+html[data-surface=notch][data-theme=dark] .nubi-tip{background:#1c1c1e;color:var(--ink);box-shadow:0 8px 20px -6px rgba(0,0,0,.8),0 0 0 1px var(--notch-ink-14)}

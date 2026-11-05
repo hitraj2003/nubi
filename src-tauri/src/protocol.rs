@@ -76,6 +76,10 @@ pub struct BrowserCookie {
     pub http_only: bool,
     /// Unix seconds; None for a browser-session cookie.
     pub expires: Option<f64>,
+    /// Chrome's sameSite: "no_restriction" | "lax" | "strict" | "unspecified". Older extension
+    /// builds leave it out.
+    #[serde(default)]
+    pub same_site: Option<String>,
 }
 // Cookie values are secrets: Debug never prints them.
 impl std::fmt::Debug for BrowserCookie {
@@ -149,6 +153,9 @@ fn cookie_ok(c: &BrowserCookie) -> Result<(), &'static str> {
     }
     if c.expires.is_some_and(|e| !e.is_finite() || !(0.0..1e11).contains(&e)) {
         return Err("Invalid cookie expiry");
+    }
+    if c.same_site.as_deref().is_some_and(|s| !["no_restriction", "lax", "strict", "unspecified"].contains(&s)) {
+        return Err("Invalid cookie SameSite");
     }
     Ok(())
 }
@@ -377,6 +384,11 @@ mod tests {
         }
         let mut c = cookie();
         c["sameSite"] = json!("lax");
+        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c.clone()]}).to_string().as_bytes()).is_ok());
+        c["sameSite"] = json!("none; Domain=evil.com");
+        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c.clone()]}).to_string().as_bytes()).is_err());
+        c["sameSite"] = json!("lax");
+        c["hostOnly"] = json!(true);
         assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).is_err());
         let many: Vec<Value> = (0..65).map(|_| cookie()).collect();
         assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":many}).to_string().as_bytes()).is_err());

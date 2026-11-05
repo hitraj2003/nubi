@@ -38,6 +38,10 @@ struct Inner {
     step: u8,
     logged_out: bool,
     error: Option<String>,
+    /// Date of the last "target reached" notification, so it fires once a day.
+    alerted: Option<NaiveDate>,
+    /// When the browser extension last handed over the session (ms), since Nubi started.
+    synced_ms: i64,
 }
 #[derive(Default)]
 pub struct DeskTime(Mutex<Inner>);
@@ -74,8 +78,19 @@ pub struct Snapshot {
     loading: bool,
     step: u8,
     error: Option<String>,
+    /// Oldest fetch time among the shown sections (ms).
     updated_ms: i64,
     sections: Vec<Section>,
+    /// Sections the owner chose to show.
+    views: Vec<String>,
+    /// Newest successful read of any view (ms), for Settings.
+    read_ms: i64,
+    /// Last session handover from the browser extension (ms); 0 when none since start.
+    synced_ms: i64,
+    /// Views read on each refresh, in order (the loading steps).
+    fetch: Vec<String>,
+    /// Collapsed-notch text; empty when the glance is off or there is no data.
+    glance: String,
     /// Folder to load as an unpacked extension (Settings shows it).
     extension_dir: String,
 }
@@ -105,6 +120,11 @@ pub fn validate_settings(s: &Settings) -> Result<(), String> {
         if *d > 6 { return Err("Invalid target weekday".into()); }
         clock(target)?;
     }
+    if s.dt_views.is_empty() || s.dt_views.len() > 3 || s.dt_views.iter().any(|v| !VIEWS.contains(&v.as_str()))
+        || s.dt_views.iter().enumerate().any(|(i, v)| s.dt_views[..i].contains(v)) {
+        return Err("Pick at least one DeskTime section".into());
+    }
+    if !["left", "done", "leave"].contains(&s.dt_glance_kind.as_str()) { return Err("Invalid glance".into()); }
     for list in [&s.holidays, &s.half_days] {
         if list.len() > 366 { return Err("Date lists are limited to 366 entries".into()); }
         for d in list { date(d)?; }
@@ -177,7 +197,28 @@ fn row(key: &str, label: &str, value: String, note: String, tone: &str) -> Row {
     Row { key: key.into(), label: label.into(), value, note, tone: tone.into() }
 }
 
-fn section(r: &Report, fetched_ms: i64, s: &Settings, now: chrono::DateTime<Local>) -> Section {
+/// Views to read: the shown ones, plus today for the glance and alert, plus the week for leave-at.
+fn fetch_views(s: &Settings) -> Vec<&'static str> {
+    let shown = |v: &str| s.dt_views.iter().any(|x| x == v);
+    let day = shown("day") || s.dt_glance || s.dt_alert_target;
+    let week = shown("week") || shown("day") || (s.dt_glance && s.dt_glance_kind == "leave");
+    VIEWS.into_iter().filter(|v| match *v { "day" => day, "week" => week, _ => shown("month") }).collect()
+}
+/// Time to leave today so the week balance ends at zero: (week target up to and including
+/// today) minus (week productive so far). None without a week report covering today.
+fn leave_at(week: Option<&Report>, s: &Settings, now: chrono::DateTime<Local>) -> Option<(String, String)> {
+    let w = week?;
+    let today = now.date_naive();
+    let (Ok(start), Ok(end)) = (date(&w.range_start), date(&w.range_end)) else { return None };
+    if today < start || today > end { return None; }
+    let needed = span(s, start, today, &w.holidays) - w.productive_min? as f64;
+    if needed <= 0.0 { return Some(("Now".into(), format!("week {}", signed(-needed)))); }
+    let t = now + Duration::minutes(needed.ceil() as i64);
+    let days = (t.date_naive() - today).num_days();
+    let next = if days > 0 { format!(" +{days}d") } else { String::new() };
+    Some((format!("{}{next}", t.format("%H:%M")), "keeps week even".into()))
+}
+fn section(r: &Report, fetched_ms: i64, s: &Settings, now: chrono::DateTime<Local>, week: Option<&Report>) -> Section {
     let today = now.date_naive();
     let (Ok(start), Ok(end)) = (date(&r.range_start), date(&r.range_end)) else { unreachable!("validated report") };
     let productive = r.productive_min.unwrap_or(0) as f64;
@@ -195,6 +236,7 @@ fn section(r: &Report, fetched_ms: i64, s: &Settings, now: chrono::DateTime<Loca
         let finish = if remaining > 0.0 && start == today { (now + Duration::minutes(remaining.ceil() as i64)).format("%H:%M").to_string() } else { "done".into() };
         out.rows.push(row("done", "Done", duration(productive), format!("{}% of target", share.round()), ""));
         out.rows.push(row("finish", "Finish at", finish, String::new(), ""));
+        if let Some((value, note)) = leave_at(week, s, now) { out.rows.push(row("leave", "Leave at", value, note, "")); }
         out.rows.push(row("target", "Target", duration(total), if s.half_days.contains(&start.to_string()) && total > 0.0 { "Half day".into() } else { String::new() }, ""));
         if let Some(at_work) = r.at_work_min {
             let pct = if at_work > 0 { (productive / at_work as f64 * 100.0).round() } else { 100.0 };
@@ -219,7 +261,7 @@ fn section(r: &Report, fetched_ms: i64, s: &Settings, now: chrono::DateTime<Loca
         let note = match clock(&s.start_of_day) {
             Ok(start_clock) if allowance > 0.0 => {
                 let arrival = start_clock + allowance as i64;
-                format!("by {:02}:{:02}{}", arrival / 60 % 24, arrival % 60, if arrival >= 1440 { " +1d" } else { "" })
+                format!("by {:02}:{:02}{}", arrival / 60 % 24, arrival % 60, match arrival / 1440 { 0 => String::new(), d => format!(" +{d}d") })
             }
             _ => String::new(),
         };
@@ -250,12 +292,37 @@ fn snapshot(app: &App) -> Snapshot {
     let state = app.state::<DeskTime>();
     let inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
     let now = Local::now();
-    let sections: Vec<Section> = VIEWS.iter().filter_map(|view| inner.reports.get(*view))
-        .filter(|(r, _)| validate_report(r, now.date_naive()).is_ok())
-        .map(|(r, time)| section(r, *time, &settings, now)).collect();
-    Snapshot { show: settings.desktime_tab, enabled: settings.desktime_enabled, logged_out: inner.logged_out, loading: inner.pending.is_some(), step: inner.step,
-        error: inner.error.clone(), updated_ms: sections.iter().map(|s| s.fetched_ms).max().unwrap_or(0), sections,
+    let valid = |view: &str| inner.reports.get(view).filter(|(r, _)| validate_report(r, now.date_naive()).is_ok());
+    let week = valid("week").map(|(r, _)| r);
+    let sections: Vec<Section> = VIEWS.iter().filter(|v| settings.dt_views.iter().any(|x| x == *v)).filter_map(|v| valid(v))
+        .map(|(r, time)| section(r, *time, &settings, now, week)).collect();
+    let glance = if settings.dt_glance && settings.desktime_enabled && settings.desktime_tab && !inner.logged_out {
+        valid("day").map(|(r, _)| glance(&section(r, 0, &settings, now, week), &settings.dt_glance_kind)).unwrap_or_default()
+    } else { String::new() };
+    let fetch = fetch_views(&settings).into_iter().map(String::from).collect();
+    Snapshot { fetch, glance, views: settings.dt_views.clone(),
+        read_ms: inner.reports.values().map(|(_, t)| *t).max().unwrap_or(0), synced_ms: inner.synced_ms, show: settings.desktime_tab, enabled: settings.desktime_enabled, logged_out: inner.logged_out, loading: inner.pending.is_some(), step: inner.step,
+        error: inner.error.clone(), updated_ms: sections.iter().map(|s| s.fetched_ms).min().unwrap_or(0), sections,
         extension_dir: crate::native_host::extension_dir().display().to_string() }
+}
+fn glance(day: &Section, kind: &str) -> String {
+    let cell = |key: &str| day.rows.iter().find(|r| r.key == key);
+    match kind {
+        "done" => match (cell("done"), cell("target")) { (Some(d), Some(t)) => format!("{} / {}", d.value, t.value), _ => String::new() },
+        "leave" => cell("leave").map(|r| if r.value == "Now" { "Leave now".into() } else { format!("Leave {}", r.value) }).unwrap_or_default(),
+        _ => if day.over { day.big.clone() } else if day.big == "0m" { String::new() } else { format!("{} left", day.big) },
+    }
+}
+/// Productive minutes still missing today, or None without a target today.
+fn day_remaining(r: &Report, s: &Settings) -> Option<f64> {
+    let d = date(&r.range_start).ok()?;
+    let total = target(s, d, &r.holidays);
+    (total > 0.0).then(|| total - r.productive_min.unwrap_or(0) as f64)
+}
+fn notify_target(app: &App) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title("DeskTime · Target reached")
+        .body("You reached today's productive target.").show();
 }
 #[tauri::command]
 pub fn desktime_state(app: App) -> Snapshot { snapshot(&app) }
@@ -280,6 +347,7 @@ fn set_error(app: &App, message: &str) {
     let state = app.state::<DeskTime>();
     let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
     inner.pending = None;
+    eprintln!("[desktime] {message}");
     inner.error = Some(message.into());
 }
 /// The hidden scraper window, created on `url` when missing. about:blank is allowed so cookies
@@ -305,6 +373,51 @@ fn scraper(app: &App, url: tauri::Url) -> Result<WebviewWindow, String> {
             }
         })
         .build().map_err(|e| e.to_string())
+        .and_then(|w| { block_extras(&w)?; Ok(w) })
+}
+/// Request kinds the scraper needs. Everything else (images, fonts, media, stylesheets, any
+/// non-DeskTime host such as analytics or reCAPTCHA) is refused before it leaves the machine.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Kind { Document, Script, Xhr, Fetch, Other }
+fn keep_resource(uri: &str, kind: Kind) -> bool {
+    kind != Kind::Other && uri.parse::<tauri::Url>().is_ok_and(|u| allowed(&u))
+}
+/// Installs the WebView2 request filter on the hidden window only.
+fn block_extras(window: &WebviewWindow) -> Result<(), String> {
+    window.with_webview(|wv| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::*;
+        use webview2_com::{take_pwstr, WebResourceRequestedEventHandler};
+        let Ok(core) = wv.controller().CoreWebView2() else { return };
+        let Ok(env) = windows_core::Interface::cast::<ICoreWebView2_2>(&core).and_then(|c| c.Environment()) else {
+            eprintln!("[desktime] request filter unavailable");
+            return;
+        };
+        let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL;
+            args.ResourceContext(&mut ctx)?;
+            let kind = match ctx {
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT => Kind::Document,
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_SCRIPT => Kind::Script,
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_XML_HTTP_REQUEST => Kind::Xhr,
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FETCH => Kind::Fetch,
+                _ => Kind::Other,
+            };
+            let mut uri = windows_core::PWSTR::null();
+            args.Request()?.Uri(&mut uri)?;
+            if !keep_resource(&take_pwstr(uri), kind) {
+                let blocked = env.CreateWebResourceResponse(
+                    None::<&windows::Win32::System::Com::IStream>, 403,
+                    windows_core::w!("Blocked"), windows_core::w!(""))?;
+                args.SetResponse(&blocked)?;
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let added = core.AddWebResourceRequestedFilter(windows_core::w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
+            .and_then(|_| core.add_WebResourceRequested(&handler, &mut token));
+        if let Err(e) = added { eprintln!("[desktime] request filter not installed: {e}"); }
+    }).map_err(|e| e.to_string())
 }
 /// Starts loading one view in the hidden window. Runs on the main thread.
 fn load(app: &App, view: &str) -> Result<(), String> {
@@ -335,14 +448,15 @@ fn load(app: &App, view: &str) -> Result<(), String> {
 }
 /// Refreshes all views unless a load is already running.
 pub fn refresh(app: &App) {
-    if !app::with(app, |i| i.settings.desktime_enabled && i.settings.desktime_tab) { return; }
+    let first = app::with(app, |i| (i.settings.desktime_enabled && i.settings.desktime_tab).then(|| fetch_views(&i.settings).first().copied()));
+    let Some(Some(first)) = first else { return };
     {
         let state = app.state::<DeskTime>();
         let inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if inner.pending.as_ref().is_some_and(|p| Local::now().timestamp_millis() - p.1 < (PAGE_TIMEOUT_SECS as i64 + 5) * 1000) { return; }
     }
     let a = app.clone();
-    let _ = app.run_on_main_thread(move || { let _ = load(&a, "day"); emit(&a); });
+    let _ = app.run_on_main_thread(move || { let _ = load(&a, first); emit(&a); });
 }
 pub fn start(app: App) {
     *app.state::<DeskTime>().0.lock().unwrap_or_else(|e| e.into_inner()) = Inner { reports: load_cache(), ..Inner::default() };
@@ -366,31 +480,58 @@ fn save_enabled(app: &App, on: bool) -> Result<(), String> {
 // into the hidden window's WebView2 profile. Nubi never sees or stores a password.
 fn blank() -> tauri::Url { "about:blank".parse().expect("static URL") }
 /// Set-Cookie form, so the cookie crate parses the expiry (no direct `time` dependency).
-fn to_cookie(c: &BrowserCookie) -> Result<tauri::webview::Cookie<'static>, String> {
-    let mut text = format!("{}={}; Domain={}; Path={}", c.name, c.value, c.domain, c.path);
-    if c.secure { text.push_str("; Secure"); }
-    if c.http_only { text.push_str("; HttpOnly"); }
-    if let Some(at) = c.expires.and_then(|e| chrono::DateTime::from_timestamp(e as i64, 0)) {
-        text.push_str(&at.format("; Expires=%a, %d %b %Y %H:%M:%S GMT").to_string());
-    }
-    tauri::webview::Cookie::parse(text).map_err(|_| "Invalid cookie".to_string())
+/// Deletes `stale` (name, domain, path) and writes `cookies` through the WebView2 cookie manager.
+/// Written directly, not through tauri's cookie type: that type drops the leading dot of a domain
+/// cookie, which would turn every cookie host-only. The browser's domain string is kept as is.
+fn write_cookies(window: &WebviewWindow, stale: Vec<(String, String, String)>, cookies: Vec<BrowserCookie>) -> Result<(), String> {
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    window.with_webview(move |wv| {
+        let result = (|| -> windows_core::Result<()> { unsafe {
+            use webview2_com::Microsoft::Web::WebView2::Win32::*;
+            use windows_core::{Interface, HSTRING};
+            let manager = wv.controller().CoreWebView2()?.cast::<ICoreWebView2_2>()?.CookieManager()?;
+            for (name, domain, path) in &stale {
+                for d in [domain.clone(), format!(".{domain}")] {
+                    manager.DeleteCookiesWithDomainAndPath(&HSTRING::from(name), &HSTRING::from(d), &HSTRING::from(path))?;
+                }
+            }
+            for c in &cookies {
+                let cookie = manager.CreateCookie(&HSTRING::from(&c.name), &HSTRING::from(&c.value), &HSTRING::from(&c.domain), &HSTRING::from(&c.path))?;
+                cookie.SetIsSecure(c.secure.into())?;
+                cookie.SetIsHttpOnly(c.http_only.into())?;
+                match c.same_site.as_deref() {
+                    Some("strict") => cookie.SetSameSite(COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT)?,
+                    Some("lax") => cookie.SetSameSite(COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX)?,
+                    Some("no_restriction") => cookie.SetSameSite(COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE)?,
+                    _ => {}
+                }
+                if let Some(at) = c.expires { cookie.SetExpires(at)?; }
+                manager.AddOrUpdateCookie(&cookie)?;
+            }
+            Ok(())
+        } })();
+        let _ = tx.send(result.map_err(|e| e.to_string()));
+    }).map_err(|e| e.to_string())?;
+    rx.recv_timeout(std::time::Duration::from_secs(10)).map_err(|_| "Cookie update timed out".to_string())?
 }
 /// Mirrors the browser's DeskTime cookies into the scraper profile. Runs off the main thread.
 fn apply_session(app: &App, cookies: &[BrowserCookie]) -> Result<(), String> {
     let window = scraper(app, blank())?;
     // Cookies the browser no longer has are dropped, so a browser logout also ends Nubi's session.
-    for old in window.cookies().map_err(|e| e.to_string())? {
-        if old.domain().is_some_and(desktime_domain) && !cookies.iter().any(|c| c.name == old.name()) {
-            let _ = window.delete_cookie(old);
-        }
-    }
-    for c in cookies { window.set_cookie(to_cookie(c)?).map_err(|e| e.to_string())?; }
+    // A cookie counts as kept only when name, domain and path all match.
+    let stale: Vec<(String, String, String)> = window.cookies().map_err(|e| e.to_string())?.into_iter()
+        .filter(|old| old.domain().is_some_and(desktime_domain))
+        .map(|old| (old.name().to_string(), old.domain().unwrap_or_default().to_string(), old.path().unwrap_or("/").to_string()))
+        .filter(|(n, d, p)| !cookies.iter().any(|c| &c.name == n && c.domain.trim_start_matches('.') == d && &c.path == p))
+        .collect();
+    write_cookies(&window, stale, cookies.to_vec())?;
     let was_enabled = app::with(app, |i| i.settings.desktime_enabled);
     if !was_enabled { save_enabled(app, true)?; }
     let resume = {
         let state = app.state::<DeskTime>();
         let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
         let resume = !was_enabled || inner.logged_out;
+        inner.synced_ms = Local::now().timestamp_millis();
         inner.logged_out = false;
         inner.error = None;
         resume
@@ -430,11 +571,53 @@ pub fn on_browser(app: &App, msg: BrowserMsg) -> BrowserReply {
 }
 #[tauri::command]
 pub async fn desktime_logout(app: App) -> Result<(), String> { revoke(&app) }
+
+// ---------- in-app login (alternative to the extension) ----------
+// A visible window shows DeskTime's own login page on the scraper's WebView2 profile, so the
+// session cookies land where the hidden window reads them. The owner types email and password
+// into DeskTime's page; Nubi never reads them. No scraper script and no IPC in this window.
+/// True once DeskTime has moved past its login page to the signed-in app.
+fn signed_in(url: &tauri::Url) -> bool { allowed(url) && url.path().starts_with("/app") }
+/// Sign-in pages may hop to an identity provider (Google, Microsoft); any https page is allowed.
+fn login_nav(url: &tauri::Url) -> bool { url.scheme() == "https" }
+/// Called once the login window reaches the DeskTime app: turn DeskTime on and read now.
+fn finish_login(app: &App) -> Result<(), String> {
+    if !app::with(app, |i| i.settings.desktime_enabled) { save_enabled(app, true)?; }
+    {
+        let state = app.state::<DeskTime>();
+        let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner.synced_ms = Local::now().timestamp_millis();
+        inner.logged_out = false;
+        inner.error = None;
+    }
+    app::emit_state(app);
+    emit(app);
+    refresh(app);
+    Ok(())
+}
+#[tauri::command]
+pub async fn desktime_login(app: App) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("desktime-login") { let _ = w.set_focus(); return Ok(()); }
+    let url: tauri::Url = "https://desktime.com/login".parse().expect("static URL");
+    WebviewWindowBuilder::new(&app, "desktime-login", WebviewUrl::External(url))
+        .title("Log in to DeskTime").inner_size(480.0, 720.0).center().data_directory(profile())
+        .on_navigation(login_nav)
+        .on_page_load(|w, payload| {
+            if !matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) || !signed_in(payload.url()) { return; }
+            let app = w.app_handle().clone();
+            let _ = w.close();
+            std::thread::spawn(move || {
+                if let Err(e) = finish_login(&app) { set_error(&app, &e); emit(&app); }
+            });
+        })
+        .build().map(|_| ()).map_err(|e| e.to_string())
+}
 /// "site": DeskTime's login page in the default browser. "extension": the unpacked extension folder.
 #[tauri::command]
 pub fn desktime_open(target: String) -> Result<(), String> {
     let arg = match target.as_str() {
         "site" => "https://desktime.com/login".to_string(),
+        "dashboard" => "https://desktime.com/app/my".to_string(),
         "extension" => {
             crate::native_host::register();
             crate::native_host::extension_dir().display().to_string()
@@ -449,10 +632,12 @@ pub fn desktime_report(app: App, webview: WebviewWindow, report: Report) -> Resu
     if webview.label() != "desktime" || !allowed(&webview.url().map_err(|e| e.to_string())?) {
         return Err("Unexpected report source".into());
     }
-    validate_report(&report, Local::now().date_naive())?;
+    validate_report(&report, Local::now().date_naive()).inspect_err(|e| eprintln!("[desktime] report rejected: {e}"))?;
     if !app::with(&app, |i| i.settings.desktime_enabled) { return Err("DeskTime is disabled".into()); }
+    let settings = app::with(&app, |i| i.settings.clone());
     let state = app.state::<DeskTime>();
     let mut next = None;
+    let mut reached = false;
     {
         let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if !report.logged_out && inner.pending.as_ref().map(|p| p.0.as_str()) != Some(report.view.as_str()) { return Err("Unexpected report view".into()); }
@@ -463,17 +648,30 @@ pub fn desktime_report(app: App, webview: WebviewWindow, report: Report) -> Resu
             inner.error = None;
             let _ = std::fs::remove_file(cache_path());
         } else if report.productive_min.is_some() {
-            next = match report.view.as_str() { "day" => Some("week"), "week" => Some("month"), _ => None };
+            let order = fetch_views(&settings);
+            next = order.iter().position(|v| *v == report.view).and_then(|i| order.get(i + 1).copied());
+            if report.view == "day" && settings.dt_alert_target {
+                // Fires once a day, only when a read crosses the target (not on the first read).
+                let same_day = |r: &Report| r.range_start == report.range_start;
+                let before = inner.reports.get("day").filter(|(r, _)| same_day(r)).and_then(|(r, _)| day_remaining(r, &settings));
+                let today = date(&report.range_start).ok();
+                if before.is_some_and(|b| b > 0.0) && day_remaining(&report, &settings).is_some_and(|n| n <= 0.0) && inner.alerted != today {
+                    inner.alerted = today;
+                    reached = true;
+                }
+            }
             inner.error = None;
             let view = report.view.clone();
             inner.reports.insert(view, (report, Local::now().timestamp_millis()));
             save_cache(&inner.reports);
         } else {
             // Cards missing: keep the last good data and say so; the cache stays as it is.
+            eprintln!("[desktime] cards missing on {} view", report.view);
             inner.error = Some("Could not read DeskTime cards".into());
         }
     }
     emit(&app);
+    if reached { notify_target(&app); }
     if let Some(view) = next {
         let a = app.clone();
         let _ = app.run_on_main_thread(move || { let _ = load(&a, view); emit(&a); });
@@ -484,6 +682,20 @@ pub fn desktime_report(app: App, webview: WebviewWindow, report: Report) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_filter_keeps_only_desktime_pages_scripts_and_data() {
+        assert!(keep_resource("https://desktime.com/app/my", Kind::Document));
+        assert!(keep_resource("https://static.desktime.com/app.js", Kind::Script));
+        assert!(keep_resource("https://desktime.com/api/x", Kind::Xhr));
+        assert!(keep_resource("https://desktime.com/api/x", Kind::Fetch));
+        assert!(!keep_resource("https://desktime.com/logo.png", Kind::Other));
+        assert!(!keep_resource("https://js-agent.newrelic.com/a.js", Kind::Script));
+        assert!(!keep_resource("https://www.google.com/recaptcha/api.js", Kind::Script));
+        assert!(!keep_resource("https://desktime.com.evil.net/a.js", Kind::Script));
+        assert!(!keep_resource("http://desktime.com/app/my", Kind::Document));
+        assert!(!keep_resource("not a url", Kind::Document));
+    }
     fn day(s: &str) -> NaiveDate { date(s).unwrap() }
     fn report() -> Report { Report { view: "week".into(), productive_min: Some(500), at_work_min: Some(600), range_start: "2026-11-02".into(), range_end: "2026-11-08".into(), holidays: vec![], logged_out: false } }
     fn at(s: &str) -> chrono::DateTime<Local> {
@@ -538,14 +750,14 @@ mod tests {
     fn day_section_remaining_and_overtime() {
         let s = Settings::default();
         let mut r = Report { view: "day".into(), productive_min: Some(376), at_work_min: Some(414), range_start: "2026-11-04".into(), range_end: "2026-11-04".into(), holidays: vec![], logged_out: false };
-        let sec = section(&r, 1, &s, at("2026-11-04 11:00"));
+        let sec = section(&r, 1, &s, at("2026-11-04 11:00"), None);
         assert_eq!(sec.big, "2h 14m");
         assert!(!sec.over);
         assert_eq!(sec.rows[0].note, "74% of target");
         assert_eq!(sec.rows[1].value, "13:14");
         assert_eq!(sec.rows[3].value, "38m");
         r.productive_min = Some(532);
-        let sec = section(&r, 1, &s, at("2026-11-04 17:00"));
+        let sec = section(&r, 1, &s, at("2026-11-04 17:00"), None);
         assert_eq!(sec.big, "+22m");
         assert!(sec.over);
         assert_eq!(sec.percent, 100.0);
@@ -557,15 +769,43 @@ mod tests {
         s.start_of_day = "09:00".into();
         // Wed 2026-11-04 17:30: required Mon-Wed = 3 x 510; 60 min left until 18:30.
         let r = Report { view: "week".into(), productive_min: Some(1530), at_work_min: None, range_start: "2026-11-02".into(), range_end: "2026-11-08".into(), holidays: vec![], logged_out: false };
-        let sec = section(&r, 1, &s, at("2026-11-04 17:30"));
+        let sec = section(&r, 1, &s, at("2026-11-04 17:30"), None);
         assert_eq!(sec.note, "5 days");
         assert_eq!(sec.rows[1].note, "of 25h 30m");
         assert_eq!(sec.rows[2].value, "+0m");
         assert_eq!(sec.rows[3].value, "+1h 00m");
         let m = Report { view: "month".into(), productive_min: Some(1530 + 400), at_work_min: None, range_start: "2026-11-01".into(), range_end: "2026-11-30".into(), holidays: vec![], logged_out: false };
-        let sec = section(&m, 1, &s, at("2026-11-04 17:30"));
+        let sec = section(&m, 1, &s, at("2026-11-04 17:30"), None);
         // Required Nov 2-4 = 1530; balance 400 + 60 available - 90 reserve = 370 minutes late allowance.
         assert_eq!(sec.rows[4].value, "6h 10m");
         assert_eq!(sec.rows[4].note, "by 15:10");
+    }
+    #[test]
+    fn leave_at_glance_and_fetch_order() {
+        let mut s = Settings::default();
+        // Wed 11:00: Mon-Wed target 3 x 510 = 1530; 1200 done this week, 330 still needed.
+        let week = Report { view: "week".into(), productive_min: Some(1200), at_work_min: None, range_start: "2026-11-02".into(), range_end: "2026-11-08".into(), holidays: vec![], logged_out: false };
+        let day = Report { view: "day".into(), productive_min: Some(300), at_work_min: None, range_start: "2026-11-04".into(), range_end: "2026-11-04".into(), holidays: vec![], logged_out: false };
+        let now = at("2026-11-04 11:00");
+        assert_eq!(leave_at(Some(&week), &s, now).unwrap(), ("16:30".to_string(), "keeps week even".to_string()));
+        let ahead = Report { productive_min: Some(1600), ..week.clone() };
+        assert_eq!(leave_at(Some(&ahead), &s, now).unwrap().0, "Now");
+        assert!(leave_at(None, &s, now).is_none());
+        let sec = section(&day, 1, &s, now, Some(&week));
+        assert!(sec.rows.iter().any(|r| r.key == "leave" && r.value == "16:30"));
+        assert_eq!(glance(&sec, "left"), "3h 30m left");
+        assert_eq!(glance(&sec, "done"), "5h 00m / 8h 30m");
+        assert_eq!(glance(&sec, "leave"), "Leave 16:30");
+        assert_eq!(fetch_views(&s), vec!["day", "week", "month"]);
+        s.dt_views = vec!["month".into()];
+        s.dt_alert_target = false;
+        assert_eq!(fetch_views(&s), vec!["month"]);
+        s.dt_glance = true;
+        s.dt_glance_kind = "leave".into();
+        assert_eq!(fetch_views(&s), vec!["day", "week", "month"]);
+        s.dt_views = vec![];
+        assert!(validate_settings(&s).is_err());
+        s.dt_views = vec!["week".into(), "week".into()];
+        assert!(validate_settings(&s).is_err());
     }
 }

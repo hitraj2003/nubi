@@ -61,7 +61,7 @@ test('answered terminal request disappears and Waiting becomes empty', () => {
   c.renderRequests(c.pane, false);
   timers.forEach(fn => fn());
   assert.equal(c.pane.querySelector('.terminal-requests'), null);
-  assert.equal(c.pane.querySelector('.empty').textContent, 'Nothing is waiting for you.');
+  assert.equal(c.pane.querySelector('.empty').textContent, 'Nothing is waiting for you');
 });
 
 test('Waiting applies provider filtering to terminal handoffs', () => {

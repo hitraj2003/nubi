@@ -6,8 +6,10 @@ const isDesktime = (domain) => /(^|\.)desktime\.com$/.test(domain.replace(/^\./,
 async function sessionCookies() {
   const all = await chrome.cookies.getAll({ domain: "desktime.com" });
   return all.filter((c) => isDesktime(c.domain)).map((c) => ({
+    // The domain is passed as the browser stores it: ".desktime.com" for a domain cookie,
+    // "desktime.com" for a host-only one, so Nubi keeps the same scope.
     name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly,
-    expires: c.session ? null : c.expirationDate ?? null,
+    expires: c.session ? null : c.expirationDate ?? null, sameSite: c.sameSite,
   }));
 }
 
@@ -29,8 +31,20 @@ async function remember(reply) {
 }
 
 // `sync` marks a background re-send; Nubi refuses it after the owner logged out in Nubi.
+// A failed send is retried by the "retry" alarm (Nubi closed, or still starting).
 async function push(sync) {
-  return remember(await send({ type: "desktime_session", cookies: await sessionCookies(), sync }));
+  const reply = await remember(await send({ type: "desktime_session", cookies: await sessionCookies(), sync }));
+  if (!(reply && reply.ok) && !(reply && reply.revoked)) retrySoon();
+  return reply;
+}
+const retrySoon = () => chrome.alarms.create("retry", { delayInMinutes: 1 });
+// Remove access stops all sending at once. Nubi's copy is cleared when Nubi confirms; until then
+// `revokePending` stays set and the retry alarm tries again.
+async function revokeNow() {
+  const reply = await remember(await send({ type: "desktime_revoke" }));
+  if (reply && reply.ok) await chrome.storage.local.remove("revokePending");
+  else retrySoon();
+  return reply;
 }
 
 async function signedIn() {
@@ -44,17 +58,18 @@ async function signedIn() {
 
 const handlers = {
   async status() {
-    const { allowed = false, last = null } = await chrome.storage.local.get(["allowed", "last"]);
-    return { allowed, last, signedIn: await signedIn() };
+    const { allowed = false, last = null, revokePending = false } = await chrome.storage.local.get(["allowed", "last", "revokePending"]);
+    return { allowed, last, revokePending, signedIn: await signedIn() };
   },
   async allow() {
+    await chrome.storage.local.remove("revokePending");
     const reply = await push(false);
     if (reply && reply.ok) await chrome.storage.local.set({ allowed: true });
     return reply;
   },
   async remove() {
-    await chrome.storage.local.set({ allowed: false });
-    return remember(await send({ type: "desktime_revoke" }));
+    await chrome.storage.local.set({ allowed: false, revokePending: true });
+    return revokeNow();
   },
 };
 
@@ -77,4 +92,13 @@ chrome.cookies.onChanged.addListener(({ cookie }) => {
   clearTimeout(timer);
   timer = setTimeout(syncIfAllowed, 2000);
 });
-chrome.runtime.onStartup.addListener(syncIfAllowed);
+// Pending revoke first; otherwise re-send while allowed. Runs at browser start, on the retry
+// alarm, and every 30 minutes so a restarted Nubi gets the session back without a click.
+async function catchUp() {
+  const { revokePending } = await chrome.storage.local.get("revokePending");
+  if (revokePending) await revokeNow();
+  else await syncIfAllowed();
+}
+chrome.runtime.onStartup.addListener(catchUp);
+chrome.alarms.onAlarm.addListener(catchUp);
+chrome.alarms.create("periodic", { periodInMinutes: 30 });

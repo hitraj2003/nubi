@@ -74,13 +74,18 @@
     // Opacity and blur settle a bit faster than position, like a crossfade riding on the spring.
     springs.opacity.set({ response: (preset || PRESET.content).response * 0.6, damping: 1 });
     springs.blur.set({ response: (preset || PRESET.content).response * 0.6, damping: 1 });
+    // A new tween on the same element stops the old one. Without this a quick click ran the press
+    // and release tweens at once and the slower one could leave a button stuck at scale .95.
+    if (el._tween) { cancelAnimationFrame(el._tween.a.raf); el._tween.res(); }
     return new Promise((res) => {
       const a = new Animator(springs, (v) => {
         el.style.transform = `translate(${v.x}px,${v.y}px) scale(${v.scale})`;
         el.style.opacity = String(Math.max(0, Math.min(1, v.opacity)));
         el.style.filter = v.blur > 0.05 ? `blur(${v.blur}px)` : "";
-        if (Object.values(springs).every((s) => s.done)) res();
+        if (Object.values(springs).every((s) => s.done)) { if (el._tween === own) el._tween = null; res(); }
       });
+      const own = { a, res };
+      el._tween = own;
       a.kick();
       if (reduced.matches) res();
     });

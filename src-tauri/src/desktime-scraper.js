@@ -24,8 +24,10 @@
     return { view, start, end };
   }
 
+  // The whole text must be a duration ("6h 12m", "45m", "8h", optional seconds); anything else,
+  // such as "8h 30min", is not a known format and reads as missing.
   const minutes = (text) => {
-    const m = text.replace(/\s+/g, "").match(/^(?:(\d+)h)?(?:(\d+)m)?$/);
+    const m = text.replace(/\s+/g, "").match(/^(?:(\d+)h)?(?:(\d+)m)?(?:\d+s)?$/);
     return m && (m[1] || m[2]) ? (+m[1] || 0) * 60 + (+m[2] || 0) : null;
   };
   // Parent element of the first text node accepted by `test` (linear in page size).
@@ -42,7 +44,10 @@
       const t = c.querySelector(".dt-typography-h6");
       if (!t || t.textContent.trim() !== title) continue;
       const body = c.querySelector(".card-body");
-      const v = (body?.querySelector("h1, h2, h3") || body)?.textContent.replace(/\s+/g, "").match(/(?:(\d+)h)?(\d+)m|(\d+)h/);
+      const head = body?.querySelector("h1, h2, h3");
+      // First duration in the card's value. A unit must not run into more letters, so "8h 30min"
+      // is not read as 8h 30m.
+      const v = (head || body)?.textContent.replace(/\s+/g, "").match(/(?:(\d+)h)?(\d+)m(?![a-z])|(\d+)h(?![a-z\d])/i);
       if (v) return v[3] ? +v[3] * 60 : (+v[1] || 0) * 60 + +v[2];
     }
     // Fallback: the first element under the title's ancestors whose whole text is a duration.
@@ -74,8 +79,10 @@
   }
 
   let sent = false;
+  const page = location.href;
   function send(report) {
-    if (sent) return;
+    // The numbers must belong to the page the range came from (no in-page navigation since).
+    if (sent || location.href !== page) return;
     sent = true;
     try { window.__TAURI_INTERNALS__.invoke("desktime_report", { report }).catch(() => {}); } catch (_) {}
   }

@@ -12,7 +12,8 @@ function render(s) {
   line("desktime", s.signedIn === true ? "Signed in" : s.signedIn === false ? "Not signed in" : "Couldn't check",
     s.signedIn === true ? "good" : s.signedIn === false ? "bad" : "");
   const failed = s.last && !s.last.ok && s.last.error;
-  line("nubi", failed ? s.last.error : s.allowed ? "Has access" : "No access", failed ? "bad" : s.allowed ? "good" : "");
+  line("nubi", s.revokePending ? "Removing access, will retry" : failed ? s.last.error : s.allowed ? "Has access" : "No access",
+    s.revokePending || failed ? "bad" : s.allowed ? "good" : "");
   $("allow").hidden = s.allowed && !failed;
   $("allow").textContent = s.allowed ? "Send again" : "Allow access";
   $("remove").hidden = !s.allowed;

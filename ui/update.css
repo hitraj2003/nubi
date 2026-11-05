@@ -5,9 +5,9 @@ body{padding:8px}
 #notice{display:flex;flex-direction:column;max-height:calc(100vh - 16px);background:var(--notch-bg);border:1px solid var(--notch-ink-12);border-radius:24px;padding:24px;box-shadow:var(--notch-tip-shadow)}
 header{display:flex;align-items:center;gap:12px;flex:none}
 header img{flex:none;border-radius:8px}
-h1{font-size:16px;font-weight:600;margin:0}
+h1{font-size:16px;font-weight:500;margin:0}
 #version{margin:2px 0 0;color:var(--ink-2);font-size:12px}
-h2{font-size:13px;font-weight:600;margin:16px 0 8px;flex:none}
+h2{font-size:13px;font-weight:500;margin:16px 0 8px;flex:none}
 #notes{max-height:128px;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2);user-select:text}
 button{font:inherit;font-weight:500;color:var(--ink);border:0;border-radius:12px;padding:8px 16px;background:var(--row);cursor:pointer}
 button:hover{background:var(--row-hover)}
