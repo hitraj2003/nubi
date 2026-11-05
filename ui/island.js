@@ -702,9 +702,11 @@ function onDesktime(s) {
   if (tab === "desktime" && pane.dataset.tab === "desktime") paintDesktime(pane);
   if (snap) renderCompact(); // the glance chip
 }
-function dtEmpty(pane, title, text, action, fn) {
-  const box = el("div", "dt-empty");
-  box.append(el("b", null, title), el("p", null, text), btn(action, "dt-btn", fn));
+// actions: [label, fn] pairs; the first one is the main button.
+function dtEmpty(pane, title, text, ...actions) {
+  const box = el("div", "dt-empty"), row = el("div", "dt-actions");
+  row.append(...actions.map(([label, fn], i) => btn(label, "dt-btn" + (i ? " ghost" : ""), fn)));
+  box.append(el("b", null, title), el("p", null, text), row);
   pane.replaceChildren(box);
 }
 function dtSkeleton(pane, d) {
@@ -736,8 +738,12 @@ function dtSkeleton(pane, d) {
   pane.replaceChildren(root);
   return { root, steps, pips, labels, fetch, msg: steps.querySelector(".msg"), shown: -1, sig: fetch.join() + "|" + (d.views || []).join() };
 }
+// Rows per card and the grey notes are the owner's choice (Settings > DeskTime > Notch tab).
+// Late arrival hides while it is None.
+const dtRows = (view) => (snap && snap.settings["dt_rows_" + view]) || (view === "day" ? ["done", "finish"] : ["balance", "late"]);
+const dtNotes = () => !!(snap && snap.settings.dt_notes);
 function dtBuild(pane, d) {
-  const root = el("div", "dt dt-live");
+  const root = el("div", "dt dt-live" + (dtNotes() ? " notes" : ""));
   root.append(el("div", "dt-line"));
   const ui = { root, rows: new Map(), views: new Map(), periods: new Map() };
   const ds = d.sections.find((s) => s.view === "day");
@@ -753,7 +759,7 @@ function dtBuild(pane, d) {
     bar.setAttribute("aria-valuemin", "0");
     bar.setAttribute("aria-valuemax", "100");
     const rows = el("div", "dt-rows");
-    for (const r of ds.rows) {
+    for (const r of ds.rows.filter((r) => dtRows("day").includes(r.key))) {
       const cell = el("div", "dt-r"), v = el("b"), n = el("small");
       const num = el("span", "num");
       v.append(num);
@@ -786,12 +792,12 @@ function dtBuild(pane, d) {
       bar.setAttribute("aria-valuemax", "100");
       card.append(head, big, bar);
       ui.periods.set(s.view, { big, bigNum, cap, bar, fill, pace });
-      for (const r of s.rows) {
+      for (const r of s.rows.filter((r) => dtRows(s.view).includes(r.key))) {
         const kv = el("div", "dt-kv"), v = el("b"), num = el("span", "num"), n = el("small");
         v.append(num, document.createTextNode(" "), n);
         kv.append(el("span", null, r.label), v);
         list.append(kv);
-        ui.rows.set(s.view + "." + r.key, { num, note: n, b: v });
+        ui.rows.set(s.view + "." + r.key, { num, note: n, b: v, kv });
       }
       card.append(list);
       wrap.append(card);
@@ -824,7 +830,7 @@ function dtFill(ui, d, first) {
       x.cap.textContent = s.caption;
       x.bar.setAttribute("aria-valuenow", String(Math.round(s.percent)));
       x.pace.hidden = s.pace == null;
-      if (s.pace != null) { x.pace.style.left = s.pace + "%"; x.pace.title = "Pace: share of the target due by end of today"; }
+      if (s.pace != null) { x.pace.style.left = s.pace + "%"; }
       requestAnimationFrame(() => requestAnimationFrame(() => x.fill.style.setProperty("--p", s.percent + "%")));
     }
     for (const r of s.rows) {
@@ -832,6 +838,8 @@ function dtFill(ui, d, first) {
       if (!cell) continue;
       setNum(cell.num, r.value, !first);
       cell.note.textContent = r.note;
+      // Late arrival shows only when there is an allowance to use.
+      if (r.key === "late") (cell.kv || cell.num.closest(".dt-r")).hidden = r.value === "None";
       if (cell.b) cell.b.className = r.tone;
     }
   }
@@ -844,14 +852,16 @@ function paintDesktime(pane) {
   const d = dt;
   if (!d) return;
   const mode = !d.enabled ? "off" : d.logged_out ? "out" : d.sections.length ? "data" : d.error && !d.loading ? "error" : "load";
-  // Login happens in the owner's browser; the Nubi extension hands the session over.
-  const openSite = () => invoke("desktime_open", { target: "site" }).catch(() => {});
+  // Two ways in: DeskTime's login page in a Nubi window, or the browser plus the Nubi extension.
+  const signIn = ["Log in with email", () => invoke("desktime_login").catch(() => {})];
+  const getExt = ["Get browser extension", () => invoke("desktime_open", { target: "extension_download" }).catch(() => {})];
+  const how = "Log in with your DeskTime email, or install the Nubi extension, log in to DeskTime in your browser and click Allow access.";
   if (mode === "off") {
-    if (pane.dataset.dtmode !== "off") dtEmpty(pane, "DeskTime is inactive", "Log in to DeskTime in your browser, then click Allow access in the Nubi extension.", "Open DeskTime", openSite);
+    if (pane.dataset.dtmode !== "off") dtEmpty(pane, "DeskTime is inactive", how, signIn, getExt);
   } else if (mode === "out") {
-    if (pane.dataset.dtmode !== "out") dtEmpty(pane, "Signed out of DeskTime", "Log in to DeskTime in your browser, then click Allow access in the Nubi extension again.", "Open DeskTime", openSite);
+    if (pane.dataset.dtmode !== "out") dtEmpty(pane, "Signed out of DeskTime", how, signIn, getExt);
   } else if (mode === "error") {
-    if (pane.dataset.dtmode !== "error") dtEmpty(pane, "Couldn't read DeskTime", d.error, "Try again", () => invoke("desktime_refresh").catch(() => {}));
+    if (pane.dataset.dtmode !== "error") dtEmpty(pane, "Couldn't read DeskTime", d.error, ["Try again", () => invoke("desktime_refresh").catch(() => {})]);
   } else if (mode === "load") {
     const skSig = (d.fetch || []).join() + "|" + (d.views || []).join();
     if (pane.dataset.dtmode !== "load" || !dtUi?.steps?.isConnected || dtUi.sig !== skSig) dtUi = dtSkeleton(pane, d);
@@ -864,7 +874,7 @@ function paintDesktime(pane) {
       dtUi.msg.style.animation = "none"; void dtUi.msg.offsetWidth; dtUi.msg.style.animation = "";
     }
   } else {
-    const sig = d.sections.map((s) => s.view + ":" + s.rows.map((r) => r.key)).join("|");
+    const sig = d.sections.map((s) => s.view + ":" + s.rows.map((r) => r.key) + ":" + dtRows(s.view)).join("|") + "|" + dtNotes();
     const fresh = pane.dataset.dtmode !== "data" || !dtUi?.root?.isConnected || dtUi.sig !== sig;
     if (fresh) { dtUi = dtBuild(pane, d); dtUi.sig = sig; }
     dtFill(dtUi, d, fresh);

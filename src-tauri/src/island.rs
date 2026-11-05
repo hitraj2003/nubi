@@ -11,7 +11,7 @@ use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 /// Logical window size along and across the edge: the open shape's largest size plus room for
 /// its ears and overshoot.
 pub const ALONG: f64 = 720.0;
-pub const DEPTH: f64 = 540.0;
+pub const DEPTH: f64 = 700.0;
 /// On a side edge the open panel stands up (360 wide, tall), so the window is narrow and tall.
 pub const SIDE_DEPTH: f64 = 420.0;
 pub const SIDE_ALONG: f64 = 860.0;

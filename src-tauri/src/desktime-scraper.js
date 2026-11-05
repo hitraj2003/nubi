@@ -44,10 +44,12 @@
       const t = c.querySelector(".dt-typography-h6");
       if (!t || t.textContent.trim() !== title) continue;
       const body = c.querySelector(".card-body");
-      const head = body?.querySelector("h1, h2, h3");
-      // First duration in the card's value. A unit must not run into more letters, so "8h 30min"
-      // is not read as 8h 30m.
-      const v = (head || body)?.textContent.replace(/\s+/g, "").match(/(?:(\d+)h)?(\d+)m(?![a-z])|(\d+)h(?![a-z\d])/i);
+      if (!body) continue;
+      // The card also shows "Average 7h 38m" (per day on week and month pages). Drop that label
+      // and its value, then read the first duration left. A unit must not run into more
+      // letters, so "8h 30min" is not read as 8h 30m.
+      const text = body.textContent.replace(/(?:average|avg\.?)\s*:?\s*(?:\d+\s*h)?\s*(?:\d+\s*m(?![a-z]))?/gi, " ");
+      const v = text.replace(/\s+/g, "").match(/(?:(\d+)h)?(\d+)m(?![a-z])|(\d+)h(?![a-z\d])/i);
       if (v) return v[3] ? +v[3] * 60 : (+v[1] || 0) * 60 + +v[2];
     }
     // Fallback: the first element under the title's ancestors whose whole text is a duration.
@@ -95,13 +97,18 @@
     if (!location.pathname.startsWith("/app/")) send({ ...base, loggedOut: true });
     return;
   }
+  // DeskTime fills the cards in steps (a first value can be a per-day average), so the numbers
+  // are sent only once they have stayed the same for 1.5 s after the page finished loading.
   const started = Date.now();
+  let last = "", since = 0;
   const timer = setInterval(() => {
-    if (document.readyState === "loading") return;
+    if (document.readyState !== "complete") return;
     const productive = card("Productive time");
     const atWork = card("Time at work");
-    const waited = Date.now() - started;
-    if ((productive !== null && (atWork !== null || waited > 3000)) || waited > 20000) {
+    const now = Date.now(), waited = now - started, key = productive + "|" + atWork;
+    if (key !== last) { last = key; since = now; }
+    const steady = productive !== null && now - since >= 1500 && (atWork !== null || waited > 5000);
+    if (steady || waited > 20000) {
       clearInterval(timer);
       send({ ...base, productiveMin: productive, atWorkMin: atWork, holidays: holidays(t.start, t.end) });
     }

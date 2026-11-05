@@ -50,6 +50,15 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
 
+      - name: Attach browser extension zip
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Compress-Archive -Path extension/desktime-connect -DestinationPath nubi-desktime-extension.zip
+          gh release upload "${{ github.ref_name }}" nubi-desktime-extension.zip --clobber
+
       - name: Keep installer
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4

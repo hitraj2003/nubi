@@ -110,7 +110,6 @@ function render() {
   g += "</g>";
   const count = missed().length;
   if (count) g += `<g id="missed" role="button" tabindex="0" aria-label="${count} waiting in terminal. Open terminal. Right-click or press Delete to dismiss.">
-    <title>${count} waiting in terminal. Click to open terminal. Right-click to dismiss.</title>
     <rect x="56" y="9" width="25" height="17" rx="8.5" fill="var(--warn)"/>
     <text class="missed-count" x="68.5" y="21" text-anchor="middle">${count > 99 ? "99+" : count}</text></g>`;
   svg.setAttribute("height", 2 * (R + M));

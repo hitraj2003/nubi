@@ -15,6 +15,9 @@ use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 const EARLY_LEAVE_WEEKLY_MIN: f64 = 90.0;
 const PAGE_TIMEOUT_SECS: u64 = 60;
 const VIEWS: [&str; 3] = ["day", "week", "month"];
+/// Row keys the owner can pick per card.
+pub const DAY_ROWS: [&str; 5] = ["done", "finish", "target", "late", "nonprod"];
+pub const PERIOD_ROWS: [&str; 5] = ["target", "todate", "balance", "eod", "late"];
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -127,6 +130,9 @@ pub fn validate_settings(s: &Settings) -> Result<(), String> {
         return Err("Pick at least one DeskTime section".into());
     }
     if !["left", "done"].contains(&s.dt_glance_kind.as_str()) { return Err("Invalid glance".into()); }
+    for (rows, allowed) in [(&s.dt_rows_day, &DAY_ROWS[..]), (&s.dt_rows_week, &PERIOD_ROWS[..]), (&s.dt_rows_month, &PERIOD_ROWS[..])] {
+        if rows.len() > allowed.len() || rows.iter().any(|r| !allowed.contains(&r.as_str())) { return Err("Invalid DeskTime rows".into()); }
+    }
     for list in [&s.holidays, &s.half_days] {
         if list.len() > 366 { return Err("Date lists are limited to 366 entries".into()); }
         for d in list { date(d)?; }
@@ -256,7 +262,7 @@ fn section(r: &Report, fetched_ms: i64, s: &Settings, now: chrono::DateTime<Loca
         percent: share.clamp(0.0, 100.0), pace: None, note: String::new(), rows: Vec::new(), fetched_ms };
     if r.view == "day" {
         out.title = "Today".into();
-        out.caption = if total == 0.0 { "no target today".into() } else if over { "overtime today".into() } else { "productive time left today".into() };
+        out.caption = if total == 0.0 { "no target today".into() } else if over { "overtime".into() } else { "left".into() };
         out.rows.push(row("done", "Done", duration(productive), format!("{}% of target", share.round()), ""));
         if remaining > 0.0 && start == today {
             out.rows.push(row("finish", "Finish at", (now + Duration::minutes(remaining.ceil() as i64)).format("%H:%M").to_string(), String::new(), ""));
@@ -386,7 +392,7 @@ fn set_error(app: &App, message: &str) {
 fn scraper(app: &App, url: tauri::Url) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window("desktime") { return Ok(w); }
     WebviewWindowBuilder::new(app, "desktime", WebviewUrl::External(url))
-        .title("DeskTime").visible(false).data_directory(profile())
+        .title("DeskTime").visible(false).inner_size(1440.0, 900.0).data_directory(profile())
         .initialization_script(include_str!("desktime-scraper.js"))
         .on_navigation(|url| allowed(url) || url.as_str() == "about:blank")
         .on_page_load(|w, payload| {
@@ -649,6 +655,7 @@ pub fn desktime_open(target: String) -> Result<(), String> {
     let arg = match target.as_str() {
         "site" => "https://desktime.com/login".to_string(),
         "dashboard" => "https://desktime.com/app/my".to_string(),
+        "extension_download" => "https://github.com/hitraj2003/nubi/releases/latest/download/nubi-desktime-extension.zip".to_string(),
         "extension" => {
             crate::native_host::register();
             crate::native_host::extension_dir().display().to_string()

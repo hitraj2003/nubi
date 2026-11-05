@@ -1,4 +1,7 @@
 fn main() {
+    // Build time, so the updater can offer a rebuilt release that keeps the same version number.
+    let built = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    println!("cargo:rustc-env=NUBI_BUILD_TIME={built}");
     // List every command: unlisted app commands bypass application ACL checks.
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[

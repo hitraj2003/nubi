@@ -73,6 +73,12 @@ pub struct Settings {
     pub dt_glance_kind: String,
     /// Notification when the productive target for today is reached.
     pub dt_alert_target: bool,
+    /// Rows shown on each DeskTime card, by row key (see desktime::DAY_ROWS / PERIOD_ROWS).
+    pub dt_rows_day: Vec<String>,
+    pub dt_rows_week: Vec<String>,
+    pub dt_rows_month: Vec<String>,
+    /// Small grey description under each value.
+    pub dt_notes: bool,
 }
 
 impl Default for Settings {
@@ -118,6 +124,10 @@ impl Default for Settings {
             dt_glance: false,
             dt_glance_kind: "left".into(),
             dt_alert_target: true,
+            dt_rows_day: vec!["done".into(), "finish".into()],
+            dt_rows_week: vec!["balance".into(), "late".into()],
+            dt_rows_month: vec!["balance".into(), "late".into()],
+            dt_notes: false,
         }
     }
 }

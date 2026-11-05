@@ -584,6 +584,7 @@ function fillDesktime(cfg) {
   const f = $("settings").elements;
   document.querySelectorAll("#dt-days input").forEach((c) => (c.checked = (cfg.work_days || []).includes(Number(c.value))));
   document.querySelectorAll("#dt-views input").forEach((c) => (c.checked = (cfg.dt_views || []).includes(c.value)));
+  document.querySelectorAll(".dt-rows-pick input").forEach((c) => (c.checked = (cfg["dt_rows_" + c.closest(".dt-rows-pick").dataset.view] || []).includes(c.value)));
   f.dt_glance_kind.disabled = !cfg.dt_glance;
   dtDates.holidays = [...(cfg.holidays || [])].sort();
   dtDates.half_days = [...(cfg.half_days || [])].sort();
@@ -639,7 +640,7 @@ $("dt-views").addEventListener("change", paintPreview);
 // logs in in their browser and the Nubi extension's Allow access hands the session over.
 function renderDesktime(s) {
   const on = s.enabled && !s.logged_out;
-  $("dt-status").textContent = !s.enabled ? "Log in with your DeskTime email and password, or log in in your browser and click Allow access in the Nubi extension."
+  $("dt-status").textContent = !s.enabled ? "Log in with your DeskTime email and password, or install the Nubi extension (Browser extension below), log in in your browser and click Allow access."
     : s.logged_out ? "Signed out. Log in with email again, or click Allow access in the Nubi extension again."
     : "Nubi reads your dashboard every 5 minutes";
   const pill = $("dt-pill");
@@ -665,6 +666,7 @@ function renderDesktime(s) {
 const dtFail = (e) => ($("saved").textContent = String(e));
 $("dt-signin").addEventListener("click", () => invoke("desktime_login").catch(dtFail));
 $("dt-login").addEventListener("click", () => invoke("desktime_open", { target: "site" }).catch(dtFail));
+$("dt-ext-get").addEventListener("click", () => invoke("desktime_open", { target: "extension_download" }).catch(dtFail));
 $("dt-ext-open").addEventListener("click", () => invoke("desktime_open", { target: "extension" }).catch(dtFail));
 $("dt-logout").addEventListener("click", () => invoke("desktime_logout").catch(dtFail));
 $("dt-dash").addEventListener("click", () => invoke("desktime_open", { target: "dashboard" }).catch(dtFail));
@@ -743,6 +745,8 @@ async function saveSettings() {
     dt_glance: f.dt_glance.checked,
     dt_glance_kind: f.dt_glance_kind.value,
     dt_alert_target: f.dt_alert_target.checked,
+    dt_notes: f.dt_notes.checked,
+    ...Object.fromEntries([...document.querySelectorAll(".dt-rows-pick")].map((p) => ["dt_rows_" + p.dataset.view, [...p.querySelectorAll("input:checked")].map((c) => c.value)])),
   };
   try {
     await invoke("save_settings", { settings });

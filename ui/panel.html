@@ -182,16 +182,23 @@
             <div class="row dt-diag" id="dt-diag" hidden>
               <dl class="dt-facts"><dt>Last read</dt><dd id="dt-read">Never</dd><dt>Browser session</dt><dd id="dt-sync">Not received since Nubi started</dd><dt>Last error</dt><dd id="dt-err">None</dd></dl>
               <button type="button" id="dt-refresh" class="btn">Read now</button></div>
-            <div class="row"><div><div class="rl">Browser extension</div><div class="rd" id="dt-ext-note">Install it in Chrome, Brave or Edge:</div>
-                <ol class="steps" id="dt-ext-steps"><li>Open chrome://extensions (edge://extensions in Edge)</li><li>Turn on Developer mode</li><li>Click Load unpacked</li><li>Pick this folder</li></ol>
+            <div class="row"><div><div class="rl">Browser extension</div><div class="rd" id="dt-ext-note">Needed for Use browser. Download it (or use the folder Nubi installed), unzip, then in Chrome, Brave or Edge:</div>
+                <ol class="steps" id="dt-ext-steps"><li>Open chrome://extensions (edge://extensions in Edge)</li><li>Turn on Developer mode</li><li>Click Load unpacked</li><li>Pick the unzipped folder, or this one:</li></ol>
                 <div class="dt-path" id="dt-ext-path"></div></div>
-              <span class="hook"><button type="button" id="dt-ext-open" class="btn ghost">Open folder</button></span></div>
+              <span class="hook"><button type="button" id="dt-ext-get" class="btn">Download</button><button type="button" id="dt-ext-open" class="btn ghost">Open folder</button></span></div>
           </div>
           <div class="card">
             <div class="ct">Notch tab</div><div class="cd">What the DeskTime tab shows. Hidden sections are not read from DeskTime.</div>
             <div class="dt-preview" id="dt-preview" aria-hidden="true"></div>
             <div class="row"><div><div class="rl">Sections</div><div class="rd">Pick at least one</div></div>
               <span class="days" id="dt-views"><label><input type="checkbox" value="day"><span>Today</span></label><label><input type="checkbox" value="week"><span>Week</span></label><label><input type="checkbox" value="month"><span>Month</span></label></span></div>
+            <div class="row"><div><div class="rl">Today rows</div></div>
+              <span class="days dt-rows-pick" data-view="day"><label><input type="checkbox" value="done"><span>Done</span></label><label><input type="checkbox" value="finish"><span>Finish at</span></label><label><input type="checkbox" value="target"><span>Target</span></label><label><input type="checkbox" value="late"><span>Late arrival</span></label><label><input type="checkbox" value="nonprod"><span>Non-productive</span></label></span></div>
+            <div class="row"><div><div class="rl">Week rows</div></div>
+              <span class="days dt-rows-pick" data-view="week"><label><input type="checkbox" value="target"><span>Target</span></label><label><input type="checkbox" value="todate"><span>To date</span></label><label><input type="checkbox" value="balance"><span>Balance</span></label><label><input type="checkbox" value="eod"><span>At end of day</span></label><label><input type="checkbox" value="late"><span>Late arrival</span></label></span></div>
+            <div class="row"><div><div class="rl">Month rows</div></div>
+              <span class="days dt-rows-pick" data-view="month"><label><input type="checkbox" value="target"><span>Target</span></label><label><input type="checkbox" value="todate"><span>To date</span></label><label><input type="checkbox" value="balance"><span>Balance</span></label><label><input type="checkbox" value="eod"><span>At end of day</span></label><label><input type="checkbox" value="late"><span>Late arrival</span></label></span></div>
+            <div class="row"><div><div class="rl">Descriptions</div><div class="rd">Small grey line under each value, like "48% of target"</div></div><span class="switch"><input type="checkbox" name="dt_notes"><i></i></span></div>
             <div class="row"><div><div class="rl">Show in the closed notch</div><div class="rd">A short DeskTime line next to the rings, at the top edge</div></div><span class="switch"><input type="checkbox" name="dt_glance"><i></i></span></div>
             <div class="row"><div><div class="rl">Closed notch shows</div></div>
               <select name="dt_glance_kind"><option value="left">Time left today</option><option value="done">Done / target</option></select></div>

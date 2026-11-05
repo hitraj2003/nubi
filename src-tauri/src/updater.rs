@@ -113,13 +113,23 @@ pub fn start(app: AppHandle) {
     });
 }
 
+/// Seconds between this build and a manifest published for it (build, sign, upload). A manifest
+/// for the same version published later than this is a rebuild of that version.
+const REBUILD_GRACE_SECS: i64 = 2 * 60 * 60;
+/// A higher version, or the same version rebuilt and published after this build.
+fn newer(current: semver::Version, remote: tauri_plugin_updater::RemoteRelease) -> bool {
+    if remote.version != current { return remote.version > current; }
+    let built: i64 = env!("NUBI_BUILD_TIME").parse().unwrap_or(i64::MAX);
+    remote.pub_date.is_some_and(|d| d.unix_timestamp() > built.saturating_add(REBUILD_GRACE_SECS))
+}
+
 async fn check(app: &AppHandle, startup: bool, explicit: bool) -> Result<String, String> {
     if !with(app, |i| {
         if i.checking || i.installing { return false; }
         i.checking = true; true
     }) { return Ok("An update check or download is already in progress".into()); }
     let result = async {
-        app.updater_builder().timeout(Duration::from_secs(30)).build()
+        app.updater_builder().timeout(Duration::from_secs(30)).version_comparator(newer).build()
             .map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())
     }.await;
     with(app, |i| i.checking = false);
