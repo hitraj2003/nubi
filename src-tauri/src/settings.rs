@@ -69,7 +69,7 @@ pub struct Settings {
     pub dt_views: Vec<String>,
     /// Small DeskTime text in the collapsed notch.
     pub dt_glance: bool,
-    /// Glance content: "left" | "done" | "leave".
+    /// Glance content: "left" | "done".
     pub dt_glance_kind: String,
     /// Notification when the productive target for today is reached.
     pub dt_alert_target: bool,
@@ -147,6 +147,10 @@ pub fn load() -> Settings {
             // The edge notch became the island (same edges, new shape).
             if s.display_mode == "notch" {
                 s.display_mode = "island".into();
+            }
+            // The leave-at glance was removed (DeskTime math now follows the v5 extension).
+            if s.dt_glance_kind == "leave" {
+                s.dt_glance_kind = "left".into();
             }
             s
         })

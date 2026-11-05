@@ -59,12 +59,14 @@ pub struct Row {
 pub struct Section {
     view: String,
     title: String,
-    /// Day: the big number. Week/month: unused.
+    /// Remaining time, or overtime with a leading +.
     big: String,
     caption: String,
     over: bool,
-    /// Day: done as a share of the target, 0..=100.
+    /// Done as a share of the target, 0..=100.
     percent: f64,
+    /// Week/month: share of the target due by end of today, 0..=100.
+    pace: Option<f64>,
     /// Week/month: working days in range.
     note: String,
     rows: Vec<Row>,
@@ -124,7 +126,7 @@ pub fn validate_settings(s: &Settings) -> Result<(), String> {
         || s.dt_views.iter().enumerate().any(|(i, v)| s.dt_views[..i].contains(v)) {
         return Err("Pick at least one DeskTime section".into());
     }
-    if !["left", "done", "leave"].contains(&s.dt_glance_kind.as_str()) { return Err("Invalid glance".into()); }
+    if !["left", "done"].contains(&s.dt_glance_kind.as_str()) { return Err("Invalid glance".into()); }
     for list in [&s.holidays, &s.half_days] {
         if list.len() > 366 { return Err("Date lists are limited to 366 entries".into()); }
         for d in list { date(d)?; }
@@ -172,101 +174,131 @@ fn validate_report(r: &Report, today: NaiveDate) -> Result<(), String> {
     Ok(())
 }
 
-// ---------- target math ----------
-fn target(s: &Settings, d: NaiveDate, holidays: &[String]) -> f64 {
+// ---------- target math (same rules as the DeskTime Remaining v5 extension) ----------
+/// Day weight: 0 off day or holiday, 0.5 half day, 1 otherwise.
+fn weight(s: &Settings, d: NaiveDate, holidays: &[String]) -> f64 {
     let key = d.to_string();
     let weekday = d.weekday().num_days_from_sunday() as u8;
     if !s.work_days.contains(&weekday) || s.holidays.contains(&key) || holidays.contains(&key) { return 0.0; }
-    let minutes = s.day_targets.get(&weekday).and_then(|v| clock(v).ok())
-        .unwrap_or_else(|| clock(&s.daily_target).unwrap_or(510)) as f64;
-    minutes * if s.half_days.contains(&key) { 0.5 } else { 1.0 }
+    if s.half_days.contains(&key) { 0.5 } else { 1.0 }
 }
-fn span(s: &Settings, start: NaiveDate, end: NaiveDate, holidays: &[String]) -> f64 {
-    start.iter_days().take_while(|d| *d <= end).map(|d| target(s, d, holidays)).sum()
+/// Full-day target for the weekday (per-weekday override, else the daily target).
+fn day_target(s: &Settings, d: NaiveDate) -> f64 {
+    let weekday = d.weekday().num_days_from_sunday() as u8;
+    s.day_targets.get(&weekday).and_then(|v| clock(v).ok()).unwrap_or_else(|| clock(&s.daily_target).unwrap_or(510)) as f64
 }
-fn work_days(s: &Settings, start: NaiveDate, end: NaiveDate, holidays: &[String]) -> usize {
-    start.iter_days().take_while(|d| *d <= end).filter(|d| target(s, *d, holidays) > 0.0).count()
+fn target(s: &Settings, d: NaiveDate, holidays: &[String]) -> f64 { weight(s, d, holidays) * day_target(s, d) }
+/// (working days, target minutes) from `start` to `end`, inclusive.
+fn span(s: &Settings, start: NaiveDate, end: NaiveDate, holidays: &[String]) -> (f64, f64) {
+    start.iter_days().take_while(|d| *d <= end).fold((0.0, 0.0), |(n, m), d| (n + weight(s, d, holidays), m + target(s, d, holidays)))
 }
 fn duration(minutes: f64) -> String {
     let m = minutes.abs().round() as i64;
     if m < 60 { format!("{m}m") } else { format!("{}h {:02}m", m / 60, m % 60) }
 }
 fn signed(minutes: f64) -> String { format!("{}{}", if minutes.round() >= 0.0 { "+" } else { "-" }, duration(minutes)) }
-fn tone(minutes: f64) -> &'static str { if minutes.round() > 0.0 { "pos" } else if minutes.round() < 0.0 { "neg" } else { "" } }
+fn days_text(n: f64) -> String {
+    let v = if n.fract() == 0.0 { format!("{n:.0}") } else { format!("{n}") };
+    format!("{v} day{}", if n == 1.0 { "" } else { "s" })
+}
+fn hhmm(minutes: i64) -> String {
+    let d = minutes.div_euclid(1440);
+    let m = minutes.rem_euclid(1440);
+    format!("{:02}:{:02}{}", m / 60, m % 60, if d > 0 { format!(" +{d}d") } else { String::new() })
+}
 fn row(key: &str, label: &str, value: String, note: String, tone: &str) -> Row {
     Row { key: key.into(), label: label.into(), value, note, tone: tone.into() }
 }
 
-/// Views to read: the shown ones, plus today for the glance and alert, plus the week for leave-at.
+/// Views to read: the shown ones, plus today for the glance and alert, plus the month for the
+/// late-arrival allowance that Today and This week also show.
 fn fetch_views(s: &Settings) -> Vec<&'static str> {
     let shown = |v: &str| s.dt_views.iter().any(|x| x == v);
     let day = shown("day") || s.dt_glance || s.dt_alert_target;
-    let week = shown("week") || shown("day") || (s.dt_glance && s.dt_glance_kind == "leave");
-    VIEWS.into_iter().filter(|v| match *v { "day" => day, "week" => week, _ => shown("month") }).collect()
+    VIEWS.into_iter().filter(|v| match *v { "day" => day, "week" => shown("week"), _ => !s.dt_views.is_empty() }).collect()
 }
-/// Time to leave today so the week balance ends at zero: (week target up to and including
-/// today) minus (week productive so far). None without a week report covering today.
-fn leave_at(week: Option<&Report>, s: &Settings, now: chrono::DateTime<Local>) -> Option<(String, String)> {
-    let w = week?;
+/// Minutes left until end of day when today is a working day, else 0.
+fn available(s: &Settings, now: chrono::DateTime<Local>, holidays: &[String]) -> f64 {
+    if weight(s, now.date_naive(), holidays) == 0.0 { return 0.0; }
+    let eod = clock(&s.end_of_day).unwrap_or(1110);
+    (eod - (now.hour() as i64 * 60 + now.minute() as i64)).max(0) as f64
+}
+/// Late-arrival row from the month report: month surplus projected to end of today, minus the
+/// weekly early-leave reserve. None without a month report covering today.
+fn late_row(month: Option<&Report>, s: &Settings, now: chrono::DateTime<Local>) -> Option<Row> {
+    let m = month?;
     let today = now.date_naive();
-    let (Ok(start), Ok(end)) = (date(&w.range_start), date(&w.range_end)) else { return None };
+    let (Ok(start), Ok(end)) = (date(&m.range_start), date(&m.range_end)) else { return None };
     if today < start || today > end { return None; }
-    let needed = span(s, start, today, &w.holidays) - w.productive_min? as f64;
-    if needed <= 0.0 { return Some(("Now".into(), format!("week {}", signed(-needed)))); }
-    let t = now + Duration::minutes(needed.ceil() as i64);
-    let days = (t.date_naive() - today).num_days();
-    let next = if days > 0 { format!(" +{days}d") } else { String::new() };
-    Some((format!("{}{next}", t.format("%H:%M")), "keeps week even".into()))
+    let required = span(s, start, today, &m.holidays).1;
+    let surplus = (m.productive_min? as f64 + available(s, now, &m.holidays) - required).round();
+    let allowance = (surplus - EARLY_LEAVE_WEEKLY_MIN).max(0.0);
+    let mut notes = Vec::new();
+    if allowance <= 0.0 {
+        notes.push(format!("{} {}", duration(surplus), if surplus >= 0.0 { "ahead" } else { "behind" }));
+        notes.push(format!("need over {}", duration(EARLY_LEAVE_WEEKLY_MIN)));
+    } else if let Ok(arrive) = clock(&s.start_of_day) {
+        notes.push(format!("arrive by {}", hhmm(arrive + allowance as i64)));
+    }
+    let value = if allowance > 0.0 { duration(allowance) } else { "None".into() };
+    Some(row("late", "Late arrival", value, notes.join(" · "), if allowance > 0.0 { "pos" } else { "" }))
 }
-fn section(r: &Report, fetched_ms: i64, s: &Settings, now: chrono::DateTime<Local>, week: Option<&Report>) -> Section {
+fn section(r: &Report, fetched_ms: i64, s: &Settings, now: chrono::DateTime<Local>, month: Option<&Report>) -> Section {
     let today = now.date_naive();
     let (Ok(start), Ok(end)) = (date(&r.range_start), date(&r.range_end)) else { unreachable!("validated report") };
     let productive = r.productive_min.unwrap_or(0) as f64;
-    let total = span(s, start, end, &r.holidays);
+    let (days, total) = span(s, start, end, &r.holidays);
     let remaining = total - productive;
-    let mut out = Section { view: r.view.clone(), title: String::new(), big: String::new(), caption: String::new(), over: false,
-        percent: 0.0, note: String::new(), rows: Vec::new(), fetched_ms };
+    let share = if total > 0.0 { productive / total * 100.0 } else { 100.0 };
+    let over = remaining <= 0.0 && total > 0.0;
+    let big = if remaining > 0.0 { duration(remaining) } else if total > 0.0 { signed(-remaining) } else { "0m".into() };
+    let mut out = Section { view: r.view.clone(), title: String::new(), big, caption: String::new(), over,
+        percent: share.clamp(0.0, 100.0), pace: None, note: String::new(), rows: Vec::new(), fetched_ms };
     if r.view == "day" {
-        let share = if total > 0.0 { productive / total * 100.0 } else { 100.0 };
         out.title = "Today".into();
-        out.over = remaining <= 0.0 && total > 0.0;
-        out.big = if remaining > 0.0 { duration(remaining) } else if total > 0.0 { signed(-remaining) } else { "0m".into() };
-        out.caption = if total == 0.0 { "no target today".into() } else if out.over { "overtime today".into() } else { "productive time left today".into() };
-        out.percent = share.clamp(0.0, 100.0);
-        let finish = if remaining > 0.0 && start == today { (now + Duration::minutes(remaining.ceil() as i64)).format("%H:%M").to_string() } else { "done".into() };
+        out.caption = if total == 0.0 { "no target today".into() } else if over { "overtime today".into() } else { "productive time left today".into() };
         out.rows.push(row("done", "Done", duration(productive), format!("{}% of target", share.round()), ""));
-        out.rows.push(row("finish", "Finish at", finish, String::new(), ""));
-        if let Some((value, note)) = leave_at(week, s, now) { out.rows.push(row("leave", "Leave at", value, note, "")); }
-        out.rows.push(row("target", "Target", duration(total), if s.half_days.contains(&start.to_string()) && total > 0.0 { "Half day".into() } else { String::new() }, ""));
-        if let Some(at_work) = r.at_work_min {
-            let pct = if at_work > 0 { (productive / at_work as f64 * 100.0).round() } else { 100.0 };
-            out.rows.push(row("nonprod", "Non-productive", duration(at_work as f64 - productive), format!("{pct}% productive"), ""));
+        if remaining > 0.0 && start == today {
+            out.rows.push(row("finish", "Finish at", (now + Duration::minutes(remaining.ceil() as i64)).format("%H:%M").to_string(), String::new(), ""));
+        }
+        let half = s.half_days.contains(&start.to_string()) && total > 0.0;
+        out.rows.push(row("target", "Target", duration(total), if half { "half day".into() } else { String::new() }, ""));
+        if start == today { out.rows.extend(late_row(month, s, now)); }
+        if let Some(at_work) = r.at_work_min.map(f64::from).filter(|a| *a > productive) {
+            out.rows.push(row("nonprod", "Non-productive", duration(at_work - productive), format!("{}% productive", (productive / at_work * 100.0).round()), ""));
         }
         return out;
     }
-    let days = work_days(s, start, end, &r.holidays);
-    let required = span(s, start, today.min(end), &r.holidays);
-    let eod = clock(&s.end_of_day).unwrap_or(1110);
-    let minute = now.hour() as i64 * 60 + now.minute() as i64;
-    let available = if today >= start && today <= end && target(s, today, &r.holidays) > 0.0 { (eod - minute).max(0) as f64 } else { 0.0 };
-    let balance = productive - required;
     out.title = if r.view == "week" { "This week" } else { "This month" }.into();
-    out.note = format!("{days} day{}", if days == 1 { "" } else { "s" });
-    out.rows.push(row("target", "Target", duration(total), String::new(), ""));
-    out.rows.push(row("todate", "To date", duration(productive), format!("of {}", duration(required)), ""));
-    out.rows.push(row("balance", "Balance", signed(balance), String::new(), tone(balance)));
-    out.rows.push(row("eod", "By end of day", signed(balance + available), String::new(), tone(balance + available)));
-    if r.view == "month" {
-        let allowance = (balance + available - EARLY_LEAVE_WEEKLY_MIN).round().max(0.0);
-        let note = match clock(&s.start_of_day) {
-            Ok(start_clock) if allowance > 0.0 => {
-                let arrival = start_clock + allowance as i64;
-                format!("by {:02}:{:02}{}", arrival / 60 % 24, arrival % 60, match arrival / 1440 { 0 => String::new(), d => format!(" +{d}d") })
-            }
-            _ => String::new(),
-        };
-        out.rows.push(row("late", "Late arrival", if allowance > 0.0 { duration(allowance) } else { "None".into() }, note, ""));
+    out.caption = if over { "overtime".into() } else { "left".into() };
+    out.note = days_text(days);
+    let in_range = today >= start && today <= end;
+    let (done_days, required) = if in_range { span(s, start, today, &r.holidays) } else if today > end { (days, total) } else { (0.0, 0.0) };
+    if in_range && total > 0.0 { out.pace = Some((required / total * 100.0).clamp(0.0, 100.0)); }
+    let daily = clock(&s.daily_target).unwrap_or(510) as f64;
+    let per_day = if (days * daily - total).abs() < 0.5 { format!(" × {}", duration(daily)) } else { String::new() };
+    out.rows.push(row("target", "Target", duration(total), format!("{}{per_day}", days_text(days)), ""));
+    let eod_label = hhmm(clock(&s.end_of_day).unwrap_or(1110));
+    let avail = if in_range { available(s, now, &r.holidays) } else { 0.0 };
+    if in_range {
+        let diff = productive - required;
+        let mut notes = vec![if diff >= 0.0 { "ahead".to_string() } else { "behind".to_string() }];
+        if avail > 0.0 {
+            let proj = (diff + avail).round();
+            notes.push(format!("{} {} at {eod_label}", signed(proj), if proj >= 0.0 { "ahead" } else { "behind" }));
+        }
+        out.rows.push(row("todate", "To date", duration(productive), format!("of {} · {}", duration(required), days_text(done_days)), ""));
+        out.rows.push(row("balance", "Balance", signed(diff), notes.join(" · "), if diff >= 0.0 { "pos" } else { "neg" }));
     }
+    if avail > 0.0 {
+        let left = remaining - avail;
+        let rest_days = (span(s, today, end, &r.holidays).0 - weight(s, today, &r.holidays)).max(0.0);
+        let label = format!("At {eod_label}");
+        out.rows.push(if left <= 0.0 { row("eod", &label, signed(-left), "overtime".into(), "pos") }
+            else if rest_days > 0.0 { row("eod", &label, format!("{} left", duration(left)), format!("{}/day for {}", duration(left / rest_days), days_text(rest_days)), "") }
+            else { row("eod", &label, format!("{} left", duration(left)), "no working days left".into(), "neg") });
+    }
+    if in_range { out.rows.extend(late_row(if r.view == "month" { Some(r) } else { month }, s, now)); }
     out
 }
 
@@ -293,11 +325,11 @@ fn snapshot(app: &App) -> Snapshot {
     let inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
     let now = Local::now();
     let valid = |view: &str| inner.reports.get(view).filter(|(r, _)| validate_report(r, now.date_naive()).is_ok());
-    let week = valid("week").map(|(r, _)| r);
+    let month = valid("month").map(|(r, _)| r);
     let sections: Vec<Section> = VIEWS.iter().filter(|v| settings.dt_views.iter().any(|x| x == *v)).filter_map(|v| valid(v))
-        .map(|(r, time)| section(r, *time, &settings, now, week)).collect();
+        .map(|(r, time)| section(r, *time, &settings, now, month)).collect();
     let glance = if settings.dt_glance && settings.desktime_enabled && settings.desktime_tab && !inner.logged_out {
-        valid("day").map(|(r, _)| glance(&section(r, 0, &settings, now, week), &settings.dt_glance_kind)).unwrap_or_default()
+        valid("day").map(|(r, _)| glance(&section(r, 0, &settings, now, month), &settings.dt_glance_kind)).unwrap_or_default()
     } else { String::new() };
     let fetch = fetch_views(&settings).into_iter().map(String::from).collect();
     Snapshot { fetch, glance, views: settings.dt_views.clone(),
@@ -309,7 +341,6 @@ fn glance(day: &Section, kind: &str) -> String {
     let cell = |key: &str| day.rows.iter().find(|r| r.key == key);
     match kind {
         "done" => match (cell("done"), cell("target")) { (Some(d), Some(t)) => format!("{} / {}", d.value, t.value), _ => String::new() },
-        "leave" => cell("leave").map(|r| if r.value == "Now" { "Leave now".into() } else { format!("Leave {}", r.value) }).unwrap_or_default(),
         _ => if day.over { day.big.clone() } else if day.big == "0m" { String::new() } else { format!("{} left", day.big) },
     }
 }
@@ -705,14 +736,13 @@ mod tests {
     #[test]
     fn defaults_and_weighted_targets() {
         let mut s = Settings::default();
-        assert_eq!(span(&s, day("2026-11-02"), day("2026-11-08"), &[]), 2550.0);
+        assert_eq!(span(&s, day("2026-11-02"), day("2026-11-08"), &[]), (5.0, 2550.0));
         s.holidays.push("2026-11-03".into());
         s.half_days.push("2026-11-04".into());
         s.day_targets.insert(5, "06:00".into());
-        assert_eq!(span(&s, day("2026-11-02"), day("2026-11-08"), &[]), 1635.0);
+        assert_eq!(span(&s, day("2026-11-02"), day("2026-11-08"), &[]), (3.5, 1635.0));
         assert_eq!(target(&s, day("2026-11-07"), &[]), 0.0);
         assert_eq!(target(&s, day("2026-11-04"), &["2026-11-04".into()]), 0.0);
-        assert_eq!(work_days(&s, day("2026-11-02"), day("2026-11-08"), &[]), 4);
     }
     #[test]
     fn rejects_untrusted_payloads() {
@@ -757,11 +787,13 @@ mod tests {
         assert_eq!(sec.rows[1].value, "13:14");
         assert_eq!(sec.rows[3].value, "38m");
         r.productive_min = Some(532);
+        r.at_work_min = Some(532);
         let sec = section(&r, 1, &s, at("2026-11-04 17:00"), None);
         assert_eq!(sec.big, "+22m");
         assert!(sec.over);
         assert_eq!(sec.percent, 100.0);
-        assert_eq!(sec.rows[1].value, "done");
+        // v5: Finish at disappears once the target is met; no Non-productive row without idle time.
+        assert!(!sec.rows.iter().any(|r| r.key == "finish" || r.key == "nonprod"));
     }
     #[test]
     fn period_balance_projection_and_late_arrival() {
@@ -769,40 +801,55 @@ mod tests {
         s.start_of_day = "09:00".into();
         // Wed 2026-11-04 17:30: required Mon-Wed = 3 x 510; 60 min left until 18:30.
         let r = Report { view: "week".into(), productive_min: Some(1530), at_work_min: None, range_start: "2026-11-02".into(), range_end: "2026-11-08".into(), holidays: vec![], logged_out: false };
-        let sec = section(&r, 1, &s, at("2026-11-04 17:30"), None);
+        let now = at("2026-11-04 17:30");
+        let sec = section(&r, 1, &s, now, None);
         assert_eq!(sec.note, "5 days");
-        assert_eq!(sec.rows[1].note, "of 25h 30m");
+        assert_eq!(sec.big, "17h 00m");
+        assert_eq!(sec.pace, Some(60.0));
+        assert_eq!(sec.rows[0].note, "5 days × 8h 30m");
+        assert_eq!(sec.rows[1].note, "of 25h 30m · 3 days");
         assert_eq!(sec.rows[2].value, "+0m");
-        assert_eq!(sec.rows[3].value, "+1h 00m");
+        assert_eq!(sec.rows[2].note, "ahead · +1h 00m ahead at 18:30");
+        assert_eq!((sec.rows[3].label.as_str(), sec.rows[3].value.as_str(), sec.rows[3].note.as_str()), ("At 18:30", "16h 00m left", "8h 00m/day for 2 days"));
+        assert_eq!(sec.rows.len(), 4);
         let m = Report { view: "month".into(), productive_min: Some(1530 + 400), at_work_min: None, range_start: "2026-11-01".into(), range_end: "2026-11-30".into(), holidays: vec![], logged_out: false };
-        let sec = section(&m, 1, &s, at("2026-11-04 17:30"), None);
+        let sec = section(&m, 1, &s, now, None);
         // Required Nov 2-4 = 1530; balance 400 + 60 available - 90 reserve = 370 minutes late allowance.
         assert_eq!(sec.rows[4].value, "6h 10m");
-        assert_eq!(sec.rows[4].note, "by 15:10");
+        assert_eq!(sec.rows[4].note, "arrive by 15:10");
+        // Week and Today show the same allowance from the month report.
+        assert_eq!(section(&r, 1, &s, now, Some(&m)).rows[4].value, "6h 10m");
+        let d = Report { view: "day".into(), productive_min: Some(500), at_work_min: None, range_start: "2026-11-04".into(), range_end: "2026-11-04".into(), holidays: vec![], logged_out: false };
+        assert!(section(&d, 1, &s, now, Some(&m)).rows.iter().any(|r| r.key == "late" && r.value == "6h 10m"));
+        let behind = Report { productive_min: Some(1000), ..m.clone() };
+        let late = late_row(Some(&behind), &s, now).unwrap();
+        assert_eq!((late.value.as_str(), late.note.as_str()), ("None", "7h 50m behind · need over 1h 30m"));
     }
     #[test]
-    fn leave_at_glance_and_fetch_order() {
+    fn half_days_count_as_half() {
         let mut s = Settings::default();
-        // Wed 11:00: Mon-Wed target 3 x 510 = 1530; 1200 done this week, 330 still needed.
-        let week = Report { view: "week".into(), productive_min: Some(1200), at_work_min: None, range_start: "2026-11-02".into(), range_end: "2026-11-08".into(), holidays: vec![], logged_out: false };
+        s.half_days.push("2026-11-06".into());
+        let r = Report { view: "week".into(), productive_min: Some(0), at_work_min: None, range_start: "2026-11-02".into(), range_end: "2026-11-08".into(), holidays: vec![], logged_out: false };
+        let sec = section(&r, 1, &s, at("2026-11-02 10:00"), None);
+        assert_eq!(sec.note, "4.5 days");
+        assert_eq!(sec.rows[0].note, "4.5 days × 8h 30m");
+    }
+    #[test]
+    fn glance_and_fetch_order() {
+        let mut s = Settings::default();
         let day = Report { view: "day".into(), productive_min: Some(300), at_work_min: None, range_start: "2026-11-04".into(), range_end: "2026-11-04".into(), holidays: vec![], logged_out: false };
-        let now = at("2026-11-04 11:00");
-        assert_eq!(leave_at(Some(&week), &s, now).unwrap(), ("16:30".to_string(), "keeps week even".to_string()));
-        let ahead = Report { productive_min: Some(1600), ..week.clone() };
-        assert_eq!(leave_at(Some(&ahead), &s, now).unwrap().0, "Now");
-        assert!(leave_at(None, &s, now).is_none());
-        let sec = section(&day, 1, &s, now, Some(&week));
-        assert!(sec.rows.iter().any(|r| r.key == "leave" && r.value == "16:30"));
+        let sec = section(&day, 1, &s, at("2026-11-04 11:00"), None);
         assert_eq!(glance(&sec, "left"), "3h 30m left");
         assert_eq!(glance(&sec, "done"), "5h 00m / 8h 30m");
-        assert_eq!(glance(&sec, "leave"), "Leave 16:30");
         assert_eq!(fetch_views(&s), vec!["day", "week", "month"]);
         s.dt_views = vec!["month".into()];
         s.dt_alert_target = false;
         assert_eq!(fetch_views(&s), vec!["month"]);
         s.dt_glance = true;
+        assert_eq!(fetch_views(&s), vec!["day", "month"]);
         s.dt_glance_kind = "leave".into();
-        assert_eq!(fetch_views(&s), vec!["day", "week", "month"]);
+        assert!(validate_settings(&s).is_err());
+        s.dt_glance_kind = "left".into();
         s.dt_views = vec![];
         assert!(validate_settings(&s).is_err());
         s.dt_views = vec!["week".into(), "week".into()];

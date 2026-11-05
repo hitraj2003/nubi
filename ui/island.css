@@ -254,10 +254,16 @@ html[data-motion="reduce"] #refresh-usage.loading svg{opacity:.5;transform:none 
 .c-dt{font:500 12px var(--num);font-variant-numeric:tabular-nums;color:var(--ink-2)}
 body[data-edge="left"] .c-dt,body[data-edge="right"] .c-dt{display:none}
 .dt-p .mh .st{color:var(--ink-3)}
+.dt-p .dt-big{font-size:22px;margin-bottom:2px}
+.dt-p .dt-big .dt-cap{font-family:inherit;font-weight:400;font-size:12px}
+.dt-p .dt-bar{position:relative;overflow:visible;margin:6px 0 8px}
+.dt-bar u{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;border-radius:1px;background:var(--ink-2)}
 .dt-kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0}
 .dt-kv span{color:var(--ink-2)}
 .dt-kv b{font:500 12px var(--num);font-variant-numeric:tabular-nums;text-align:right}
 .dt-kv b small{color:var(--ink-3);font:400 11px var(--num);font-variant-numeric:tabular-nums}
+.dt-kv b.pos{color:var(--ok)}
+.dt-kv b.neg{color:var(--bad)}
 .dt-foot{display:flex;gap:6px;color:var(--ink-3);font-size:11px;padding:2px 4px}
 .dt-foot .stale{color:var(--warn)}
 .dt-foot{align-items:center}

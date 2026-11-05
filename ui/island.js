@@ -739,7 +739,7 @@ function dtSkeleton(pane, d) {
 function dtBuild(pane, d) {
   const root = el("div", "dt dt-live");
   root.append(el("div", "dt-line"));
-  const ui = { root, rows: new Map(), views: new Map() };
+  const ui = { root, rows: new Map(), views: new Map(), periods: new Map() };
   const ds = d.sections.find((s) => s.view === "day");
   if (ds) {
     const card = el("div", "dt-day");
@@ -775,7 +775,17 @@ function dtBuild(pane, d) {
       const list = el("div", "dt-list");
       const head = el("div", "mh"), note = el("span", "st");
       head.append(el("span", null, s.title), note);
-      card.append(head);
+      // Same top block as v5: remaining (or overtime), then progress with a pace marker.
+      const big = el("div", "dt-big"), bigNum = el("span", "num"), cap = el("span", "dt-cap");
+      big.append(bigNum, document.createTextNode(" "), cap);
+      const bar = el("div", "dt-bar"), fill = el("i"), pace = el("u");
+      bar.append(fill, pace);
+      bar.setAttribute("role", "meter");
+      bar.setAttribute("aria-label", s.title + ": productive time against target");
+      bar.setAttribute("aria-valuemin", "0");
+      bar.setAttribute("aria-valuemax", "100");
+      card.append(head, big, bar);
+      ui.periods.set(s.view, { big, bigNum, cap, bar, fill, pace });
       for (const r of s.rows) {
         const kv = el("div", "dt-kv"), v = el("b"), num = el("span", "num"), n = el("small");
         v.append(num, document.createTextNode(" "), n);
@@ -808,6 +818,14 @@ function dtFill(ui, d, first) {
       requestAnimationFrame(() => requestAnimationFrame(() => x.fill.style.setProperty("--p", s.percent + "%")));
     } else if (ui.views.has(s.view)) {
       ui.views.get(s.view).textContent = s.note;
+      const x = ui.periods.get(s.view);
+      setNum(x.bigNum, s.big, !first);
+      x.big.classList.toggle("over", s.over);
+      x.cap.textContent = s.caption;
+      x.bar.setAttribute("aria-valuenow", String(Math.round(s.percent)));
+      x.pace.hidden = s.pace == null;
+      if (s.pace != null) { x.pace.style.left = s.pace + "%"; x.pace.title = "Pace: share of the target due by end of today"; }
+      requestAnimationFrame(() => requestAnimationFrame(() => x.fill.style.setProperty("--p", s.percent + "%")));
     }
     for (const r of s.rows) {
       const cell = ui.rows.get(s.view + "." + r.key);
