@@ -1,0 +1,410 @@
+import { Theme } from "theme.slint";
+import { AboutSlint, Palette } from "std-widgets.slint";
+
+component Label inherits Text {
+    color: Theme.t1;
+    font-family: Theme.font;
+    font-size: Theme.body-size;
+    vertical-alignment: center;
+}
+
+component Action inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    in property <string> hint;
+    out property <bool> has-focus: keys.has-focus;
+    out property <bool> hovered: touch.has-hover;
+    callback clicked();
+    height: 34px;
+    min-width: 80px;
+    border-radius: Theme.radius;
+    background: primary ? Theme.acc : (selected || touch.has-hover ? Theme.card-3 : Theme.card-2);
+    border-width: keys.has-focus ? 2px : 1px;
+    border-color: keys.has-focus ? Theme.acc : Theme.line-2;
+    opacity: enabled ? 1 : 0.5;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-description: hint;
+    accessible-enabled: enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Label {
+        text: root.text;
+        horizontal-alignment: center;
+        color: root.primary ? Theme.acc-ink : Theme.t1;
+        accessible-role: none;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { keys.focus(); root.clicked(); }
+    }
+    keys := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == Key.Space {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
+component Field inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> read-only;
+    in property <bool> invalid;
+    in-out property <string> text <=> input.text;
+    out property <bool> has-focus: input.has-focus;
+    callback edited();
+    height: 34px;
+    min-width: 100px;
+    background: Theme.card;
+    border-radius: Theme.radius;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? Theme.acc : (invalid ? Theme.bad : Theme.line-2);
+    forward-focus: input;
+    // The TextInput owns semantics so AccessKit exposes one focusable node.
+    public function copy-all() { input.select-all(); input.copy(); }
+    input := TextInput {
+        x: Theme.space; y: 0px;
+        width: parent.width - 2 * Theme.space; height: parent.height;
+        font-family: Theme.font;
+        font-size: Theme.body-size;
+        color: Theme.t1;
+        selection-background-color: Theme.acc;
+        selection-foreground-color: Theme.acc-ink;
+        vertical-alignment: center;
+        single-line: true;
+        read-only: root.read-only;
+        accessible-role: text-input;
+        accessible-label: root.label;
+        accessible-description: root.hint + (root.invalid ? " Invalid value." : "");
+        accessible-value: self.text;
+        accessible-read-only: root.read-only;
+        edited => { root.edited(); }
+    }
+}
+
+export component ApprovalWindow inherits Window {
+    title: "Nubi H10 approval";
+    width: 480px;
+    height: expanded ? 390px : 282px;
+    background: Theme.notch-bg;
+    default-font-family: Theme.font;
+    in-out property <bool> expanded;
+    in-out property <string> status: "Waiting for your decision";
+    in property <string> command: "cargo test --offline";
+    in property <string> parameters: "command: cargo test --offline\nworking_directory: C:\\Fig\\projects\\G-wt-slint\ntimeout_ms: 120000\nreason: Verify the native toolkit spike";
+    out property <int> focus-index: command-field.has-focus ? 0 : disclosure.has-focus ? 1 : copy.has-focus ? 2 : allow.has-focus ? 3 : deny.has-focus ? 4 : -1;
+    callback decision(string);
+    accessible-role: groupbox;
+    accessible-label: "Approval request from Claude Code";
+    accessible-description: "Run cargo test offline. Deny is focused initially. Escape denies. Enter activates the focused control.";
+    forward-focus: scope;
+    public function take-focus() { deny.focus(); }
+    public function focus-command() { command-field.focus(); }
+    scope := FocusScope {
+        focus-on-tab-navigation: false;
+        focus-on-click: false;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape { root.decision("deny"); return accept; }
+            if event.text == Key.Tab || event.text == Key.Backtab {
+                // Explicit cycle keeps Tab inside this approval window.
+                if event.modifiers.shift || event.text == Key.Backtab {
+                    if root.focus-index <= 0 { deny.focus(); }
+                    else if root.focus-index == 1 { command-field.focus(); }
+                    else if root.focus-index == 2 { disclosure.focus(); }
+                    else if root.focus-index == 3 { copy.focus(); }
+                    else { allow.focus(); }
+                } else {
+                    if root.focus-index == 0 { disclosure.focus(); }
+                    else if root.focus-index == 1 { copy.focus(); }
+                    else if root.focus-index == 2 { allow.focus(); }
+                    else if root.focus-index == 3 { deny.focus(); }
+                    else { command-field.focus(); }
+                }
+                return accept;
+            }
+            return reject;
+        }
+        VerticalLayout {
+            padding: 20px; spacing: 12px;
+            Label { text: "Claude Code · G / native toolkit"; color: Theme.ink-2; }
+            Label { text: "Allow this command?"; color: Theme.ink; font-size: 18px; font-weight: 600; }
+            command-field := Field {
+                label: "Command"; text: root.command; read-only: true;
+                hint: "Selectable command. Control A selects all; Control C copies.";
+            }
+            disclosure := Action {
+                text: "All parameters";
+                accessible-expandable: true;
+                accessible-expanded: root.expanded;
+                accessible-action-expand => { root.expanded = true; }
+                clicked => { root.expanded = !root.expanded; }
+            }
+            if root.expanded: Label {
+                text: root.parameters; color: Theme.ink-2;
+                height: 96px; wrap: word-wrap;
+                accessible-label: "All parameters: " + root.parameters;
+            }
+            HorizontalLayout {
+                spacing: Theme.space;
+                copy := Action { text: "Copy command"; clicked => { command-field.copy-all(); root.status = "Command copied"; } }
+                allow := Action { text: "Allow"; primary: true; clicked => { root.decision("allow"); } }
+                deny := Action { text: "Deny"; clicked => { root.decision("deny"); } }
+            }
+            Label { text: root.status; color: Theme.ink-2; accessible-label: root.status; accessible-live-region: polite; }
+        }
+    }
+}
+
+export component ToolkitWindow inherits Window {
+    title: "Nubi H10 panel";
+    preferred-width: 940px; preferred-height: 720px;
+    min-width: 940px; min-height: 720px;
+    background: Theme.canvas;
+    default-font-family: Theme.font;
+    in-out property <int> page;
+    in-out property <string> draft: "Nubi on this PC";
+    in-out property <string> saved: "Nubi on this PC";
+    in-out property <string> date: "2026-11-06";
+    in-out property <string> time: "18:00";
+    in-out property <int> timeout: 30;
+    in-out property <string> status: "Fake data · settings remain in memory";
+    in-out property <bool> date-valid: true;
+    in-out property <bool> time-valid: true;
+    out property <bool> dirty: draft != saved;
+    out property <bool> tooltip-visible: help.has-focus || help.hovered;
+    out property <length> list-offset: scroll.content-y;
+    out property <string> focused-control: inbox.has-focus ? "inbox" : about.has-focus ? "about" : approval-action.has-focus ? "approval" : theme-action.has-focus ? "theme" : list-keys.has-focus ? "list" : editor.has-focus ? "editor" : readonly.has-focus ? "readonly" : date-field.has-focus ? "date" : time-field.has-focus ? "time" : stepper.has-focus ? "stepper" : decrease.has-focus ? "decrease" : increase.has-focus ? "increase" : help.has-focus ? "help" : "other";
+    callback approval();
+    callback theme-changed(bool);
+    callback validate-date(string) -> bool;
+    callback validate-time(string) -> bool;
+    accessible-role: groupbox;
+    accessible-label: "Nubi toolkit panel";
+    forward-focus: scope;
+    public function take-focus() { inbox.focus(); }
+    public function set-theme(dark: bool) {
+        Theme.dark = dark;
+        Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
+    }
+    public function restore-approval-focus() { approval-action.focus(); }
+    public function focus-editor() { editor.focus(); }
+    public function focus-readonly() { readonly.focus(); }
+    public function focus-stepper() { stepper.focus(); }
+    public function focus-help() { help.focus(); }
+    public function focus-list() { list-keys.focus(); }
+    public function save-draft() { root.saved = root.draft; root.status = "Changes saved in memory"; editor.focus(); }
+    public function discard-draft() { root.draft = root.saved; root.status = "Changes discarded"; editor.focus(); }
+    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
+    scope := FocusScope {
+        focus-on-tab-navigation: false;
+        focus-on-click: false;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape && root.dirty { root.discard-draft(); return accept; }
+            return reject;
+        }
+        HorizontalLayout {
+            spacing: 0px;
+            Rectangle {
+                width: 164px; background: Theme.rail;
+                VerticalLayout {
+                    padding: 16px; spacing: Theme.space;
+                    Label { text: "Nubi"; height: 48px; font-family: Theme.num; font-size: 24px; font-weight: 600; }
+                    inbox := Action { text: "Inbox"; selected: root.page == 0; accessible-checkable: true; accessible-checked: root.page == 0; clicked => { root.page = 0; } }
+                    about := Action { text: "About"; selected: root.page == 1; accessible-checkable: true; accessible-checked: root.page == 1; clicked => { root.page = 1; } }
+                    approval-action := Action { text: "Approval card"; clicked => { root.approval(); } }
+                    theme-action := Action {
+                        text: Theme.dark ? "Light theme" : "Dark theme";
+                        clicked => { root.set-theme(!Theme.dark); root.theme-changed(Theme.dark); }
+                    }
+                    Rectangle { vertical-stretch: 1; background: transparent; }
+                    Label { text: "Toolkit gate\nSoftware renderer"; color: Theme.t2; wrap: word-wrap; }
+                }
+            }
+            Rectangle {
+                background: Theme.canvas;
+                VerticalLayout {
+                    padding: 24px; spacing: 12px;
+                    Rectangle {
+                      visible: root.page == 0;
+                      height: root.page == 0 ? 600px : 0px;
+                      background: transparent;
+                      VerticalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Label { text: "Inbox & settings"; height: 32px; font-family: Theme.num; font-size: 24px; font-weight: 600; }
+                        Label { text: "Representative controls with fake local data"; color: Theme.t2; }
+                        list-keys := FocusScope {
+                            height: 140px;
+                            accessible-role: list;
+                            accessible-label: "Recent sessions, 24 entries";
+                            accessible-description: "Use arrows, Page Up, Page Down, Home and End to scroll.";
+                            key-pressed(event) => {
+                                if event.text == Key.DownArrow { scroll.content-y = max(scroll.height - scroll.content-height, scroll.content-y - 48px); return accept; }
+                                if event.text == Key.UpArrow { scroll.content-y = min(0px, scroll.content-y + 48px); return accept; }
+                                if event.text == Key.PageDown { scroll.content-y = max(scroll.height - scroll.content-height, scroll.content-y - scroll.height); return accept; }
+                                if event.text == Key.PageUp { scroll.content-y = min(0px, scroll.content-y + 140px); return accept; }
+                                if event.text == Key.Home { scroll.content-y = 0px; return accept; }
+                                if event.text == Key.End { scroll.content-y = scroll.height - scroll.content-height; return accept; }
+                                return reject;
+                            }
+                            Rectangle {
+                              background: transparent;
+                              border-radius: Theme.radius;
+                              border-width: list-keys.has-focus ? 2px : 0px;
+                              border-color: Theme.acc;
+                              scroll := Flickable {
+                                x: 3px; y: 3px;
+                                width: parent.width - 6px; height: parent.height - 6px;
+                                content-height: sessions.preferred-height;
+                                sessions := VerticalLayout {
+                                spacing: 4px;
+                                for index in 24: Rectangle {
+                                    height: 44px; background: Theme.card; border-radius: Theme.radius;
+                                    accessible-role: list-item;
+                                    accessible-label: "Session " + (index + 1) + ", " + (mod(index, 2) == 0 ? "Claude, Done" : "Codex, Idle");
+                                    HorizontalLayout {
+                                        padding: 10px;
+                                        Label { text: "Session " + (index + 1) + " · native toolkit"; }
+                                        Label { text: mod(index, 2) == 0 ? "Claude · Done" : "Codex · Idle"; color: Theme.t2; horizontal-alignment: right; }
+                                    }
+                                }
+                                }
+                              }
+                              // Noninteractive position indicator; the named list owns scrolling.
+                              Rectangle {
+                                  x: parent.width - 6px;
+                                  y: 3px - scroll.content-y * scroll.height / scroll.content-height;
+                                  width: 3px;
+                                  height: scroll.height * scroll.height / scroll.content-height;
+                                  border-radius: 2px;
+                                  background: Theme.t2;
+                                  accessible-role: none;
+                              }
+                            }
+                        }
+                        Label { text: "Device name"; }
+                        editor := Field {
+                            label: "Device name"; text <=> root.draft;
+                            hint: "Unsaved until Save. IME composition needs a Windows manual check.";
+                        }
+                        Label { text: "IME check: compose Japanese/Chinese, commit, cancel; verify caret and candidate placement."; color: Theme.t2; font-size: 11px; }
+                        readonly := Field {
+                            label: "Session path"; text: "C:\\Fig\\projects\\G-wt-slint"; read-only: true;
+                            hint: "Read only. Shift arrows select; Control A and Control C copy.";
+                        }
+                        HorizontalLayout {
+                            height: 58px;
+                            spacing: Theme.space;
+                            VerticalLayout {
+                                spacing: 4px;
+                                Label { text: "Holiday · YYYY-MM-DD"; }
+                                date-field := Field {
+                                    label: "Holiday date"; hint: "Enter a Gregorian date in YYYY-MM-DD format.";
+                                    text <=> root.date; invalid: !root.date-valid;
+                                    edited => { root.date-valid = root.validate-date(root.date); }
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: 4px;
+                                Label { text: "End of day · HH:MM"; }
+                                time-field := Field {
+                                    label: "End of day time"; hint: "24 hour time, HH:MM.";
+                                    text <=> root.time; invalid: !root.time-valid;
+                                    edited => { root.time-valid = root.validate-time(root.time); }
+                                }
+                            }
+                        }
+                        Label {
+                            text: !root.date-valid ? "Enter a valid date, for example 2026-11-06." : !root.time-valid ? "Enter a time from 00:00 to 23:59." : "Date and time are valid";
+                            color: !root.date-valid || !root.time-valid ? Theme.bad : Theme.t2;
+                            font-size: 11px;
+                        }
+                        HorizontalLayout {
+                            spacing: Theme.space;
+                            Label { text: "Move to terminal after"; }
+                            stepper := FocusScope {
+                                width: 180px; height: 34px;
+                                accessible-role: spinbox;
+                                accessible-label: "Move to terminal after, seconds";
+                                accessible-value: root.timeout;
+                                accessible-value-minimum: 3;
+                                accessible-value-maximum: 95;
+                                accessible-value-step: 1;
+                                accessible-action-increment => { root.timeout = min(95, root.timeout + 1); }
+                                accessible-action-decrement => { root.timeout = max(3, root.timeout - 1); }
+                                key-pressed(event) => {
+                                    if event.text == Key.UpArrow { root.timeout = min(95, root.timeout + 1); return accept; }
+                                    if event.text == Key.DownArrow { root.timeout = max(3, root.timeout - 1); return accept; }
+                                    return reject;
+                                }
+                                Rectangle {
+                                    border-radius: Theme.radius;
+                                    border-width: stepper.has-focus ? 2px : 1px;
+                                    border-color: stepper.has-focus ? Theme.acc : Theme.line-2;
+                                    background: Theme.card;
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        decrease := Action { text: "−"; min-width: 40px; max-width: 40px; accessible-label: "Decrease timeout"; clicked => { root.timeout = max(3, root.timeout - 1); } }
+                                        Label { text: root.timeout + " s"; horizontal-alignment: center; }
+                                        increase := Action { text: "+"; min-width: 40px; max-width: 40px; accessible-label: "Increase timeout"; clicked => { root.timeout = min(95, root.timeout + 1); } }
+                                    }
+                                }
+                            }
+                            help := Action {
+                                text: "Timeout help";
+                                hint: "If unanswered, return the approval to the terminal after this many seconds.";
+                            }
+                        }
+                        if root.tooltip-visible: Rectangle {
+                            height: 32px; background: Theme.card-3; border-radius: Theme.radius;
+                            accessible-role: text;
+                            accessible-label: "If unanswered, return the approval to the terminal after this many seconds.";
+                            Label { x: 8px; text: "If unanswered, return the approval to the terminal after this many seconds."; font-size: 11px; }
+                        }
+                        if root.dirty: HorizontalLayout {
+                            spacing: Theme.space;
+                            Label { text: "Unsaved changes"; accessible-live-region: polite; }
+                            Action { text: "Discard"; clicked => { root.discard-draft(); } }
+                            Action { text: "Save"; primary: true; clicked => { root.save-draft(); } }
+                        }
+                      }
+                    }
+                    if root.page == 1: VerticalLayout {
+                        spacing: 16px;
+                        Label { text: "About Nubi"; height: 40px; font-size: 24px; font-weight: 600; }
+                        Label { text: "H10 toolkit spike · fake data · Slint 1.18.1"; }
+                        Label { text: "Slint royalty-free license · software renderer"; color: Theme.t2; }
+                        badge := FocusScope {
+                            height: 144px;
+                            accessible-role: button;
+                            accessible-label: "Made with Slint, version 1.18.1. Open slint.dev";
+                            accessible-action-default => { Platform.open-url("https://slint.dev"); }
+                            key-pressed(event) => {
+                                if event.text == Key.Return || event.text == Key.Space { Platform.open-url("https://slint.dev"); return accept; }
+                                return reject;
+                            }
+                            Rectangle {
+                                background: Theme.card;
+                                border-radius: Theme.radius;
+                                border-width: badge.has-focus ? 2px : 1px;
+                                border-color: badge.has-focus ? Theme.acc : Theme.line-2;
+                                AboutSlint { }
+                            }
+                        }
+                        Rectangle { vertical-stretch: 1; background: transparent; }
+                    }
+                    Rectangle { vertical-stretch: 1; background: transparent; }
+                    Label { text: root.status; color: Theme.t2; height: 24px; font-size: 11px; accessible-live-region: polite; }
+                }
+            }
+        }
+    }
+}

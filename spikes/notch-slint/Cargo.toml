@@ -7,8 +7,13 @@ license = "MIT"
 description = "Standalone Nubi notch toolkit spike; static data only"
 build = "build.rs"
 
+[[bin]]
+name = "toolkit-gate"
+path = "src/bin/toolkit-gate.rs"
+required-features = ["software"]
+
 [features]
-default = ["femtovg", "software"]
+default = ["software"]
 femtovg = ["slint/renderer-femtovg"]
 software = ["slint/renderer-software"]
 

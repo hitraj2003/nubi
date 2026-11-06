@@ -128,10 +128,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = options()?;
     native::enable_dpi_awareness();
     let renderer = options.renderer.unwrap_or_else(|| {
-        if cfg!(feature = "femtovg") {
-            "femtovg"
-        } else {
+        if cfg!(feature = "software") {
             "software"
+        } else {
+            "femtovg"
         }
         .into()
     });

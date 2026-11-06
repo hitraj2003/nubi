@@ -1,4 +1,179 @@
-# Stage 1 Slint notch spike
+# Slint toolkit spike results
+
+## H10 toolkit gate — 2026-11-06
+
+Branch: `native/slint`. The owner selected Slint 1.18.1, its software renderer,
+and the royalty-free license with the actual `AboutSlint` widget in About.
+This supersedes the historical renderer-selection statements below. The
+standalone `toolkit-gate` executable contains fake data only. It opens an approval
+card, a representative panel, or About beside the original closed notch. No
+production backend, settings, IPC, or root `ui/` code is changed. No commit was
+created.
+
+**Gate status: incomplete.** Implementation and automated checks pass. Manual
+foreground focus, IME, Narrator, desktop composition, and high-contrast review
+remain open. The standalone executable also exceeds H1's 10 MB installed-size
+budget before adding a production backend. This is not a full panel port or an
+approval to replace the production application.
+
+### Gate table
+
+“Pass” identifies the evidence actually collected. Synthetic input and UI
+Automation do not establish physical keyboard behavior or Narrator speech.
+
+| H10 item | Result | Evidence and limits |
+| --- | --- | --- |
+| Approval summary and command | Pass | Real compiled `ApprovalWindow` renders the fake provider/session, summary, and read-only command in both themes. |
+| All parameters disclosure | Pass | Enter toggles the actual control in the UI test. Native UI Automation reports `Collapsed then Expanded`; parameters include working directory, timeout, and reason. |
+| Allow / Deny | Pass | Compiled UI key events produce the fake `allow` and `deny` callbacks; native UI Automation invokes Deny and hides the card. No real permission is answered. |
+| Approval Tab order, reverse order, Enter/Escape | Pass | UI test asserts Command, All parameters, Copy command, Allow, Deny and wrap in both directions. Initial logical focus is Deny; Enter activates the focused button; Escape denies. |
+| Deliberate native approval focus and restoration | Untested | One explicit `focus_window()` request after native creation; logical focus and restore paths implemented. Every native sample returns `GetForegroundWindow() == 0` on the isolated desktop, so actual foreground acquisition/restoration cannot be established. |
+| Notch remains no-activate | Pass | Every sampled notch is topmost with `WS_EX_NOACTIVATE`; synchronous `WM_MOUSEACTIVATE` returns `3` (`MA_NOACTIVATE`). The native test checks that style rewrites preserve no-activate. Physical focus behavior remains untested. |
+| Command Copy button | Pass | UI test checks clipboard contents. Native UI Automation invokes Copy command; Windows clipboard equals `cargo test --offline`. |
+| Left navigation rail | Pass | Inbox, About, approval launcher, and theme button render and traverse in declaration order. Navigation preserves the device-name draft; hidden Inbox controls leave About's Tab order. |
+| Scrolling list | Pass | Twenty-four fake rows; compiled UI test verifies End/Home and actual mouse-wheel events. Arrow and Page Up/Down handlers share the viewport bounds. A noninteractive position indicator avoids an unnamed scrollbar control. |
+| Editable text | Pass | Actual TextInput receives `東京 · Native` through key events. Native UI Automation exposes Device name as an editable value. This does not prove IME composition. |
+| Selectable read-only text | Pass | UI test selects `C:` with Shift+Right, copies it, then selects/copies the full path and verifies typing cannot replace it. Native UI Automation reports Session path as `ControlType.Edit`, read-only `true`. |
+| One unsaved setting and Save/Discard | Pass | Device-name draft survives navigation. Keyboard activates Save and Discard; Escape also discards. The bar disappears and focus returns to the editor. Changes stay in memory. Date/time/timeout are independent control demonstrations. |
+| Tooltip | Pass | Timeout help appears on keyboard focus; rendered in the light/dark panel review images. Hover uses the same text and visibility binding. Physical pointer behavior remains untested. |
+| Date/time control | Pass | Typed Gregorian `YYYY-MM-DD` and 24-hour `HH:MM` fields validate through real edit events. Tests cover leap years, invalid days/months, hour/minute limits, malformed and Unicode input. Calendar/clock popups are not implemented. |
+| Stepper | Pass | Bounds are 3–95 seconds. Actual Up/Down events exercise both limits. Named decrease/increase buttons and accessibility actions use the same bounds; UI Automation exposes spinner value `30` and RangeValuePattern. |
+| Panel keyboard traversal | Pass | Real Tab events assert the rail, list, editable/read-only text, date/time, stepper, its buttons, tooltip, and conditional draft actions. About's badge is keyboard accessible. Container scopes are excluded from traversal. |
+| Focus rings | Pass | Action, field, list, stepper, and About wrapper draw token-based rings. Software review images show focused command/help controls. Desktop focus visibility and high contrast remain untested. |
+| AboutSlint and royalty-free attribution | Pass | About instantiates the standard Slint 1.18.1 `AboutSlint`, not a copied badge. Offscreen review verifies the widget, version, and URL in both themes. Native UI Automation exposes the named badge button and `#MadeWithSlint` image. Browser launching is not exercised. |
+| Shared light/dark theme tokens | Pass | All new surface colors reference the shared Theme global, extended from root `ui/theme.css`. The panel changes all three surfaces; palette initialization is explicit before showing About. A render assertion prevents invisible AboutSlint version/URL text in either theme. |
+| Accessible roles and names | Pass | Every new gate control declares a role/name; TextInput owns field semantics; Action and the badge wrapper expose default actions. Native UI Automation trees confirm named buttons, editable/read-only values, spinner, and badge. Decorative children are not independent controls. |
+| Narrator | Untested | No Narrator speech was captured. Expected semantic announcements are listed below; actual wording, reading order, live regions, expanded state, and focus need manual verification. |
+| IME | Untested | UI and README include a Japanese/Chinese composition checklist. Unicode key insertion is tested; preedit, candidates, commit/cancel, and caret placement require a real Windows IME. |
+| Panel private bytes, hard limit 120 MB | Pass | Final software-rendered native samples below include the passive notch and hidden counterpart component. All sampled maxima are below 120,000,000 bytes. |
+| Idle CPU, hard limit 0.5% machine CPU | Pass | Ten-second process CPU-time deltas below, normalized over 16 logical processors. One-core percentages are reported separately. |
+| Approval private bytes | Pass | Exact native software-rendered counters below; includes the passive notch and the allocated hidden panel component. |
+| Executable size against H1 installed budget | Fail | Exact final size below. The spike executable alone exceeds 10,000,000 bytes. No installer or production release was packaged; no download-size result is claimed. |
+| Software renderer | Pass | Default Cargo feature is software only; `toolkit-gate` explicitly selects winit/software. No runtime renderer environment fallback is used. FemtoVG is optional for historical notch comparisons. |
+| Repeated surface lifetime | Pass | Three native UI Automation open/deny cycles and before/after private bytes are recorded below. This is a short, bounded smoke check; long-run retention, destruction/recreation, and production draft/deadline preservation remain untested. |
+| Desktop scaling, monitor transitions, high contrast | Untested | Original notch offscreen 100/125/150% checks pass. New panel/card review images are 100%; physical scaling and Windows high contrast are not validated. |
+| Open-time parity with production | Untested | No comparable production open-time baseline is available in this task. |
+| Remaining production H10/H11 amendments | Untested | Versioned activation/security, complete behavior parity, cancellation/cache limits, native upgrades/download recovery, and DeskTime's on-demand WebView2 lifecycle are outside this fake-data toolkit spike. H11 remains authoritative for DeskTime; no production feature is removed. |
+
+### Final native measurements
+
+Run `cargo build --release --offline` first, then `./measure-h10.ps1
+-InspectAccessibility`. Each process warms up for three seconds, then samples
+private bytes/working set every nominal 100 ms over ten seconds. CPU is process
+CPU-time delta divided by actual elapsed time and 16 logical processors.
+One-core CPU omits the processor divisor. No compilation or UI Automation action
+runs during an accepted sample. The spike starts no child process. Each process
+includes the visible passive notch and one interactive surface; both counterpart
+components are allocated, but the hidden one has not been shown. Native windows
+report 96 DPI. MB means 1,000,000 bytes.
+
+<!-- H10-MEASUREMENTS -->
+| Surface | Theme | Private bytes (mean = min = max) | Machine CPU | One-core CPU |
+| --- | --- | ---: | ---: | ---: |
+| panel | dark | 11,657,216 | 0.038837% | 0.621395% |
+| panel | light | 14,897,152 | 0.019510% | 0.312161% |
+| approval | dark | 12,615,680 | 0.009759% | 0.156141% |
+| approval | light | 12,734,464 | 0.000000% | 0.000000% |
+
+| Surface | Theme | Sample seconds | Samples | Largest gap, seconds | Process CPU seconds |
+| --- | --- | ---: | ---: | ---: | ---: |
+| panel | dark | 10.0580122 | 90 | 0.1253270 | 0.062500 |
+| panel | light | 10.0108644 | 89 | 0.1268883 | 0.031250 |
+| approval | dark | 10.0070119 | 88 | 0.1267588 | 0.015625 |
+| approval | light | 10.0020223 | 89 | 0.1277459 | 0.000000 |
+
+Final release executable: **11,924,480 bytes (11.924480 MB)**. This exceeds the
+10,000,000-byte H1 installed-size budget by 1,924,480 bytes before packaging or
+adding a production backend. The independent notch executable is 10,936,320 bytes.
+
+Toolkit SHA-256: `A66E6F5AF4A7B1908BC20CA0594325C2E1A89537ABE73BFE4131AC0706047650`.
+
+Accepted final samples were recorded at 10:26:11–10:27:15 UTC on 2026-11-06.
+Windows reports Microsoft Windows NT 10.0.26300.0. Every captured foreground
+handle is zero; all interactive windows lack the no-activate style, while the
+notch retains it. Native stderr is empty.
+
+The final native UI Automation exercise completes **3 open/deny cycles**.
+Private bytes before the exercise: **12,464,128**; after: **16,646,144**; delta: **4,182,016**.
+The first show creates and renders the previously hidden card, so this short
+increase includes surface creation and accessibility initialization. It does not
+prove long-run retention or release of native buffers. The ending value remains
+below the 120 MB limit. Native command clipboard contents match, and the
+disclosure reports `Collapsed then Expanded`.
+<!-- /H10-MEASUREMENTS -->
+
+The script rejects samples longer than 11 seconds or gaps above 500 ms. Private
+bytes were constant within each accepted sample. These are short observations,
+not a long-run peak or a performance ranking between themes. Windows process CPU
+accounting has 15.625 ms increments. GPU allocations and desktop composition are
+not measured. Zero stderr and visible native handles do not prove rendered
+desktop pixels.
+
+Raw CSV samples, counter JSON, UI Automation trees and native exercise results
+are under the ignored `measurements/h10-*` paths. Software render review images
+are under ignored `target/h10/{panel,approval,about}-{light,dark}.bmp`. Scripts
+and tests regenerate these artifacts. The native exercise uses UI Automation
+InvokePattern and ExpandCollapsePattern, rather than physical input. An early
+probe incorrectly assumed every button used InvokePattern; the disclosure
+correctly exposes ExpandCollapsePattern. The corrected probe checks the actual
+supported pattern. UI Automation is slow on this desktop, so the exercise runs
+after sampling and has its own bounded process lifetime.
+
+The optional native About-dark tree was captured before the final palette fix;
+it verifies the unchanged widget structure, not final resource counters. Both
+final About themes are validated by the compiled render test; the final native
+About-light timed smoke exits with code 0 and empty stderr.
+
+### Expected Narrator output — untested
+
+These describe expected names, roles, values, and states from source semantics
+and the inspected UI Automation tree. They are not a transcript or a guarantee
+of exact Narrator wording. Slint 1.18.1 has no `dialog` AccessibleRole; the
+approval component uses a named group inside its native window. Narrator's
+window/group announcement and the trapped interaction need explicit review.
+
+| Control | Expected semantic announcement |
+| --- | --- |
+| Approval window | “Approval request from Claude Code”; summary and command; initial focus on Deny |
+| Command | “Command”, edit, read only, `cargo test --offline` |
+| Disclosure | “All parameters”, button, collapsed or expanded |
+| Copy / Allow / Deny | “Copy command”, “Allow”, or “Deny”, button |
+| Inbox / About | Corresponding name, button, checked for the current page |
+| Approval launcher / theme | “Approval card” or “Light theme”/“Dark theme”, button |
+| Session list / rows | “Recent sessions, 24 entries”; each visible session's number, provider, and state |
+| Device name | “Device name”, edit, current draft value |
+| Session path | “Session path”, edit, read only, full path |
+| Date / time | “Holiday date” or “End of day time”, edit, value; format and validation description |
+| Stepper | “Move to terminal after, seconds”, spinner, current value, minimum 3, maximum 95 |
+| Stepper buttons | “Decrease timeout” / “Increase timeout”, button |
+| Tooltip | “Timeout help”, button; explanation available on focus |
+| Unsaved bar | “Unsaved changes”; “Discard” and “Save”, button; saved/discarded status afterward |
+| About widget | “Made with Slint, version 1.18.1. Open slint.dev”, button; `#MadeWithSlint` image; version and URL |
+
+The captured UI Automation `HelpText` fields are empty even where source
+`accessible-description` is set. Description reading and live-region speech
+therefore remain unverified. The tree also includes nonfocusable Custom nodes
+for some decorative children; Narrator must be checked for redundant reading.
+
+### Checks
+
+All commands run from `spikes/notch-slint` using the local cache. No missing
+crate or network fetch was encountered.
+
+| Check | Result |
+| --- | --- |
+| `cargo build --release --offline` | Pass; software-only default, both standalone executables built |
+| `cargo clippy --offline -- -D warnings` | Pass |
+| `cargo clippy --offline --tests -- -D warnings` | Pass |
+| `cargo test --offline` | Pass; nine tests across the two executables, including actual compiled UI input/rendering and native boundary checks |
+| `cargo fmt --check` | Pass |
+| `node compare-motion.cjs` | Pass; 240 frames, maximum absolute error `5.204170427930421e-18` |
+| PowerShell measurement script parse | Pass |
+| Final native `--surface=about --theme=light --exit-after=2` | Pass; exit code 0, empty stderr |
+| `git diff --check` | Pass |
+| Production `src-tauri/` and root `ui/` diff | Empty |
+
+## Historical stage 1 notch results
 
 ## Layout repair — 2026-11-06
 
