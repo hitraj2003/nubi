@@ -26,11 +26,13 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: ". -> src-tauri/target"
 
       - name: Tests
-        working-directory: src-tauri
-        run: cargo test
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets
 
       - name: Build (and release on tags)
         uses: tauri-apps/tauri-action@v0

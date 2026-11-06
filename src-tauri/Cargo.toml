@@ -8,13 +8,13 @@ license = "MIT"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+nubi-core = { path = "../crates/nubi-core" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros", "rt"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-ureq = { version = "2", features = ["json"] }
 dirs = "5"
 chrono = "0.4"
 tauri-plugin-updater = "2"
@@ -43,8 +43,3 @@ features = [
   "Win32_Graphics_Gdi",
   "Win32_System_Console",
 ]
-
-[profile.release]
-lto = true
-codegen-units = 1
-strip = true

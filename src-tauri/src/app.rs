@@ -13,7 +13,7 @@ use tokio::sync::oneshot;
 
 pub type App = AppHandle;
 
-pub struct Shared(pub Mutex<Inner>);
+pub use nubi_core::host::Shared;
 
 pub fn with<R>(app: &App, f: impl FnOnce(&mut Inner) -> R) -> R {
     let st = app.state::<Shared>();
@@ -42,12 +42,6 @@ pub fn emit_state(app: &App) {
         i.snapshot(d)
     });
     let _ = app.emit("state", snap);
-}
-
-pub fn set_pipe_error(app: &App, e: String) {
-    eprintln!("[nubi] {e}");
-    with(app, |i| i.pipe_error = Some(e));
-    emit_state(app);
 }
 
 /// Returns true when a question must be released directly to the focused terminal.
@@ -105,14 +99,6 @@ pub fn on_hook(app: &App, m: &HookMsg) -> bool {
 
 pub fn island_mode(app: &App) -> bool {
     with(app, |i| i.settings.display_mode == "island" && i.settings.edge == "top")
-}
-
-pub fn takeover_secs(app: &App) -> u64 {
-    with(app, |i| i.settings.takeover_secs as u64)
-}
-
-pub fn questions_mode(app: &App) -> String {
-    with(app, |i| i.settings.questions_mode.clone())
 }
 
 /// Show the notification island (it hides itself when it has nothing left to show).
@@ -471,7 +457,7 @@ pub fn save_settings(app: App, settings: Settings) -> Result<(), String> {
     settings::save(&settings)?;
     with(&app, |i| i.settings = settings.clone());
     place_all(&app, &settings);
-    crate::poller::kick(&app);
+    crate::poller::kick(&crate::core_host::TauriHost::new(app.clone()));
     crate::desktime::emit(&app);
     emit_state(&app);
     refresh_menu(&app);
@@ -516,7 +502,7 @@ pub fn test_alert(app: App) {
 
 #[tauri::command]
 pub fn refresh_usage(app: App) {
-    crate::poller::force(&app);
+    crate::poller::force(&crate::core_host::TauriHost::new(app.clone()));
 }
 
 /// Re-open request cards in the island (from the notch, ring or strip).
@@ -691,7 +677,7 @@ fn apply_settings(app: &App, s: Settings) {
     }
     with(app, |i| i.settings = s.clone());
     place_all(app, &s);
-    crate::poller::kick(app);
+    crate::poller::kick(&crate::core_host::TauriHost::new(app.clone()));
     emit_state(app);
     refresh_menu(app);
 }
@@ -736,7 +722,7 @@ fn on_menu(app: &App, id: &str) {
             s.notch_on_hover = !s.notch_on_hover;
             apply_settings(app, s);
         }
-        "refresh" => crate::poller::force(app),
+        "refresh" => crate::poller::force(&crate::core_host::TauriHost::new(app.clone())),
         "test" => test_alert(app.clone()),
         "quit" => app.exit(0),
         _ => {}
@@ -782,7 +768,7 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     announce_update(app);
     crate::notch::start_watch(app.clone());
     #[cfg(debug_assertions)]
-    crate::pipe::start_sim(app.clone());
+    crate::pipe::start_sim(crate::core_host::TauriHost::new(app.clone()));
     crate::taskbar::start(app.clone());
     if let Some(p) = app.get_webview_window("panel") {
         let p2 = p.clone();
@@ -793,9 +779,10 @@ pub fn setup(app: &App) -> tauri::Result<()> {
             }
         });
     }
-    let a = app.clone();
-    tauri::async_runtime::spawn(async move { crate::pipe::serve(a).await });
-    crate::poller::start(app.clone());
+    let host = crate::core_host::TauriHost::new(app.clone());
+    let pipe_host = host.clone();
+    tauri::async_runtime::spawn(async move { crate::pipe::serve(pipe_host).await });
+    crate::poller::start(host);
     crate::desktime::start(app.clone());
     std::thread::spawn(crate::native_host::register);
     Ok(())

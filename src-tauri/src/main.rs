@@ -4,27 +4,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod core_host;
 mod desktime;
 mod updater;
-mod hook_client;
-mod hooks_config;
 mod island;
 mod launcher;
-mod native_host;
 mod notch;
-mod pipe;
-mod poller;
-mod protocol;
 mod report;
 mod ring;
 mod taskbar;
-mod settings;
-mod session_actions;
-mod state;
-mod usage;
-mod winutil;
 
-use std::sync::Mutex;
+use nubi_core::{hook_client, hooks_config, native_host, pipe, poller, protocol, session_actions, settings, state, usage, winutil};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -61,7 +51,7 @@ fn main() {
         .plugin(app::shortcut_plugin())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(app::Shared(Mutex::new(state::Inner::default())))
+        .manage(app::Shared::default())
         .manage(updater::UpdateState::default())
         .manage(desktime::DeskTime::default())
         .invoke_handler(tauri::generate_handler![

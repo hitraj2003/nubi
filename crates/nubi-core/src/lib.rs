@@ -1,0 +1,24 @@
+//! Nubi's domain services and Windows integrations, independent of a UI runtime.
+#[cfg(feature = "services")]
+pub mod desktime;
+pub mod hook_client;
+pub mod hooks_config;
+#[cfg(feature = "services")]
+pub mod host;
+#[cfg(feature = "services")]
+pub mod native_host;
+#[cfg(feature = "services")]
+pub mod pipe;
+#[cfg(feature = "services")]
+pub mod poller;
+pub mod protocol;
+#[cfg(feature = "services")]
+pub mod report;
+#[cfg(feature = "services")]
+pub mod session_actions;
+pub mod settings;
+#[cfg(feature = "services")]
+pub mod state;
+#[cfg(feature = "services")]
+pub mod usage;
+pub mod winutil;

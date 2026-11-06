@@ -139,6 +139,11 @@ impl Settings {
 }
 
 pub fn data_dir() -> PathBuf {
+    // Keep debug simulations and subprocess tests away from the installed app's data.
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("NUBI_SIM_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
     dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("nubi")
 }
 

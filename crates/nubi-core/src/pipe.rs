@@ -1,7 +1,7 @@
 //! Named-pipe server. One instance per connection; each connection carries one hook message.
 //! Security: per-user pipe name, DACL for the current user + SYSTEM only, remote clients
 //! rejected, first instance flag against squatting, client exe path must be ours.
-use crate::app::{self, App};
+use crate::host::Host;
 use crate::protocol::*;
 use std::ffi::c_void;
 use std::os::windows::io::AsRawHandle;
@@ -105,11 +105,11 @@ fn client_allowed(pipe: &NamedPipeServer) -> bool {
     ok
 }
 
-pub async fn serve(app: App) {
+pub async fn serve(app: impl Host) {
     let name = pipe_name();
     let sd = match security_descriptor() {
         Ok(sd) => sd,
-        Err(e) => return app::set_pipe_error(&app, e),
+        Err(e) => return app.set_pipe_error(e),
     };
     let mut first = true;
     loop {
@@ -121,7 +121,7 @@ pub async fn serve(app: App) {
                 } else {
                     format!("pipe create failed: {e}")
                 };
-                return app::set_pipe_error(&app, msg);
+                return app.set_pipe_error(msg);
             }
         };
         first = false;
@@ -129,11 +129,11 @@ pub async fn serve(app: App) {
             continue;
         }
         let app2 = app.clone();
-        tauri::async_runtime::spawn(async move { handle(app2, server).await });
+        tokio::task::spawn(async move { handle(app2, server).await });
     }
 }
 
-async fn handle(app: App, pipe: NamedPipeServer) {
+async fn handle(app: impl Host, pipe: NamedPipeServer) {
     if !client_allowed(&pipe) {
         return;
     }
@@ -153,7 +153,7 @@ async fn handle(app: App, pipe: NamedPipeServer) {
     // below is unchanged. Errors never quote the frame: it can hold cookie values.
     if let Ok(frame) = serde_json::from_slice::<BrowserFrame>(&buf) {
         let a = app.clone();
-        let reply = tauri::async_runtime::spawn_blocking(move || crate::desktime::on_browser(&a, frame.browser))
+        let reply = tokio::task::spawn_blocking(move || a.on_browser(frame.browser))
             .await
             .unwrap_or_else(|_| BrowserReply::result(Err("Nubi could not apply the session".into())));
         if let Ok(mut line) = serde_json::to_string(&reply) {
@@ -173,26 +173,26 @@ async fn handle(app: App, pipe: NamedPipeServer) {
     if msg.provider != "claude" && msg.provider != "codex" {
         return;
     }
-    let terminal_question = app::on_hook(&app, &msg);
+    let terminal_question = app.on_hook(&msg);
     let question = is_question(&msg.provider, &msg.event, msg.tool_name.as_deref());
     if !(msg.wants_reply && (msg.event == "PermissionRequest" || question)) {
         return;
     }
-    if terminal_question || (question && app::questions_mode(&app) == "off") {
+    if terminal_question || (question && app.questions_mode() == "off") {
         return; // connection closes, the hook prints nothing, Claude asks in the terminal
     }
     let cap = if question { QUESTION_DEADLINE_SECS } else { PERMISSION_DEADLINE_SECS };
     // The user's takeover time, kept inside the hook's own deadline.
-    let takeover = app::takeover_secs(&app).max(3);
+    let takeover = app.takeover_secs().max(3);
     let wait = Duration::from_secs(takeover.min(msg.deadline_secs.min(cap).saturating_sub(5)));
     let (tx, rx) = oneshot::channel();
-    let id = app::add_pending(&app, &msg, tx, wait.as_millis() as u64);
+    let id = app.add_pending(&msg, tx, wait.as_millis() as u64);
     let mut probe = [0u8; 1];
     let mut timed_out = false;
     // Hovering a card pauses the countdown, up to the hook's own deadline.
     let hard_ms = crate::state::now_ms() + msg.deadline_secs.min(cap).saturating_sub(5) * 1000;
     let countdown = async {
-        while !app::pending_tick(&app, id, 250, hard_ms) {
+        while !app.pending_tick(id, 250, hard_ms) {
             if question && question_in_terminal(&msg, crate::winutil::pids_focused(&msg.pids)) {
                 break; // user returned to this terminal; let its native question appear
             }
@@ -205,7 +205,7 @@ async fn handle(app: App, pipe: NamedPipeServer) {
         _ = countdown => { timed_out = true; None }
         _ = reader.read(&mut probe) => None, // provider moved on
     };
-    app::remove_pending(&app, id, timed_out);
+    app.remove_pending(id, timed_out);
     if let Some(rep) = reply {
         if let Ok(mut line) = serde_json::to_string(&rep) {
             line.push('\n');
@@ -220,10 +220,10 @@ async fn handle(app: App, pipe: NamedPipeServer) {
 /// like a hook call; for requests, the answer is written to `<name>.reply`. Lets a sandboxed
 /// test script drive the UI without the named pipe. Not compiled into release builds.
 #[cfg(debug_assertions)]
-pub fn start_sim(app: App) {
+pub fn start_sim(app: impl Host) {
     let Some(dir) = std::env::var_os("NUBI_SIM_DIR").map(std::path::PathBuf::from) else { return };
     let _ = std::fs::create_dir_all(&dir);
-    tauri::async_runtime::spawn(async move {
+    tokio::task::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(150)).await;
             let Ok(rd) = std::fs::read_dir(&dir) else { continue };
@@ -239,18 +239,18 @@ pub fn start_sim(app: App) {
                 let Some(msg) = build_msg(&provider, &v["hook"], vec![]) else { continue };
                 let app = app.clone();
                 let out = p.with_extension("reply");
-                tauri::async_runtime::spawn(async move {
-                    let terminal_question = app::on_hook(&app, &msg);
+                tokio::task::spawn(async move {
+                    let terminal_question = app.on_hook(&msg);
                     let question = is_question(&msg.provider, &msg.event, msg.tool_name.as_deref());
-                    if !msg.wants_reply || terminal_question || (question && app::questions_mode(&app) == "off") {
+                    if !msg.wants_reply || terminal_question || (question && app.questions_mode() == "off") {
                         return;
                     }
-                    let wait = Duration::from_secs(app::takeover_secs(&app).max(3));
+                    let wait = Duration::from_secs(app.takeover_secs().max(3));
                     let (tx, rx) = oneshot::channel();
-                    let id = app::add_pending(&app, &msg, tx, wait.as_millis() as u64);
+                    let id = app.add_pending(&msg, tx, wait.as_millis() as u64);
                     let mut timed_out = false;
                     let reply = tokio::select! { r = rx => r.ok(), _ = tokio::time::sleep(wait) => { timed_out = true; None } };
-                    app::remove_pending(&app, id, timed_out);
+                    app.remove_pending(id, timed_out);
                     let text = reply.and_then(|r| serde_json::to_string(&r).ok()).unwrap_or_else(|| "timeout".into());
                     let _ = std::fs::write(out, text);
                 });

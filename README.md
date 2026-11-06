@@ -3,7 +3,7 @@
 Nubi is a small Windows app for people who run Claude Code or Codex CLI in a terminal. It tells
 you when a session finishes or needs you, lets you approve tool calls and answer Claude's
 questions without switching windows, and shows how much of your usage limit is left. It is one
-`nubi.exe`, built with Tauri 2 and Rust.
+`nubi.exe`, built with Tauri 2 and Rust, plus a small `nubi-hook.exe` helper.
 
 ## Download
 
@@ -77,7 +77,7 @@ Claude: Nubi adds its entries to `~/.claude/settings.json`.
 Codex: Nubi adds its entries to `$CODEX_HOME/hooks.json` (default `~/.codex`). Run `/hooks` once
 inside Codex to trust them; Codex ignores new hooks until you do.
 
-The hooks call a fixed copy of the app at `%LOCALAPPDATA%\nubi\nubi-hook.exe`, so you can move
+The hooks call a fixed copy of the helper at `%LOCALAPPDATA%\nubi\nubi-hook.exe`, so you can move
 or update Nubi without breaking them. Turning hooks off removes only Nubi's entries. The first
 time Nubi changes one of these files it keeps a backup next to it as `*.json.nubi.bak`.
 
@@ -85,7 +85,7 @@ time Nubi changes one of these files it keeps a backup next to it as `*.json.nub
 
 Nubi talks to the hooks over the pipe `\\.\pipe\nubi-<user>`. Only your user and SYSTEM can
 open it, network clients are refused, and Nubi only accepts clients running its own exe or the
-hook copy. If another process already owns the pipe name, Nubi won't start.
+hook helper. If another process already owns the pipe name, Nubi won't start.
 
 Tool input larger than 32 KB is not shown, and you can't approve it from Nubi.
 
@@ -95,16 +95,31 @@ You need Rust stable, the Visual Studio 2022 C++ build tools, WebView2 (part of 
 `cargo install tauri-cli --version "^2"`.
 
 ```
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets
+cargo build --release --package nubi-hook
 cd src-tauri
-cargo test
 cargo tauri dev        # run
 cargo tauri build      # installer in target/release/bundle/nsis
 nubi.exe --diag   # print usage and hook status (no tokens)
 ```
 
+The workspace shares domain services through `crates/nubi-core`. Its `Host` trait connects
+state and pipe callbacks to `src-tauri/src/core_host.rs`; DeskTime's WebView2 scraper stays
+in the Tauri app. All 65 original Rust tests are retained: 52 in the core and 13 in the app.
+The hook disables the core's `services` feature, excluding Tauri, HTTP, polling and async
+runtime dependencies. Tauri builds also build and package the helper under `helpers/` in the
+install folder, keeping it separate from a locked stable hook during updates. Portable builds
+can keep both executables together. The stable hook path and arguments stay the same. Build
+outputs remain under `src-tauri/target`.
+Debug builds accept `NUBI_SIM_DATA_DIR` to isolate settings and cached data during simulations;
+release builds always use the existing Windows data directory.
+
 ## Releasing a new version
 
-Bump `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and
+Bump `version` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and both crate manifests,
+commit, then tag and
 push:
 
 ```

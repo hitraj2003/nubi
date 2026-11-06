@@ -17,10 +17,10 @@ pub const EXTENSION_ID: &str = "gpoebchpnogppdkgjphjelcipnfiecif";
 const BROWSER_KEYS: [&str; 3] = [r"Software\Google\Chrome", r"Software\BraveSoftware\Brave-Browser", r"Software\Microsoft\Edge"];
 /// The unpacked extension, written next to the settings so installed builds have a folder to load.
 const EXTENSION_FILES: [(&str, &str); 4] = [
-    ("manifest.json", include_str!("../../extension/desktime-connect/manifest.json")),
-    ("background.js", include_str!("../../extension/desktime-connect/background.js")),
-    ("popup.html", include_str!("../../extension/desktime-connect/popup.html")),
-    ("popup.js", include_str!("../../extension/desktime-connect/popup.js")),
+    ("manifest.json", include_str!("../../../extension/desktime-connect/manifest.json")),
+    ("background.js", include_str!("../../../extension/desktime-connect/background.js")),
+    ("popup.html", include_str!("../../../extension/desktime-connect/popup.html")),
+    ("popup.js", include_str!("../../../extension/desktime-connect/popup.js")),
 ];
 
 pub fn origin() -> String {

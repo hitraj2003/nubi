@@ -4,6 +4,8 @@
   "version": "0.1.3",
   "identifier": "dev.nubi.app",
   "build": {
+    "beforeDevCommand": "cargo build --package nubi-hook",
+    "beforeBuildCommand": "cargo build --release --package nubi-hook",
     "frontendDist": "../ui"
   },
   "app": {
@@ -141,7 +143,8 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/hooks.nsh"
       }
     },
     "createUpdaterArtifacts": true

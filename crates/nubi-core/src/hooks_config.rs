@@ -60,16 +60,26 @@ pub fn codex_hooks_path() -> Option<PathBuf> {
     Some(codex_home()?.join("hooks.json"))
 }
 
-/// Stable copy of our exe that hooks call, so moving the app does not break hooks.
+/// Stable helper path that hooks call, so moving the app does not break hooks.
 pub fn shim_path() -> Option<PathBuf> {
     Some(dirs::data_local_dir()?.join("nubi").join(HOOK_EXE))
 }
 
-/// Copy the running exe to the shim path. A locked shim (hook running) is left as is.
+/// Copy the separate helper to the stable path. A locked shim is left as is.
 pub fn install_shim() -> std::io::Result<PathBuf> {
     let dst = shim_path().ok_or_else(|| std::io::Error::other("no local app data dir"))?;
+    install_shim_from(&std::env::current_exe()?, dst)
+}
+
+fn install_shim_from(app_exe: &Path, dst: PathBuf) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(dst.parent().unwrap())?;
-    let src = std::env::current_exe()?;
+    // The default install folder and stable shim folder differ only in case on Windows.
+    // Keep the packaged source in a subfolder so installers never overwrite a held hook.
+    let packaged = app_exe.parent().unwrap().join("helpers").join(HOOK_EXE);
+    let src = if packaged.is_file() { packaged } else { app_exe.with_file_name(HOOK_EXE) };
+    if src == dst && dst.is_file() {
+        return Ok(dst);
+    }
     match std::fs::copy(&src, &dst) {
         Ok(_) => Ok(dst),
         Err(e) if dst.exists() => {
@@ -264,6 +274,56 @@ pub fn set_enabled(provider: &str, enable: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shim_uses_separate_helper_and_keeps_locked_copy() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!("nubi-shim-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = dir.join("nubi.exe");
+        let helper = dir.join("helpers").join(HOOK_EXE);
+        let dst = dir.join(HOOK_EXE);
+        std::fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        std::fs::write(&app, b"large GUI payload").unwrap();
+        std::fs::write(&helper, b"hook").unwrap();
+        assert_eq!(install_shim_from(&app, dst.clone()).unwrap(), dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"hook");
+        let locked = std::fs::OpenOptions::new().read(true).share_mode(1).open(&dst).unwrap();
+        std::fs::write(&helper, b"new hook").unwrap();
+        assert_eq!(install_shim_from(&app, dst.clone()).unwrap(), dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"hook");
+        drop(locked);
+        install_shim_from(&app, dst.clone()).unwrap();
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new hook");
+        std::fs::remove_file(&helper).unwrap();
+        assert_eq!(install_shim_from(&app, dst.clone()).unwrap(), dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new hook");
+        std::fs::remove_file(&dst).unwrap();
+        assert!(install_shim_from(&app, dst).is_err());
+        std::fs::remove_file(&app).unwrap();
+        std::fs::remove_dir(helper.parent().unwrap()).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn portable_helper_is_required_and_installs_separately() {
+        let dir = std::env::temp_dir().join(format!("nubi-missing-hook-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = dir.join("nubi.exe");
+        let dst = dir.join("stable").join(HOOK_EXE);
+        std::fs::write(&app, b"GUI payload").unwrap();
+        assert!(install_shim_from(&app, dst.clone()).is_err());
+        assert!(!dst.exists());
+        let helper = dir.join(HOOK_EXE);
+        std::fs::write(&helper, b"portable hook").unwrap();
+        assert_eq!(install_shim_from(&app, dst.clone()).unwrap(), dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"portable hook");
+        std::fs::remove_file(helper).unwrap();
+        std::fs::remove_file(&dst).unwrap();
+        std::fs::remove_file(app).unwrap();
+        std::fs::remove_dir(dst.parent().unwrap()).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     #[test]
     fn add_then_strip_keeps_foreign_hooks() {

@@ -2301,6 +2301,7 @@ version = "0.1.3"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
+ "nubi-core",
  "semver",
  "serde",
  "serde_json",
@@ -2311,11 +2312,32 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
- "ureq",
  "webview2-com",
  "windows",
  "windows-core",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "nubi-core"
+version = "0.1.3"
+dependencies = [
+ "chrono",
+ "dirs 5.0.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "ureq",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "nubi-hook"
+version = "0.1.3"
+dependencies = [
+ "nubi-core",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
