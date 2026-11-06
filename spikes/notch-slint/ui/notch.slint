@@ -1,0 +1,205 @@
+import { Theme } from "theme.slint";
+export { Theme }
+import "../assets/Geist.ttf";
+
+export struct Session {
+    name: string,
+    provider: string,
+    state: string,
+    context: string,
+    ago: string,
+}
+
+component Provider inherits Image {
+    in property <string> provider;
+    width: 16px;
+    height: 16px;
+    source: provider == "claude" ? @image-url("../assets/claude.svg") : @image-url("../assets/codex.svg");
+    colorize: provider == "claude" ? Theme.claude : Theme.codex;
+}
+
+component ProviderRing inherits Rectangle {
+    in property <string> provider;
+    in property <string> percent;
+    width: 65px;
+    height: 30px;
+    Rectangle {
+        x: 0px; y: 0px; width: 30px; height: 30px;
+        border-radius: 15px;
+        border-width: 1px;
+        border-color: Theme.track;
+        Rectangle {
+            x: 3px; y: 3px; width: 24px; height: 24px;
+            border-radius: 12px;
+            border-width: 2px;
+            border-color: root.provider == "claude" ? Theme.claude : Theme.codex;
+        }
+        Provider { x: 9.5px; y: 9.5px; width: 11px; height: 11px; provider: root.provider; }
+    }
+    Text {
+        x: 36px; width: 29px; height: 30px;
+        text: root.percent; color: Theme.ink-2;
+        font-family: Theme.num; font-size: 11px; font-weight: 500;
+        vertical-alignment: center;
+    }
+}
+
+component SessionRow inherits Rectangle {
+    in property <Session> session;
+    height: 40px;
+    border-radius: 12px;
+    background: touch.has-hover ? Theme.row : transparent;
+    accessible-role: text;
+    accessible-label: session.name + ", " + session.state + ", " + session.context + ", " + session.ago;
+    Provider { x: 10px; y: 12px; provider: root.session.provider; }
+    Text {
+        x: 38px; width: 268px; height: parent.height;
+        text: root.session.name; color: Theme.ink;
+        font-size: 13px; font-weight: 500;
+        vertical-alignment: center; overflow: elide;
+    }
+    Rectangle {
+        x: 318px; y: 17px; width: 6px; height: 6px; border-radius: 3px;
+        background: root.session.state == "Done" ? Theme.ok : root.session.state == "Needs you" ? Theme.warn : Theme.ink-3;
+    }
+    Text {
+        x: 330px; width: 90px; height: parent.height;
+        text: root.session.state; color: Theme.ink-2;
+        font-size: 12px; vertical-alignment: center;
+    }
+    Text {
+        x: 432px; width: 40px; height: parent.height;
+        text: root.session.context; color: Theme.ink-3;
+        font-family: Theme.num; font-size: 11px;
+        vertical-alignment: center; horizontal-alignment: right;
+    }
+    Text {
+        x: 484px; width: 52px; height: parent.height;
+        text: root.session.ago; color: Theme.ink-3;
+        font-family: Theme.num; font-size: 11px;
+        vertical-alignment: center; horizontal-alignment: right;
+    }
+    Text {
+        x: 548px; width: 14px; height: parent.height;
+        text: "›"; color: Theme.ink-3; font-size: 16px;
+        opacity: touch.has-hover ? 1 : 0;
+        vertical-alignment: center;
+    }
+    touch := TouchArea { mouse-cursor: pointer; }
+}
+
+export component NotchWindow inherits Window {
+    title: "Nubi · Slint spike";
+    width: 720px;
+    height: 700px;
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    default-font-family: Theme.font;
+    default-font-size: 13px;
+    in property <float> along: 180;
+    in property <float> depth: 44;
+    in property <float> corner: 16;
+    in property <float> ear: 8;
+    in property <bool> opened: false;
+    in property <bool> ready: false;
+    in property <[Session]> sessions;
+    callback pill-clicked();
+
+    // Original cubic ear and bottom corners, driven by the four Rust springs.
+    outline := Path {
+        visible: root.ready;
+        private property <float> a: root.along + 2 * e;
+        private property <float> d: max(1, root.depth);
+        private property <float> r: min(root.corner, d / 2, root.along / 2);
+        private property <float> e: min(root.ear, max(0, d - r));
+        x: (root.width - a * 1px) / 2;
+        y: 0px; width: a * 1px; height: d * 1px;
+        fill: Theme.notch-bg;
+        MoveTo { x: 0; y: 0; }
+        LineTo { x: outline.a; y: 0; }
+        CubicTo {
+            control-1-x: outline.a - outline.e * 0.62; control-1-y: 0;
+            control-2-x: outline.a - outline.e; control-2-y: outline.e * 0.38;
+            x: outline.a - outline.e; y: outline.e;
+        }
+        LineTo { x: outline.a - outline.e; y: outline.d - outline.r; }
+        CubicTo {
+            control-1-x: outline.a - outline.e; control-1-y: outline.d - outline.r * 0.38;
+            control-2-x: outline.a - outline.e - outline.r * 0.38; control-2-y: outline.d;
+            x: outline.a - outline.e - outline.r; y: outline.d;
+        }
+        LineTo { x: outline.e + outline.r; y: outline.d; }
+        CubicTo {
+            control-1-x: outline.e + outline.r * 0.38; control-1-y: outline.d;
+            control-2-x: outline.e; control-2-y: outline.d - outline.r * 0.38;
+            x: outline.e; y: outline.d - outline.r;
+        }
+        LineTo { x: outline.e; y: outline.e; }
+        CubicTo {
+            control-1-x: outline.e; control-1-y: outline.e * 0.38;
+            control-2-x: outline.e * 0.62; control-2-y: 0;
+            x: 0; y: 0;
+        }
+        Close { }
+    }
+
+    Rectangle {
+        visible: root.ready;
+        x: (root.width - root.along * 1px) / 2;
+        width: root.along * 1px; height: root.depth * 1px;
+        clip: true;
+        Rectangle {
+            x: (parent.width - 180px) / 2;
+            width: 180px; height: 44px;
+            opacity: root.opened ? 0 : 1;
+            visible: !root.opened;
+            ProviderRing { x: 10px; y: 7px; provider: "claude"; percent: "32%"; }
+            ProviderRing { x: 93px; y: 7px; provider: "codex"; percent: "18%"; }
+            TouchArea { clicked => { root.pill-clicked(); } }
+        }
+        Rectangle {
+            x: (parent.width - 620px) / 2;
+            width: 620px; height: 188px;
+            opacity: root.opened ? 1 : 0;
+            visible: root.opened;
+            Rectangle {
+                x: 12px; y: 12px; width: 596px; height: 32px;
+                Text {
+                    x: 12px; width: 68px; height: parent.height;
+                    text: "Waiting"; color: Theme.ink-2; font-size: 12px; font-weight: 500;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    x: 80px; y: 2px; width: 111px; height: 28px;
+                    border-radius: 14px; background: Theme.notch-ink-12;
+                    Text {
+                        x: 12px; width: 65px; height: parent.height;
+                        text: "Sessions"; color: Theme.ink; font-size: 12px; font-weight: 500;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        x: 79px; y: 6px; width: 20px; height: 16px;
+                        border-radius: 8px; background: Theme.notch-ink-14;
+                        Text {
+                            text: "3"; color: Theme.ink; font-family: Theme.num;
+                            font-size: 10px; font-weight: 500;
+                            horizontal-alignment: center; vertical-alignment: center;
+                        }
+                    }
+                }
+                Text {
+                    x: 205px; width: 65px; height: parent.height;
+                    text: "Usage"; color: Theme.ink-2; font-size: 12px; font-weight: 500;
+                    vertical-alignment: center;
+                }
+                Image { x: 540px; y: 8.5px; width: 15px; height: 15px; source: @image-url("../assets/moon.svg"); colorize: Theme.ink-2; }
+                Image { x: 568px; y: 8.5px; width: 15px; height: 15px; source: @image-url("../assets/window.svg"); colorize: Theme.ink-2; }
+            }
+            for session[index] in root.sessions : SessionRow {
+                x: 12px; y: 52px + index * 40px; width: 596px;
+                session: session;
+            }
+        }
+    }
+}
