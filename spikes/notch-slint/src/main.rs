@@ -6,6 +6,8 @@ compile_error!("This spike evaluates Windows notch behavior; build on Windows.")
 compile_error!("Enable femtovg or software.");
 
 mod native;
+#[cfg(all(test, feature = "software"))]
+mod render_tests;
 mod shape;
 mod spring;
 
@@ -228,6 +230,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         let native = native_window.as_mut().unwrap();
+        if native::take_exit_requested() {
+            let _ = slint::quit_event_loop();
+            return;
+        }
         if let Err(error) = native.refresh_placement()
             && !placement_error_reported
         {

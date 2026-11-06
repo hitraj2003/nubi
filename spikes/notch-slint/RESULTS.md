@@ -1,5 +1,76 @@
 # Stage 1 Slint notch spike
 
+## Layout repair — 2026-11-06
+
+The owner's displaced-content screenshot reproduces in an offscreen render at
+100% scale. The content Rectangle had an explicit height but no `y` binding.
+Slint 1.18.1 centers such items in their parent, so the opened clip and its
+children started at `(700 - 188) / 2 = 256` logical pixels. The Path explicitly
+started at `y: 0px`. The header therefore appeared around y=268 and the first
+row around y=308, below the 188-pixel surface. The clip was moving with the
+content; it was not clipping against the outline's coordinates. This occurs on
+the first full frame, without partial redraws or native window resizing.
+
+The content clip now binds `y` to `outline.y`. Both the closed and opened content
+containers explicitly use `y: 0px`, including during intermediate spring heights.
+Slint lengths and Path coordinates multiplied by `1px` both use logical pixels.
+The existing Win32 placement multiplies the backing dimensions by the monitor
+scale exactly once; hit testing divides physical cursor offsets by that scale.
+No placement or spring changes were needed.
+
+| Scale | Backing window, physical pixels | Open surface depth | Content origin y |
+| --- | --- | --- | --- |
+| 100% | 720 × 700 | 188 | 0 |
+| 125% | 900 × 875 | 235 | 0 |
+| 150% | 1080 × 1050 | 282 | 0 |
+
+The default build now includes femtovg and software, with femtovg still selected
+when no arguments are supplied. Previously, `--renderer=software` immediately
+returned `renderer unavailable in this build: software` because the default
+features only enabled femtovg. Explicit single-renderer builds remain supported.
+Middle-button release over the notch now requests exit through the existing
+16 ms UI timer without activating the window.
+
+The new offscreen test renders the actual compiled Slint component at all three
+scales, checking header and row positions, the closed ring, and zero alpha below
+the current outline. It reuses the framebuffer through open, closed, and
+100-pixel intermediate heights in both directions to check clipping and stale
+pixels. The test failed on the original markup with content below the outline,
+then passed after anchoring. BMP review images are generated under
+`target/layout/`, composited over gray. They validate Slint rendering, not Windows
+desktop composition or physical multi-monitor transitions.
+
+Validation for this repair:
+
+| Check | Result |
+| --- | --- |
+| `cargo build --release --offline` | Pass; default executable includes both renderers |
+| `cargo clippy --offline -- -D warnings` | Pass |
+| `cargo clippy --offline --tests -- -D warnings` | Pass, including the new render test |
+| `cargo test --offline` | Pass: five tests, including real UI rendering at all three scales and native middle-button handling |
+| `cargo fmt --check` and `git diff --check` | Pass |
+| `node compare-motion.cjs` | Pass: 240 frames; maximum absolute error `5.204170427930421e-18` |
+| Default executable, no arguments | Native window ready; middle-button release exits with code 0; empty stderr |
+| Default executable, `--renderer=software` | Native window ready; middle-button release exits with code 0; empty stderr |
+| Default executable, `--state=open` | Native window ready; middle-button release exits with code 0; empty stderr |
+| Default executable, `--renderer=software --state=open` | Native window ready; middle-button release exits with code 0; empty stderr |
+
+All four native smoke runs report 720 × 700 physical pixels at 96 DPI, topmost,
+and no-activate styles. Middle-button release was posted to the native window;
+physical input and desktop composition still need owner review. The 125% and
+150% checks use offscreen scale-factor events, not changes to the owner's display
+settings. No claim of physical monitor-transition validation is made. The owner
+reported smooth motion before this repair; the springs, cadence, and dwell times
+are unchanged. No repaint workaround was added.
+
+Only files inside `spikes/notch-slint` were changed. Production `src-tauri/` and
+root `ui/` were not edited. No commit was created. Historical measurements below
+describe the earlier binaries and were not rerun for this layout repair. Their
+sizes and hashes do not describe the repaired default executable (11,672,064
+bytes).
+
+## Earlier stage 1 results (before the layout repair)
+
 Date: 2026-11-06. Branch: `native/slint`. Reference source revision:
 `538a8b774605fe579fd141c12f0a72d0c0ce7a69`.
 

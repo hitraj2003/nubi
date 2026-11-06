@@ -8,7 +8,7 @@ description = "Standalone Nubi notch toolkit spike; static data only"
 build = "build.rs"
 
 [features]
-default = ["femtovg"]
+default = ["femtovg", "software"]
 femtovg = ["slint/renderer-femtovg"]
 software = ["slint/renderer-software"]
 

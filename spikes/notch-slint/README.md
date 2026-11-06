@@ -12,6 +12,8 @@ cargo build --release --offline
 cargo clippy --offline -- -D warnings
 cargo run --release --offline -- --theme=dark
 cargo run --release --offline -- --theme=light
+cargo run --release --offline -- --renderer=software
+cargo test --offline
 cargo build --release --offline --no-default-features --features software
 cargo clippy --release --offline --no-default-features --features software -- -D warnings
 cargo run --release --offline --no-default-features --features software -- --renderer=software
@@ -19,15 +21,21 @@ cargo run --release --offline --no-default-features --features software -- --ren
 
 Hover for 40 ms to open; leave for 140 ms to close. Clicking the pill also opens it.
 The fixed 720 × 700 logical-pixel native window stays centered at the monitor's top
-edge. Its shape changes inside those bounds. Close it with Alt+F4 if it has been
-explicitly activated, or stop the spike process from the terminal. For timed
-reviews, pass `--exit-after=30`.
+edge. Its shape changes inside those bounds. Middle-click the notch to exit.
+For timed reviews, pass `--exit-after=30`.
 
 `--state=open` and `--state=closed` hold a settled state for measurements, ignoring
 hover/click expansion. `--reduce-motion` removes shape motion; the Windows client
 area animation setting is also respected. `--renderer=femtovg|software` rejects
-renderers omitted from the build. Dark is the default; `--theme=light` selects the
-light notch tokens before first paint.
+renderers omitted from the build. The default build includes both renderers and
+starts with femtovg. Dark is the default; `--theme=light` selects the light notch
+tokens before first paint.
+
+`cargo test --offline` renders the compiled UI offscreen at 100%, 125%, and 150%
+scale. It checks top anchoring, session positions, and clipping through open,
+closed, and intermediate frames using a reused buffer. Review images are saved
+under `target/layout/<scale>-<state>-<depth>.bmp`; transparency is composited over
+gray. These images do not test Windows desktop composition.
 
 Run the two-renderer release build, clippy, and four idle samples:
 

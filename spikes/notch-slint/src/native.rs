@@ -75,6 +75,7 @@ unsafe extern "system" {
 thread_local! {
     static SHAPE: Cell<Shape> = const { Cell::new(Shape(crate::shape::CLOSED)) };
     static PLACE_DIRTY: Cell<bool> = const { Cell::new(true) };
+    static EXIT_REQUESTED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Call before Slint/winit creates any windows. winit also establishes DPI awareness.
@@ -94,6 +95,10 @@ pub fn system_reduced_motion() -> bool {
 
 pub fn set_shape(shape: Shape) {
     SHAPE.with(|value| value.set(shape));
+}
+
+pub fn take_exit_requested() -> bool {
+    EXIT_REQUESTED.with(|requested| requested.replace(false))
 }
 
 fn contains_screen(window: Hwnd, x: i32, y: i32) -> bool {
@@ -119,6 +124,11 @@ unsafe extern "system" fn procedure(
     _: usize,
 ) -> isize {
     match message {
+        0x0208 => {
+            // WM_MBUTTONUP: exit without activating the notch.
+            EXIT_REQUESTED.with(|requested| requested.set(true));
+            return 0;
+        }
         0x0021 => return 3, // WM_MOUSEACTIVATE: MA_NOACTIVATE; retain the click.
         0x0084 => {
             // WM_NCHITTEST. Signed coordinates support negative-origin monitors.
@@ -335,6 +345,10 @@ mod tests {
             assert_eq!(at(360.0, 100.0), 1);
             assert_eq!(at(51.0, 187.0), -1);
             assert_eq!(at(0.0, 0.0), -1);
+            assert!(!take_exit_requested());
+            assert_eq!(unsafe { SendMessageW(handle, 0x0208, 0, 0) }, 0);
+            assert!(take_exit_requested());
+            assert!(!take_exit_requested());
         }
         assert_ne!(unsafe { DestroyWindow(handle) }, 0);
     }

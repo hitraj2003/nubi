@@ -147,10 +147,14 @@ export component NotchWindow inherits Window {
     Rectangle {
         visible: root.ready;
         x: (root.width - root.along * 1px) / 2;
+        // Fixed-size items default to vertical centering in Slint. Keep the
+        // content clip on the same top edge as the animated outline.
+        y: outline.y;
         width: root.along * 1px; height: root.depth * 1px;
         clip: true;
         Rectangle {
             x: (parent.width - 180px) / 2;
+            y: 0px;
             width: 180px; height: 44px;
             opacity: root.opened ? 0 : 1;
             visible: !root.opened;
@@ -160,6 +164,7 @@ export component NotchWindow inherits Window {
         }
         Rectangle {
             x: (parent.width - 620px) / 2;
+            y: 0px;
             width: 620px; height: 188px;
             opacity: root.opened ? 1 : 0;
             visible: root.opened;
