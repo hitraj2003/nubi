@@ -202,7 +202,7 @@ fn notification_state() -> i32 {
 
 /// Full-screen app, presentation mode or busy (QUNS_BUSY / RUNNING_D3D_FULL_SCREEN / PRESENTATION_MODE).
 pub fn fullscreen_active() -> bool {
-    matches!(notification_state(), 2 | 3 | 4)
+    matches!(notification_state(), 2..=4)
 }
 
 /// QUNS_QUIET_TIME. Focus Assist has no public API; this is the nearest documented signal.

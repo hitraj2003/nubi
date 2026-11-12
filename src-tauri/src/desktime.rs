@@ -245,8 +245,8 @@ fn write_cookies(window: &WebviewWindow, stale: Vec<(String, String, String)>, c
             }
             for c in &cookies {
                 let cookie = manager.CreateCookie(&HSTRING::from(&c.name), &HSTRING::from(&c.value), &HSTRING::from(&c.domain), &HSTRING::from(&c.path))?;
-                cookie.SetIsSecure(c.secure.into())?;
-                cookie.SetIsHttpOnly(c.http_only.into())?;
+                cookie.SetIsSecure(c.secure)?;
+                cookie.SetIsHttpOnly(c.http_only)?;
                 match c.same_site.as_deref() {
                     Some("strict") => cookie.SetSameSite(COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT)?,
                     Some("lax") => cookie.SetSameSite(COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX)?,

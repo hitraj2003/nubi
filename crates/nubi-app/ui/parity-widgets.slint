@@ -1,0 +1,161 @@
+import { Theme } from "theme.slint";
+import { Fixture } from "fixture.slint";
+import { SourceIcon } from "icons.slint";
+export { SourceIcon }
+import "../assets/JetBrainsMono.ttf";
+
+export component Ink inherits Text { x: 0px; y: 0px;
+    width: 100%; height: 100%;
+    font-family: Theme.font; font-size: 13px; color: Theme.t1;
+    vertical-alignment: center;
+}
+
+export component Arc inherits Rectangle { x: 0px; y: 0px;
+    in property <float> percent;
+    in property <float> radius: 11;
+    in property <float> stroke: 2.6;
+    in property <color> track: Theme.notch-ink-12;
+    in property <color> ink: Fixture.usage-color(percent, true);
+    // A fixed viewport preserves the circle geometry at any scale.
+    Path { x: 0px; y: 0px;
+        width: parent.width; height: parent.height;
+        viewbox-width: 30; viewbox-height: 30;
+        fill: transparent; stroke: root.track; stroke-width: root.stroke * 1px;
+        MoveTo { x: 15; y: 15 - root.radius; }
+        ArcTo { radius-x: root.radius; radius-y: root.radius; x: 15; y: 15 + root.radius; sweep: true; }
+        ArcTo { radius-x: root.radius; radius-y: root.radius; x: 15; y: 15 - root.radius; sweep: true; }
+    }
+    Path { x: 0px; y: 0px;
+        width: parent.width; height: parent.height;
+        viewbox-width: 30; viewbox-height: 30;
+        fill: transparent; stroke: root.percent > 0 ? root.ink : transparent;
+        stroke-width: root.stroke * 1px; stroke-line-cap: round;
+        MoveTo { x: 15; y: 15 - root.radius; }
+        ArcTo {
+            radius-x: root.radius; radius-y: root.radius;
+            x: 15 + root.radius * sin(clamp(root.percent,0,99.9999) * 3.6deg);
+            y: 15 - root.radius * cos(clamp(root.percent,0,99.9999) * 3.6deg);
+            large-arc: root.percent > 50; sweep: true;
+        }
+    }
+}
+
+export component ProviderMark inherits Image { x: 0px; y: 0px;
+    in property <string> provider;
+    width: 16px; height: 16px;
+    source: provider == "claude" ? @image-url("../assets/claude.svg") : @image-url("../assets/codex.svg");
+    colorize: provider == "claude" ? Theme.claude : Theme.codex;
+}
+
+export component Tile inherits Rectangle { x: 0px; y: 0px;
+    in property <string> provider;
+    width: 28px; height: 28px; border-radius: 8px;
+    background: provider == "claude" ? Theme.claude : Theme.dark ? #f3efe7 : #111;
+    Ink { x: 0px; y: 0px; text: root.provider == "claude" ? "C" : "X"; color: root.provider == "codex" && Theme.dark ? #111 : white;
+        font-size: 12px; font-weight: 600; horizontal-alignment: center; }
+}
+
+export component Action inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <bool> quiet;
+    in property <string> hint;
+    callback clicked();
+    width: label.preferred-width + 24px; height: 32px; border-radius: 10px;
+    background: primary ? Theme.acc : touch.has-hover ? Theme.card-3 : quiet ? transparent : Theme.card-2;
+    border-width: keys.has-focus ? 2px : quiet || primary ? 0px : 1px;
+    border-color: keys.has-focus ? Theme.acc : Theme.line;
+    animate background { duration: Theme.reduced ? 0ms : 150ms; }
+    accessible-role: button; accessible-label: text; accessible-description: hint;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    label := Ink { x: 0px; y: 0px; text: root.text; font-weight: 500; horizontal-alignment: center;
+        color: root.primary ? Theme.acc-ink : root.quiet ? Theme.t2 : Theme.t1; }
+    touch := TouchArea { width: 100%; height: 100%; enabled: root.enabled; mouse-cursor: pointer; clicked => { keys.focus(); root.clicked(); } }
+    keys := FocusScope { width: 0px; height: 0px; enabled: root.enabled; key-pressed(event) => { if root.enabled && (event.text == " " || event.text == "\n") { root.clicked(); return accept; } return reject; } }
+    forward-focus: keys;
+}
+
+export component Toggle inherits Rectangle { x: 0px; y: 0px;
+    in-out property <bool> checked;
+    callback toggled();
+    width: 40px; height: 24px; border-radius: 12px;
+    background: checked ? Theme.dark ? Theme.acc : Theme.t1 : Theme.switch-off;
+    border-width: keys.has-focus ? 2px : 0px; border-color: Theme.acc;
+    animate background { duration: Theme.reduced ? 0ms : 200ms; }
+    Rectangle { x: root.checked ? touch.pressed ? 16px : 20px : 4px; y: 4px;
+        width: touch.pressed ? 20px : 16px; height: 16px; border-radius: 8px;
+        background: root.checked ? Theme.dark ? Theme.rail : Theme.acc : Theme.card;
+        animate x { duration: Theme.reduced ? 0ms : 200ms; easing: cubic-bezier(0.2,0.9,0.25,1); }
+    }
+    accessible-role: checkbox; accessible-checked: checked;
+    accessible-action-default => { root.checked = !root.checked; root.toggled(); }
+    touch := TouchArea { width: 100%; height: 100%; mouse-cursor: pointer; clicked => { keys.focus(); root.checked = !root.checked; root.toggled(); } }
+    keys := FocusScope { width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { root.checked = !root.checked; root.toggled(); return accept; } return reject; } }
+    forward-focus: keys;
+}
+
+export component Segmented inherits Rectangle { x: 0px; y: 0px;
+    in property <[string]> labels;
+    in-out property <int> selected;
+    callback changed(int);
+    height: 32px; border-radius: 10px; background: Theme.card-2;
+    border-width: 1px; border-color: Theme.line;
+    HorizontalLayout { padding: 2px; spacing: 0px;
+        for label[index] in root.labels : Rectangle {
+            border-radius: 8px; background: root.selected == index ? Theme.dark ? Theme.card-3 : Theme.card : transparent;
+            border-width: keys.has-focus ? 2px : 0px; border-color: Theme.acc;
+            accessible-role: button; accessible-label: label;
+            accessible-action-default => { root.selected = index; root.changed(index); }
+            Ink { x: 0px; y: 0px; text: label; color: root.selected == index || touch.has-hover ? Theme.t1 : Theme.t2;
+                font-weight: root.selected == index ? 500 : 400; horizontal-alignment: center; }
+            touch := TouchArea { width: 100%; height: 100%; mouse-cursor: pointer; clicked => { keys.focus(); root.selected = index; root.changed(index); } }
+            keys := FocusScope { width: 0px; height: 0px;
+                key-pressed(event) => {
+                    if event.text == " " || event.text == "\n" { root.selected = index; root.changed(index); return accept; }
+                    if event.text == Key.LeftArrow || event.text == Key.RightArrow {
+                        root.selected = clamp(root.selected + (event.text == Key.LeftArrow ? -1 : 1), 0, root.labels.length - 1);
+                        root.changed(root.selected); return accept;
+                    }
+                    return reject;
+                }
+            }
+        }
+    }
+}
+
+export component Hint inherits Rectangle {
+    in property <string> text;
+    in property <bool> active;
+    private property <bool> shown;
+    changed active => { root.shown = false; }
+    Timer { interval: 450ms; running: root.active && !root.shown; triggered => { root.shown = true; } }
+    visible: active && shown && text != "";
+    width: label.preferred-width + 16px; height: 28px; border-radius: 8px;
+    background: Theme.dark ? Theme.card-3 : Theme.card;
+    border-width: 1px; border-color: Theme.line-2;
+    label := Ink { x: 8px; y: 6px; height: 16px; text: root.text; font-size: 12px; }
+}
+
+export component CssShadow inherits Rectangle {
+    for row in [0,1,2] : Rectangle {
+        y: row == 0 ? -48px : row == 1 ? 32px : root.height - 32px;
+        height: row == 1 ? root.height - 64px : 80px;
+        for column in [0,1,2] : Image {
+            x: column == 0 ? -48px : column == 1 ? 32px : root.width - 32px; y: 0px;
+            width: column == 1 ? root.width - 64px : 80px; height: parent.height;
+            source: Theme.dark ? @image-url("../assets/shadow-dark.png") : @image-url("../assets/shadow-light.png");
+            source-clip-x: column == 0 ? 0 : column == 1 ? 240 : 243;
+            source-clip-y: row == 0 ? 0 : row == 1 ? 240 : 243;
+            source-clip-width: column == 1 ? 3 : 240;
+            source-clip-height: row == 1 ? 3 : 240;
+            image-fit: fill;
+        }
+    }
+}
+
+export component Card inherits Rectangle { x: 0px; y: 0px;
+    CssShadow { x: 0px; y: 0px; width: 100%; height: 100%; }
+    Rectangle { x: 0px; y: 0px; width: 100%; height: 100%; background: Theme.card; border-radius: 18px; }
+    @children
+}

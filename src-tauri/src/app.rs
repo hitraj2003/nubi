@@ -392,7 +392,7 @@ pub fn queue_session_compact(app: App, key: String, queued: bool) -> Result<(), 
             }
             let ready = with(&app, |i| {
                 let pending = i.pending.values().any(|p| p.session_key == key);
-                let Some(s) = i.sessions.get_mut(&key) else { return None };
+                let s = i.sessions.get_mut(&key)?;
                 if !s.compact_queued || s.action_target.as_ref() != Some(&target) { return None; }
                 if !pending && compact_ready(s, now_ms()) {
                     s.compact_queued = false;
@@ -630,7 +630,8 @@ pub fn monitors(app: App) -> Vec<String> {
 // ---------- tray menu: the common settings, one click away ----------
 
 /// (setting key, submenu title, [(value, label)])
-const CHOICES: &[(&str, &str, &[(&str, &str)])] = &[
+type MenuChoice<'a> = (&'a str, &'a str, &'a [(&'a str, &'a str)]);
+const CHOICES: &[MenuChoice<'_>] = &[
     ("display_mode", "Display", &[("island", "Notch"), ("ring", "Floating ring"), ("taskbar", "Taskbar strip")]),
     ("providers", "Providers", &[("both", "Claude and Codex"), ("claude", "Claude"), ("codex", "Codex")]),
     ("questions_mode", "Answer Claude's questions in Nubi", &[("off", "Off, answer in terminal"), ("system", "Choices only"), ("full", "Full")]),

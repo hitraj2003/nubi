@@ -25,7 +25,8 @@ pub fn pipe_name() -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
     let user = if user.is_empty() { "default".to_string() } else { user };
-    format!(r"\\.\pipe\nubi-{user}")
+    let suffix = if crate::isolation::development() { "-dev" } else { "" };
+    format!(r"\\.\pipe\nubi-{user}{suffix}")
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

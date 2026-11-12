@@ -141,6 +141,7 @@ fn try_register() -> Result<(), String> {
 /// Writes the host manifest and the extension folder and registers the host for each browser.
 /// Idempotent; runs at every start so the manifest follows the current exe path.
 pub fn register() {
+    if crate::isolation::development() { return; }
     if let Err(e) = try_register() {
         eprintln!("[desktime] native host not registered: {e}");
     }

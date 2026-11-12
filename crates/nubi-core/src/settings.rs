@@ -139,6 +139,10 @@ impl Settings {
 }
 
 pub fn data_dir() -> PathBuf {
+    if crate::isolation::development() {
+        return std::env::var_os("NUBI_DEV_DATA_DIR").map(PathBuf::from)
+            .unwrap_or_else(|| dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("nubi-dev"));
+    }
     // Keep debug simulations and subprocess tests away from the installed app's data.
     #[cfg(debug_assertions)]
     if let Some(dir) = std::env::var_os("NUBI_SIM_DATA_DIR") {
@@ -153,7 +157,9 @@ fn path() -> PathBuf {
 
 pub fn load() -> Settings {
     // Before the rename to Nubi, settings lived in %APPDATA%\claude-overlay.
-    let legacy = dirs::config_dir().map(|d| d.join("claude-overlay").join("settings.json"));
+    let legacy = (!crate::isolation::development())
+        .then(|| dirs::config_dir().map(|d| d.join("claude-overlay").join("settings.json")))
+        .flatten();
     std::fs::read_to_string(path())
         .ok()
         .or_else(|| legacy.and_then(|p| std::fs::read_to_string(p).ok()))
@@ -174,6 +180,9 @@ pub fn load() -> Settings {
 
 /// Add or remove the HKCU Run entry that starts Nubi at sign-in.
 pub fn apply_auto_start(on: bool) -> Result<(), String> {
+    if crate::isolation::development() {
+        return Ok(());
+    }
     use windows_sys::Win32::System::Registry::{RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()

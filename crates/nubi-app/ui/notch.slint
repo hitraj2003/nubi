@@ -1,0 +1,243 @@
+import { Theme } from "theme.slint";
+export { Theme }
+export { NativeUpdate, NativeLauncher } from "runtime.slint";
+export { ParityPanel } from "panel.slint";
+
+export { Session, Fixture } from "fixture.slint";
+import { Session, Fixture } from "fixture.slint";
+import { Arc, ProviderMark, SourceIcon, Ink } from "parity-widgets.slint";
+import "../assets/Geist400.ttf";
+import "../assets/Geist500.ttf";
+import "../assets/Geist600.ttf";
+
+component Provider inherits Image { x: 0px; y: 0px;
+    in property <string> provider;
+    width: 16px;
+    height: 16px;
+    source: provider == "claude" ? @image-url("../assets/claude.svg") : @image-url("../assets/codex.svg");
+    colorize: provider == "claude" ? Theme.claude : Theme.codex;
+}
+
+component ProviderRing inherits Rectangle { x: 0px; y: 0px;
+    in property <string> provider;
+    in property <string> percent;
+    in property <float> value;
+    in property <float> weekly;
+    width: 65px;
+    height: 30px;
+    Arc { x: 0px; y: 0px; width: 30px; height: 30px; percent: root.weekly;
+        radius: 14.4; stroke: 1.6; track: Theme.dark ? #ffffff14 : #1d1b1714;
+        ink: Fixture.usage-color(root.weekly, false); }
+    Arc { x: 0px; y: 0px; width: 30px; height: 30px; percent: root.value; }
+    Provider { x: 9.5px; y: 9.5px; width: 11px; height: 11px; provider: root.provider; }
+    Text { y: 0px;
+        x: 36px; width: 29px; height: 30px;
+        text: root.percent; color: Theme.ink-2;
+        font-family: Theme.num; font-size: 11px; font-weight: 500;
+        vertical-alignment: center;
+    }
+}
+
+component SessionRow inherits Rectangle { x: 0px; y: 0px;
+    in property <Session> session;
+    callback clicked();
+    height: 40px;
+    border-radius: 12px;
+    background: touch.has-hover ? Theme.row : transparent;
+    accessible-role: text;
+    accessible-label: session.name + ", " + session.state + ", " + session.context + ", " + session.ago;
+    Provider { x: 10px; y: 12px; provider: root.session.provider; }
+    Text { y: 0px;
+        x: 38px; width: 268px; height: parent.height;
+        text: root.session.name; color: Theme.ink;
+        font-size: 13px; font-weight: 500;
+        vertical-alignment: center; overflow: elide;
+    }
+    Rectangle {
+        x: root.session.state == "Idle" ? 413px : 403px; y: 17px; width: 6px; height: 6px; border-radius: 3px;
+        background: root.session.state == "Done" ? Theme.ok : root.session.state == "Needs you" ? Theme.warn : Theme.ink-3;
+    }
+    Text { y: 0px;
+        x: root.session.state == "Idle" ? 425px : 415px; width: 40px; height: parent.height;
+        text: root.session.state; color: Theme.ink-2;
+        font-size: 12px; vertical-alignment: center;
+    }
+    Text { y: 0px;
+        x: 456px; width: 40px; height: parent.height;
+        text: root.session.context; color: Theme.ink-3;
+        font-family: Theme.num; font-size: 11px;
+        vertical-alignment: center; horizontal-alignment: right;
+    }
+    Text { y: 0px;
+        x: 508px; width: 52px; height: parent.height;
+        text: root.session.ago; color: Theme.ink-3;
+        font-family: Theme.num; font-size: 11px;
+        vertical-alignment: center; horizontal-alignment: right;
+    }
+    Text { y: 0px;
+        x: 548px; width: 14px; height: parent.height;
+        text: "›"; color: Theme.ink-3; font-size: 16px;
+        opacity: touch.has-hover ? 1 : 0;
+        vertical-alignment: center;
+    }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+component Pie inherits Rectangle { x: 0px; y: 0px;
+    in property <float> percent;
+    in property <bool> soft;
+    width: 44px; height: 44px;
+    Rectangle { x: 0.5px; y: 0.5px; width: 43px; height: 43px; border-radius: 21.5px; background: Theme.dark ? #ffffff1a : #1d1b171a; }
+    Path { x: 0px; y: 0px; width: 44px; height: 44px; viewbox-width: 44; viewbox-height: 44;
+        fill: Fixture.usage-color(root.percent, root.soft);
+        MoveTo { x: 22; y: 22; } LineTo { x: 22; y: 0.5; }
+        ArcTo { radius-x: 21.5; radius-y: 21.5; x: 22 + 21.5 * sin(root.percent * 3.6deg); y: 22 - 21.5 * cos(root.percent * 3.6deg); sweep: true; large-arc: root.percent > 50; }
+        Close {} }
+}
+
+component NotchUsage inherits Rectangle { x: 0px; y: 0px;
+    for provider[index] in ["claude", "codex"] : Rectangle {
+        x: index * 302px; y: 0px; width: 294px; height: 112px;
+        border-radius: 16px; background: Theme.row;
+        ProviderMark { x: 16px; y: 16px; provider: provider; }
+        Text { x: 40px; y: 16px; height: 18px; text: index == 0 ? "Claude" : "Codex"; color: Theme.ink; font-weight: 500; }
+        for percent[window] in [Fixture.session-percent[index], Fixture.week-percent[index]] : Rectangle {
+            x: 16px + window * 139px; y: 46px; width: 123px; height: 50px;
+            Pie { x: 0px; y: 3px; percent: percent; soft: window == 0; }
+            Text { x: 54px; y: 0px; text: round(percent) + "%"; color: Theme.ink; font-family: Theme.num; font-size: 16px; font-weight: 500; }
+            Text { x: 54px; y: 18px; text: window == 0 ? "Session" : "Week"; color: Theme.ink-2; font-size: 12px; }
+            Text { x: 54px; y: 35px; text: Fixture.reset-labels[index * 2 + window]; color: Theme.ink-3; font-size: 11px; }
+        }
+    }
+}
+
+export component NotchWindow inherits Window {
+    title: "Nubi notch";
+    width: 720px;
+    height: 700px;
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    default-font-family: Theme.font;
+    default-font-size: 13px;
+    in property <float> along: 145;
+    in property <float> depth: 44;
+    in property <float> corner: 16;
+    in property <float> ear: 8;
+    in property <bool> opened: false;
+    in property <bool> ready: false;
+    in property <[Session]> sessions: [];
+    in-out property <int> tab: 1;
+    callback open-panel();
+    callback session-clicked(string);
+    callback refresh-usage();
+    callback toggle-dnd();
+    callback tab-selected(int);
+    callback pill-clicked();
+
+    // Original cubic ear and bottom corners, driven by the four Rust springs.
+    outline := Path {
+        visible: root.ready;
+        private property <float> a: root.along + 2 * e;
+        private property <float> d: max(1, root.depth);
+        private property <float> r: min(root.corner, d / 2, root.along / 2);
+        private property <float> e: min(root.ear, max(0, d - r));
+        x: (root.width - a * 1px) / 2;
+        y: 0px; width: a * 1px; height: d * 1px;
+        fill: Theme.notch-bg;
+        MoveTo { x: 0; y: 0; }
+        LineTo { x: outline.a; y: 0; }
+        CubicTo {
+            control-1-x: outline.a - outline.e * 0.62; control-1-y: 0;
+            control-2-x: outline.a - outline.e; control-2-y: outline.e * 0.38;
+            x: outline.a - outline.e; y: outline.e;
+        }
+        LineTo { x: outline.a - outline.e; y: outline.d - outline.r; }
+        CubicTo {
+            control-1-x: outline.a - outline.e; control-1-y: outline.d - outline.r * 0.38;
+            control-2-x: outline.a - outline.e - outline.r * 0.38; control-2-y: outline.d;
+            x: outline.a - outline.e - outline.r; y: outline.d;
+        }
+        LineTo { x: outline.e + outline.r; y: outline.d; }
+        CubicTo {
+            control-1-x: outline.e + outline.r * 0.38; control-1-y: outline.d;
+            control-2-x: outline.e; control-2-y: outline.d - outline.r * 0.38;
+            x: outline.e; y: outline.d - outline.r;
+        }
+        LineTo { x: outline.e; y: outline.e; }
+        CubicTo {
+            control-1-x: outline.e; control-1-y: outline.e * 0.38;
+            control-2-x: outline.e * 0.62; control-2-y: 0;
+            x: 0; y: 0;
+        }
+        Close { }
+    }
+
+    Rectangle {
+        visible: root.ready;
+        x: (root.width - root.along * 1px) / 2;
+        // Fixed-size items default to vertical centering in Slint. Keep the
+        // content clip on the same top edge as the animated outline.
+        y: outline.y;
+        width: root.along * 1px; height: root.depth * 1px;
+        clip: true;
+        Rectangle {
+            x: (parent.width - 145px) / 2;
+            y: 0px;
+            width: 145px; height: 44px;
+            opacity: root.opened ? 0 : 1;
+            visible: !root.opened;
+            ProviderRing { x: 10.125px; y: 7px; provider: "claude"; percent: Fixture.usage-text[0]; value: Fixture.session-percent[0]; weekly: Fixture.week-percent[0]; }
+            ProviderRing { x: 76.5px; y: 7px; provider: "codex"; percent: Fixture.usage-text[1]; value: Fixture.session-percent[1]; weekly: Fixture.week-percent[1]; }
+            TouchArea { clicked => { root.pill-clicked(); } }
+        }
+        Rectangle {
+            x: (parent.width - 620px) / 2;
+            y: 0px;
+            width: 620px; height: root.tab == 2 ? 180px : 188px;
+            opacity: root.opened ? 1 : 0;
+            visible: root.opened;
+            Rectangle {
+                x: 12px; y: 12px; width: 596px; height: 32px;
+                for label[index] in ["Waiting", "Sessions", "Usage", "DeskTime"] : Rectangle {
+                    x: index == 0 ? 0px : index == 1 ? 68px : index == 2 ? 162px : 222px;
+                    y: 2px; width: index == 1 ? 92px : index == 3 ? 80px : index == 0 ? 66px : 56px; height: 28px;
+                    border-radius: 14px; background: root.tab == index ? Theme.notch-ink-12 : transparent;
+                    Text { y: 0px; x: 12px; height: parent.height; text: label; color: tab-touch.has-hover || root.tab == index ? Theme.ink : Theme.ink-2;
+                        font-size: 12px; font-weight: 500; vertical-alignment: center; }
+                    if index == 1 : Rectangle { x: 64px; y: 6px; width: 16px; height: 16px;
+                        border-radius: 8px; background: Theme.notch-ink-14;
+                        Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: root.sessions.length; color: Theme.ink; font-family: Theme.num; font-size: 10px; font-weight: 500;
+                            horizontal-alignment: center; vertical-alignment: center; } }
+                    tab-touch := TouchArea { mouse-cursor: pointer; clicked => { root.tab = index; root.tab-selected(index); } }
+                }
+                for icon[index] in ["refresh-usage", "dnd", "open-panel"] : Rectangle {
+                    x: 504px + index * 32px; y: 2px; width: 28px; height: 28px; border-radius: 14px;
+                    background: icon-touch.has-hover ? Theme.row-hover : transparent;
+                    SourceIcon { x: 6.5px; y: 6.5px; width: 15px; height: 15px; name: icon; colorize: Theme.ink-2; }
+                    icon-touch := TouchArea { mouse-cursor: pointer; clicked => {
+                        if index == 0 { root.refresh-usage(); } else if index == 1 { root.toggle-dnd(); } else { root.open-panel(); }
+                    } }
+                }
+
+            }
+            if root.tab == 1 : Flickable {
+            x: 12px; y: 52px; width: 596px; height: 124px; content-height: root.sessions.length * 40px;
+            for session[index] in root.sessions : SessionRow {
+                visible: root.tab == 1;
+                x: 0px; y: index * 40px; width: 596px;
+                session: session;
+                clicked => { root.session-clicked(session.key); }
+            }
+            }
+            if root.tab == 1 && root.sessions.length == 0 : Text {
+                x: 12px; y: 70px; width: 596px; height: 36px;
+                text: "No sessions yet. Start Claude Code or Codex.";
+                color: Theme.ink-3; font-size: 12px; horizontal-alignment: center;
+            }
+            if root.tab == 0 : Text { x: 12px; y: 70px; width: 596px; height: 36px;
+                text: "Nothing waiting"; color: Theme.ink-3; font-size: 12px; horizontal-alignment: center; }
+            if root.tab == 2 : NotchUsage { x: 12px; y: 52px; width: 596px; height: 112px; }
+        }
+    }
+}

@@ -1,0 +1,39 @@
+// Values and roles copied from ui/theme.css, notch surface, default yellow accent.
+export global Theme {
+    in-out property <bool> dark: true;
+    in-out property <bool> reduced: false;
+    out property <color> notch-bg: dark ? #000000 : #fdfcfa;
+    out property <color> ink: dark ? #ffffff : #1d1b17;
+    out property <color> ink-2: dark ? #ffffff9e : #1d1b17b8;
+    out property <color> ink-3: dark ? #ffffff61 : #1d1b1799;
+    out property <color> row: dark ? #ffffff0f : #1d1b170f;
+    out property <color> row-hover: dark ? #ffffff1a : #1d1b171a;
+    out property <color> notch-ink-12: dark ? #ffffff1f : #1d1b171f;
+    out property <color> notch-ink-14: dark ? #ffffff24 : #1d1b1724;
+    out property <color> track: dark ? #ffffff29 : #1d1b1729;
+    out property <color> claude: #d97757;
+    out property <color> codex: #6e9bef;
+    out property <color> ok: dark ? #4cd964 : #24865a;
+    out property <color> warn: dark ? #ffb340 : #a96900;
+    out property <string> font: "Segoe UI Variable";
+    out property <string> num: "Geist";
+    out property <string> mono: "JetBrains Mono";
+    out property <color> switch-off: dark ? #3a3834 : #e3dfd6;
+    // Panel tokens from root ui/theme.css; notch tokens above remain independent.
+    out property <color> canvas: dark ? #121110 : #f4f2ee;
+    out property <color> card: dark ? #1e1d1b : #fdfcfa;
+    out property <color> card-2: dark ? #252421 : #f6f4ef;
+    out property <color> card-3: dark ? #2f2d2a : #ece8e0;
+    out property <color> rail: dark ? #1b1a18 : #ffffff;
+    out property <color> line: dark ? #fff0d212 : #281e0a12;
+    out property <color> line-2: dark ? #fff0d221 : #281e0a21;
+    out property <color> t1: dark ? #f3efe7 : #1d1b17;
+    out property <color> t2: dark ? #a7a094 : #6b665d;
+    out property <color> t3: dark ? #6d675d : #767066;
+    out property <color> acc: #f5c842;
+    out property <color> acc-ink: #3a2e05;
+    out property <color> bad: #ef5a4c;
+    out property <length> space: 8px;
+    out property <length> radius: 8px;
+    out property <length> body-size: 13px;
+}

@@ -67,6 +67,9 @@ pub fn shim_path() -> Option<PathBuf> {
 
 /// Copy the separate helper to the stable path. A locked shim is left as is.
 pub fn install_shim() -> std::io::Result<PathBuf> {
+    if crate::isolation::development() {
+        return Err(std::io::Error::other("Hook installation is disabled in development mode"));
+    }
     let dst = shim_path().ok_or_else(|| std::io::Error::other("no local app data dir"))?;
     install_shim_from(&std::env::current_exe()?, dst)
 }
@@ -103,7 +106,7 @@ fn windows_command_for(shim: &Path, provider: &str) -> String {
 fn is_ours(h: &Value) -> bool {
     ["command", "commandWindows"]
         .iter()
-        .any(|k| h.get(*k).and_then(|c| c.as_str()).map_or(false, |c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE)))
+        .any(|k| h.get(*k).and_then(|c| c.as_str()).is_some_and(|c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE)))
 }
 
 /// Remove our entries. Returns true when anything was removed.
@@ -120,7 +123,7 @@ pub fn strip(root: &mut Value) -> bool {
                 changed |= list.len() != before;
             }
         }
-        groups.retain(|g| g.get("hooks").and_then(|l| l.as_array()).map_or(true, |l| !l.is_empty()));
+        groups.retain(|g| g.get("hooks").and_then(|l| l.as_array()).is_none_or(|l| !l.is_empty()));
         if groups.is_empty() {
             hooks.remove(&ev);
         }
@@ -164,9 +167,9 @@ fn add(root: &mut Value, events: &[EventSpec], command: &str, windows_command: O
 pub fn has_ours(root: &Value) -> bool {
     root.get("hooks")
         .and_then(|h| h.as_object())
-        .map_or(false, |h| {
+        .is_some_and(|h| {
             h.values().filter_map(|g| g.as_array()).flatten().any(|g| {
-                g.get("hooks").and_then(|l| l.as_array()).map_or(false, |l| l.iter().any(is_ours))
+                g.get("hooks").and_then(|l| l.as_array()).is_some_and(|l| l.iter().any(is_ours))
             })
         })
 }
@@ -203,7 +206,7 @@ fn path_for(provider: &str) -> Option<PathBuf> {
 }
 
 pub fn is_enabled(provider: &str) -> bool {
-    path_for(provider).and_then(|p| read_json(&p).ok()).map_or(false, |v| has_ours(&v))
+    path_for(provider).and_then(|p| read_json(&p).ok()).is_some_and(|v| has_ours(&v))
 }
 
 // ---- Claude Code status line ----
@@ -216,7 +219,7 @@ fn prev_statusline_path() -> PathBuf {
 }
 
 fn statusline_is_ours(v: &Value) -> bool {
-    v.get("command").and_then(|c| c.as_str()).map_or(false, |c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE))
+    v.get("command").and_then(|c| c.as_str()).is_some_and(|c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE))
 }
 
 /// Command of the status line Nubi replaced, if there was one.
@@ -237,7 +240,7 @@ fn take_statusline(root: &mut Value, shim: &Path) {
 }
 
 fn give_back_statusline(root: &mut Value) {
-    let ours = root.get("statusLine").map_or(false, statusline_is_ours);
+    let ours = root.get("statusLine").is_some_and(statusline_is_ours);
     if !ours {
         return;
     }
@@ -252,6 +255,9 @@ fn give_back_statusline(root: &mut Value) {
 }
 
 pub fn set_enabled(provider: &str, enable: bool) -> Result<(), String> {
+    if crate::isolation::development() {
+        return Err("Hook changes are disabled in development mode".into());
+    }
     let path = path_for(provider).ok_or("no home directory")?;
     let mut root = read_json(&path)?;
     strip(&mut root);

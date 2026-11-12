@@ -109,7 +109,7 @@ fn watch(app: App, label: &'static str, hot: &'static Mutex<Option<[f64; 4]>>, e
                 continue;
             }
             let Ok(pos) = w.outer_position() else { continue };
-            let now = hot.lock().unwrap().map_or(false, |[x, y, ww, hh]| {
+            let now = hot.lock().unwrap().is_some_and(|[x, y, ww, hh]| {
                 let (cx, cy) = ((p.x - pos.x) as f64, (p.y - pos.y) as f64);
                 cx >= x - 4.0 && cy >= y - 4.0 && cx < x + ww + 4.0 && cy < y + hh + 4.0
             });

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/nubi-core", "crates/nubi-hook", "src-tauri"]
+members = ["crates/nubi-core", "crates/nubi-hook", "crates/nubi-app", "src-tauri"]
 resolver = "2"
 
 [profile.release]

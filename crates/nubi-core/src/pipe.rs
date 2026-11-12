@@ -21,7 +21,7 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn current_user_sid() -> Option<String> {
+pub fn current_user_sid() -> Option<String> {
     unsafe {
         let mut tok: HANDLE = std::ptr::null_mut();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok) == 0 {
@@ -64,6 +64,25 @@ fn security_descriptor() -> Result<usize, String> {
     Ok(sd as usize)
 }
 
+/// Shared by hook transport and the native activation channel.
+pub struct PipeSecurity(usize);
+
+impl PipeSecurity {
+    pub fn current_user() -> Result<Self, String> {
+        security_descriptor().map(Self)
+    }
+
+    pub fn create(&self, name: &str, first: bool) -> std::io::Result<NamedPipeServer> {
+        create(name, self.0, first)
+    }
+}
+
+impl Drop for PipeSecurity {
+    fn drop(&mut self) {
+        unsafe { LocalFree(self.0 as *mut c_void); }
+    }
+}
+
 fn create(name: &str, sd: usize, first: bool) -> std::io::Result<NamedPipeServer> {
     let mut sa = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
@@ -81,11 +100,16 @@ fn create(name: &str, sd: usize, first: bool) -> std::io::Result<NamedPipeServer
 }
 
 /// Paths a legitimate client can run from: this exe or the hook shim.
-fn client_allowed(pipe: &NamedPipeServer) -> bool {
+pub fn client_allowed(pipe: &NamedPipeServer) -> bool {
     let mut pid = 0u32;
     if unsafe { GetNamedPipeClientProcessId(pipe.as_raw_handle() as HANDLE, &mut pid) } == 0 {
         return false;
     }
+    process_allowed(pid, true)
+}
+
+/// Activation requires this exact executable; hook transport also admits its shim.
+pub fn process_allowed(pid: u32, allow_hook: bool) -> bool {
     let Some(img) = crate::winutil::process_image(pid) else { return false };
     let norm = |p: std::path::PathBuf| {
         std::fs::canonicalize(&p).unwrap_or(p).display().to_string().to_lowercase()
@@ -95,10 +119,15 @@ fn client_allowed(pipe: &NamedPipeServer) -> bool {
     if let Ok(p) = std::env::current_exe() {
         allowed.push(norm(p));
     }
-    if let Some(p) = crate::hooks_config::shim_path() {
-        allowed.push(norm(p));
+    if allow_hook {
+        if let Some(p) = crate::hooks_config::shim_path() {
+            allowed.push(norm(p));
+        }
+        if let Ok(p) = std::env::current_exe() {
+            allowed.push(norm(p.with_file_name("nubi-hook.exe")));
+        }
     }
-    let ok = allowed.iter().any(|a| *a == img);
+    let ok = allowed.contains(&img);
     if !ok {
         eprintln!("[nubi] rejected pipe client: {img}");
     }
@@ -107,13 +136,13 @@ fn client_allowed(pipe: &NamedPipeServer) -> bool {
 
 pub async fn serve(app: impl Host) {
     let name = pipe_name();
-    let sd = match security_descriptor() {
+    let sd = match PipeSecurity::current_user() {
         Ok(sd) => sd,
         Err(e) => return app.set_pipe_error(e),
     };
     let mut first = true;
     loop {
-        let server = match create(&name, sd, first) {
+        let server = match sd.create(&name, first) {
             Ok(s) => s,
             Err(e) => {
                 let msg = if first {

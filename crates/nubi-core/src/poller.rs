@@ -40,7 +40,7 @@ pub fn start(app: impl Host) {
                 let backing_off = {
                     let st = app.shared();
                     let g = st.0.lock().unwrap_or_else(|e| e.into_inner());
-                    g.usage.get(p).map_or(false, |u| u.status == "backoff")
+                    g.usage.get(p).is_some_and(|u| u.status == "backoff")
                 };
                 if now < due && !forced && !(kicked && !backing_off) {
                     continue;
@@ -63,7 +63,7 @@ pub fn start(app: impl Host) {
                 let n = if p == "claude" { n.max(now + 30 * 60) } else { n };
                 next.insert(p.to_string(), n);
                 let mut persisted = next.clone();
-                persisted.retain(|k, _| g.usage.get(k).map_or(false, |x| x.status == "backoff"));
+                persisted.retain(|k, _| g.usage.get(k).is_some_and(|x| x.status == "backoff"));
                 drop(g);
                 crate::usage::save_backoff(&persisted);
             }
