@@ -1,0 +1,233 @@
+import { Theme } from "theme.slint";
+import { OverlayRequest, OverlayOption, OverlayQuestion, OverlayFixture } from "overlay-fixture.slint";
+export { OverlayRequest, OverlayOption, OverlayQuestion, OverlayFixture }
+import { ScrollView } from "std-widgets.slint";
+
+component OverlayText inherits Text {
+    font-family: Theme.font; font-size: 13px; color: Theme.ink;
+    vertical-alignment: center;
+}
+
+component OverlayButton inherits Rectangle {
+    in property <string> text;
+    in property <string> description;
+    in property <int> number;
+    in property <int> tag;
+    in-out property <int> current-focus;
+    in property <bool> primary;
+    in property <bool> link;
+    in property <bool> option;
+    in property <bool> selected;
+    in property <bool> disclosure;
+    in property <bool> marker-expanded;
+    in property <color> provider;
+    callback clicked();
+    width: label.preferred-width + (link ? 8px : 32px);
+    height: option ? description == "" ? 35px : 50px : link ? 24px : 32px;
+    border-radius: option ? 12px : link ? 4px : 999px;
+    background: option ? selected ? root.provider.with-alpha(0.14) : touch.has-hover ? Theme.row-hover : Theme.row : link ? transparent : primary ? touch.has-hover ? Theme.dark ? #e6e6e6 : #34312b : Theme.ink : touch.has-hover ? Theme.ink.with-alpha(0.18) : Theme.notch-ink-12;
+    border-width: keys.has-focus ? 2px : option ? 1px : 0px;
+    border-color: keys.has-focus ? Theme.ink : selected ? provider : transparent;
+    animate background { duration: Theme.reduced ? 0ms : 150ms; }
+    changed current-focus => { if root.current-focus == root.tag { keys.focus(); } }
+    init => { if root.current-focus == root.tag { keys.focus(); } }
+    accessible-role: button; accessible-label: text; accessible-description: description;
+    accessible-checkable: option; accessible-checked: selected;
+    accessible-action-default => { root.clicked(); }
+    if root.option: OverlayText { x: 12px; width: 16px; height: parent.height; text: root.number; font-size: 11px; color: Theme.ink-3; }
+    if root.disclosure: Path { x: 0px; y: 9px; width: 8px; height: 8px; fill: Theme.ink-2;
+        MoveTo { x: 0; y: 0; }
+        LineTo { x: root.marker-expanded ? 8 : 0; y: 4; }
+        LineTo { x: root.marker-expanded ? 4 : 6; y: root.marker-expanded ? 8 : 4; }
+        Close {}
+    }
+    label := OverlayText {
+        x: root.option ? 38px : root.disclosure ? 12px : 0px; y: root.option ? 8px : 0px;
+        width: root.option ? parent.width - 50px : root.disclosure ? parent.width - 12px : parent.width;
+        height: root.option ? 18px : parent.height;
+        text: root.text; font-size: root.option ? 13px : 12px; font-weight: root.link ? 400 : 500;
+        color: root.primary ? Theme.dark ? #000 : #fff : root.link ? touch.has-hover ? Theme.ink : Theme.ink-2 : Theme.ink;
+        horizontal-alignment: root.option || root.disclosure ? left : center;
+    }
+    if root.option && root.description != "": OverlayText { x: 38px; y: 27px; width: parent.width - 50px; height: 15px; text: root.description; font-size: 11px; color: Theme.ink-2; }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { keys.focus(); root.current-focus = root.tag; root.clicked(); } }
+    keys := FocusScope {
+        width: 0px; height: 0px;
+        changed has-focus => { if self.has-focus { root.current-focus = root.tag; } }
+        key-pressed(event) => { if event.text == Key.Return || event.text == Key.Space { root.clicked(); return accept; } return reject; }
+    }
+    forward-focus: keys;
+}
+
+component CommandBlock inherits Rectangle {
+    in property <string> text;
+    height: min(96px, command.preferred-height + 16px);
+    background: Theme.row; border-radius: 12px;
+    ScrollView { x: 12px; y: 8px; width: parent.width - 24px; height: parent.height - 16px;
+        content-width: self.width;
+        command := Text { width: parent.width; text: root.text; font-family: Theme.mono; font-size: 12px; color: Theme.ink.with-alpha(0.8); wrap: char-wrap; }
+    }
+}
+
+// The software renderer clips rectangles but does not preserve rounded clipping.
+// This is the intersection of the source's 24px corner and its bottom 3px bar.
+component TimebarEdge inherits Path {
+    height: 3px;
+    MoveTo { x: 12.38105; y: 0; }
+    LineTo { x: root.width / 1px - 12.38105; y: 0; }
+    ArcTo { radius-x: 24; radius-y: 24; x: root.width / 1px - 24; y: 3; sweep: true; }
+    LineTo { x: 24; y: 3; }
+    ArcTo { radius-x: 24; radius-y: 24; x: 12.38105; y: 0; sweep: true; }
+    Close {}
+}
+
+export component ParityOverlay inherits Window {
+    width: 720px; height: 700px; background: transparent; no-frame: true; title: "Nubi";
+    default-font-family: Theme.font;
+    in-out property <OverlayRequest> request: OverlayFixture.approval;
+    in-out property <bool> question;
+    in-out property <OverlayQuestion> current-question;
+    in-out property <int> step;
+    in-out property <int> question-count;
+    in-out property <bool> expanded;
+    in-out property <string> custom;
+    in-out property <string> countdown;
+    in-out property <float> remaining: 1;
+    in-out property <bool> frozen;
+    in-out property <bool> external-held;
+    in-out property <string> outcome;
+    in-out property <bool> terminal-requested;
+    in-out property <[string]> answers;
+    in-out property <int> focus-index: -1;
+    out property <bool> held: hover.has-hover || external-held;
+    out property <bool> disclosure: request.summary != request.parameters && request.parameters != "";
+    out property <int> focus-count: question ? current-question.options.length + (current-question.multi ? 4 : 3) : disclosure ? 4 : 3;
+    callback choose(int);
+    callback advance();
+    callback custom-advance();
+    callback typed(string);
+    callback decide(string);
+    callback jump();
+    callback tick();
+    callback resolved();
+    changed outcome => { if root.outcome != "" { root.resolved(); } }
+    public function take-focus() { root.focus-index = question ? 0 : disclosure ? 2 : 1; }
+    public function settle-focus() { scope.focus(); root.focus-index = -1; }
+    public function move-focus(back: bool) { root.focus-index = mod(root.focus-index + (back ? root.focus-count - 1 : 1), root.focus-count); }
+    Timer { interval: 100ms; running: !root.frozen && root.outcome == ""; triggered => { root.tick(); } }
+    forward-focus: scope;
+    scope := FocusScope {
+        focus-on-tab-navigation: false; focus-on-click: false;
+        capture-key-pressed(event) => {
+            if root.outcome != "" { return accept; }
+            if event.text == Key.Escape { root.decide(root.question ? "terminal" : "deny"); return accept; }
+            if event.text == Key.Tab || event.text == Key.Backtab { root.move-focus(event.modifiers.shift || event.text == Key.Backtab); return accept; }
+            return reject;
+        }
+        card := Rectangle {
+            x: (root.width - self.width) / 2; y: 12px; width: 340px; height: body.preferred-height;
+            visible: root.outcome == "";
+            for row in [0,1,2]: Rectangle {
+                y: row == 0 ? -80px : row == 1 ? 32px : card.height - 32px;
+                height: row == 1 ? card.height - 64px : 112px;
+                for column in [0,1,2]: Image {
+                    x: column == 0 ? -80px : column == 1 ? 32px : card.width - 32px;
+                    width: column == 1 ? card.width - 64px : 112px; height: parent.height;
+                    source: Theme.dark ? @image-url("../assets/overlay-shadow-dark.png") : @image-url("../assets/overlay-shadow-light.png");
+                    source-clip-x: column == 0 ? 0 : column == 1 ? 336 : 339;
+                    source-clip-y: row == 0 ? 0 : row == 1 ? 336 : 339;
+                    source-clip-width: column == 1 ? 3 : 336; source-clip-height: row == 1 ? 3 : 336; image-fit: fill;
+                }
+            }
+            Rectangle { width: 100%; height: 100%; border-radius: 24px; background: Theme.notch-bg; }
+            hover := TouchArea { width: 100%; height: 100%;
+            body := VerticalLayout {
+                padding: 16px; spacing: 0px;
+                HorizontalLayout {
+                    height: 24px; spacing: 10px;
+                    Rectangle { width: 24px; height: 24px;
+                        Image { x: 2px; y: 2px; width: 20px; height: 20px; source: root.question ? @image-url("../assets/overlay-info.svg") : @image-url("../assets/overlay-warning.svg"); colorize: root.request.provider == "claude" ? Theme.claude : #6e9bef; image-fit: contain; }
+                    }
+                    OverlayText { text: root.request.title; font-weight: 500; overflow: elide; }
+                    OverlayText { text: root.request.meta; font-size: 11px; color: Theme.ink-3; width: self.preferred-width; }
+                }
+                Rectangle { height: 12px; }
+                if !root.question: VerticalLayout {
+                    spacing: 0px;
+                    CommandBlock { text: root.request.summary; }
+                    Rectangle { height: 8px; }
+                    if root.disclosure: VerticalLayout {
+                        spacing: 0px;
+                        OverlayButton { width: 100%; height: 28px; text: "All parameters"; link: true; disclosure: true; marker-expanded: root.expanded; tag: 0; current-focus <=> root.focus-index;
+                            accessible-expandable: true; accessible-expanded: root.expanded;
+                            clicked => { root.expanded = !root.expanded; }
+                        }
+                        if root.expanded: CommandBlock { text: root.request.parameters; }
+                        Rectangle { height: 12px; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px; height: 32px;
+                        OverlayButton { text: "Allow"; primary: true; tag: root.disclosure ? 1 : 0; current-focus <=> root.focus-index; clicked => { root.decide("allow"); } }
+                        OverlayButton { text: "Deny"; tag: root.disclosure ? 2 : 1; current-focus <=> root.focus-index; clicked => { root.decide("deny"); } }
+                        Rectangle { horizontal-stretch: 1; }
+                        OverlayButton { text: "Open terminal"; link: true; tag: root.disclosure ? 3 : 2; current-focus <=> root.focus-index; clicked => { root.jump(); } }
+                    }
+                }
+                if root.question: VerticalLayout {
+                    spacing: 0px;
+                    StyledText {
+                        private property <string> prefix: (root.question-count > 1 ? (root.step + 1) + " of " + root.question-count + " " : "") + root.current-question.header;
+                        default-font-family: Theme.font; default-font-size: 13px; default-color: Theme.ink;
+                        text: Theme.dark ? @markdown("<font color=\"#616161\">\{self.prefix}</font>  \{root.current-question.question}") : @markdown("<font color=\"#777570\">\{self.prefix}</font>  \{root.current-question.question}");
+                        height: self.preferred-height + 6px;
+                    }
+                    Rectangle { height: 10px; }
+                    VerticalLayout { spacing: 4px;
+                        for item[index] in root.current-question.options: OverlayButton {
+                            width: card.width - 32px; text: item.label; description: item.description; number: index + 1; option: true; selected: item.selected;
+                            provider: root.request.provider == "claude" ? Theme.claude : #6e9bef;
+                            tag: index; current-focus <=> root.focus-index; clicked => { root.choose(index); }
+                        }
+                    }
+                    Rectangle { height: 4px; }
+                    Rectangle {
+                        private property <int> tab-index: root.focus-index;
+                        height: 35px; border-radius: 12px; background: Theme.row;
+                        border-width: input.has-focus ? 1px : 0px; border-color: root.request.provider == "claude" ? Theme.claude : #6e9bef;
+                        if root.custom == "": OverlayText { x: 12px; width: parent.width - 24px; text: "Other answer"; color: Theme.ink-3; }
+                        input := TextInput {
+                            x: 12px; width: parent.width - 24px; height: parent.height;
+                            font-family: Theme.font; font-size: 13px; color: Theme.ink; vertical-alignment: center;
+                            text <=> root.custom; single-line: true;
+                            accessible-label: "Your answer: " + root.current-question.question;
+                            edited => { root.typed(self.text); }
+                            accepted => { root.custom-advance(); }
+                            changed has-focus => { if self.has-focus { root.focus-index = root.current-question.options.length; } }
+                        }
+                        changed tab-index => { if root.focus-index == root.current-question.options.length { input.focus(); } }
+                    }
+                    if root.current-question.multi: HorizontalLayout {
+                        padding-top: 12px; height: 44px;
+                        OverlayButton { text: "Done"; tag: root.current-question.options.length + 1; current-focus <=> root.focus-index; clicked => { root.advance(); } }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    HorizontalLayout {
+                        padding-top: 12px; spacing: 8px; height: 36px;
+                        OverlayButton { text: "Answer in terminal"; link: true; tag: root.current-question.options.length + (root.current-question.multi ? 2 : 1); current-focus <=> root.focus-index; clicked => { root.decide("terminal"); } }
+                        OverlayButton { text: "Open terminal"; link: true; tag: root.current-question.options.length + (root.current-question.multi ? 3 : 2); current-focus <=> root.focus-index; clicked => { root.jump(); } }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                }
+                Rectangle { height: 12px; }
+                OverlayText { height: 15px; text: root.countdown; font-size: 11px; color: Theme.ink-3; }
+            }
+            Rectangle { x: 0px; y: parent.height - 3px; height: 3px; width: parent.width;
+                TimebarEdge { width: card.width; fill: Theme.row; }
+                Rectangle { height: 100%; width: parent.width * root.remaining; clip: true;
+                    TimebarEdge { width: card.width; fill: root.request.provider == "claude" ? Theme.claude : #6e9bef; }
+                }
+            }
+            }
+        }
+    }
+}

@@ -1,0 +1,233 @@
+{
+  "now": 1793943000000,
+  "settings": {
+    "providers": "both",
+    "auto_start": true,
+    "auto_update": true,
+    "launcher_enabled": true,
+    "launch_hotkey": "ctrl+shift+t",
+    "theme": "dark",
+    "accent": "yellow",
+    "notch_theme": "dark",
+    "notch_accent": "yellow",
+    "reduce_motion": false,
+    "display_mode": "island",
+    "monitor": 0,
+    "edge": "top",
+    "notch_on_hover": false,
+    "taskbar_side": "right",
+    "questions_mode": "full",
+    "request_layout": "stack",
+    "request_popup_secs": 0,
+    "takeover_secs": 95,
+    "sounds": false,
+    "toast_when_fullscreen": true,
+    "dnd_hotkey": "ctrl+alt+d",
+    "quiet_start": null,
+    "quiet_end": null,
+    "follow_quiet_time": true,
+    "desktime_tab": false,
+    "daily_target": "08:00",
+    "start_of_day": "09:00",
+    "end_of_day": "18:00",
+    "work_days": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "holidays": [],
+    "half_days": [],
+    "dt_views": [
+      "day",
+      "week",
+      "month"
+    ],
+    "dt_rows_day": [
+      "done",
+      "left"
+    ],
+    "dt_rows_week": [
+      "done",
+      "left"
+    ],
+    "dt_rows_month": [
+      "done",
+      "left"
+    ],
+    "dt_glance": false,
+    "dt_glance_kind": "done",
+    "dt_alert_target": false,
+    "dt_notes": false
+  },
+  "sessions": [
+    {
+      "key": "native",
+      "name": "G · native notch",
+      "folder": "G-wt-slint",
+      "provider": "claude",
+      "state": "done",
+      "context_tokens": 48000,
+      "subagents": 0,
+      "attention": false,
+      "last_event_ms": 1793942880000
+    },
+    {
+      "key": "toolkit",
+      "name": "G · toolkit spike",
+      "folder": "G-wt-slint",
+      "provider": "codex",
+      "state": "idle",
+      "context_tokens": 32000,
+      "subagents": 0,
+      "attention": false,
+      "last_event_ms": 1793942700000
+    },
+    {
+      "key": "design",
+      "name": "design-system",
+      "folder": "design-system",
+      "provider": "claude",
+      "state": "done",
+      "context_tokens": 16000,
+      "subagents": 0,
+      "attention": false,
+      "last_event_ms": 1793942280000
+    }
+  ],
+  "usage": [
+    {
+      "provider": "claude",
+      "status": "ok",
+      "fetched_ms": 1793942880000,
+      "windows": [
+        {
+          "label": "5h",
+          "used_percent": 32,
+          "resets_at": 1793950800
+        },
+        {
+          "label": "7d",
+          "used_percent": 58,
+          "resets_at": 1794202200
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "status": "ok",
+      "fetched_ms": 1793942880000,
+      "windows": [
+        {
+          "label": "5h",
+          "used_percent": 18,
+          "resets_at": 1793946300
+        },
+        {
+          "label": "7d",
+          "used_percent": 76,
+          "resets_at": 1794375000
+        }
+      ]
+    }
+  ],
+  "pending": [],
+  "missed": [],
+  "dnd": false,
+  "dnd_manual": false,
+  "hooks": {
+    "claude": true,
+    "codex": true
+  },
+  "pipe_error": null,
+  "alerts": [
+    {
+      "provider": "claude",
+      "kind": "done",
+      "title": "Claude finished",
+      "body": "G · native notch",
+      "ts": 1793942880000
+    },
+    {
+      "provider": "codex",
+      "kind": "done",
+      "title": "Codex finished",
+      "body": "G · toolkit spike",
+      "ts": 1793942700000
+    }
+  ],
+  "overlays": {
+    "approval": {
+      "id": "approval",
+      "provider": "claude",
+      "kind": "permission",
+      "name": "G · native notch",
+      "folder": "G-wt-slint",
+      "session_key": "native",
+      "tool": "Bash",
+      "tool_input": "{\"command\":\"cargo build --release --offline\"}",
+      "created_ms": 1793943000000,
+      "expires_ms": 1793943095000
+    },
+    "parameters": {
+      "id": "parameters",
+      "provider": "claude",
+      "kind": "permission",
+      "name": "G · native notch",
+      "folder": "G-wt-slint",
+      "session_key": "native",
+      "tool": "Bash",
+      "tool_input": "{\n  \"command\": \"cargo build --release --offline\",\n  \"path\": \"G-wt-slint\"\n}",
+      "created_ms": 1793943000000,
+      "expires_ms": 1793943095000,
+      "tool_name": "Bash"
+    },
+    "question": {
+      "id": "question",
+      "provider": "claude",
+      "kind": "question",
+      "name": "G · native notch",
+      "folder": "G-wt-slint",
+      "session_key": "native",
+      "tool": "Bash",
+      "tool_input": "{\"command\":\"cargo build --release --offline\"}",
+      "created_ms": 1793943000000,
+      "expires_ms": 1793943095000,
+      "questions": [
+        {
+          "header": "Show sessions from",
+          "question": "Which coding agents Nubi keeps an eye on",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Both"
+            },
+            {
+              "label": "Claude"
+            },
+            {
+              "label": "Codex"
+            }
+          ]
+        },
+        {
+          "header": "Questions & approvals",
+          "question": "Which agent",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Claude Code"
+            },
+            {
+              "label": "Codex"
+            },
+            {
+              "label": "Both"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

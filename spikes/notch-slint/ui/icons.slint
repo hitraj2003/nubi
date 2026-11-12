@@ -1,0 +1,5 @@
+export component SourceIcon inherits Image {
+ in property <string> name;
+ width: 18px; height: 18px;
+ source: name == "inbox" ? @image-url("../assets/icon-inbox.svg") : name == "sessions" ? @image-url("../assets/icon-sessions.svg") : name == "usage" ? @image-url("../assets/icon-usage.svg") : name == "alerts" ? @image-url("../assets/icon-alerts.svg") : name == "settings" ? @image-url("../assets/icon-settings.svg") : name == "general" ? @image-url("../assets/icon-general.svg") : name == "appearance" ? @image-url("../assets/icon-appearance.svg") : name == "display" ? @image-url("../assets/icon-display.svg") : name == "requests" ? @image-url("../assets/icon-requests.svg") : name == "notify" ? @image-url("../assets/icon-notify.svg") : name == "desktime" ? @image-url("../assets/icon-desktime.svg") : name == "hooks" ? @image-url("../assets/icon-hooks.svg") : name == "about" ? @image-url("../assets/icon-about.svg") : name == "refresh-usage" ? @image-url("../assets/icon-refresh-usage.svg") : name == "dnd" ? @image-url("../assets/icon-dnd.svg") : name == "open-panel" ? @image-url("../assets/icon-open-panel.svg") : @image-url("../assets/moon.svg");
+}
