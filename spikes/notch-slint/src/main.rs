@@ -6,6 +6,7 @@ compile_error!("This spike evaluates Windows notch behavior; build on Windows.")
 compile_error!("Enable femtovg or software.");
 
 mod native;
+mod panel_logic;
 #[cfg(all(test, feature = "software"))]
 mod render_tests;
 mod shape;
@@ -13,7 +14,7 @@ mod spring;
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
-use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Timer, TimerMode};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -66,6 +67,7 @@ struct Motion {
     opened: bool,
     moving: bool,
     last: Instant,
+    open_depth: f64,
 }
 
 impl Motion {
@@ -76,6 +78,7 @@ impl Motion {
             opened,
             moving: false,
             last: Instant::now(),
+            open_depth: shape::OPENED[1],
         }
     }
 
@@ -83,7 +86,10 @@ impl Motion {
         if opened == self.opened {
             return;
         }
-        let target = if opened { shape::OPENED } else { shape::CLOSED };
+        let mut target = if opened { shape::OPENED } else { shape::CLOSED };
+        if opened {
+            target[1] = self.open_depth;
+        }
         let growing = target[0] * target[1] > self.springs[0].target * self.springs[1].target + 1.0;
         let preset = if growing { spring::OPEN } else { spring::CLOSE };
         for (spring, value) in self.springs.iter_mut().zip(target) {
@@ -113,6 +119,20 @@ impl Motion {
         true
     }
 
+    fn tab(&mut self, tab: i32, reduced: bool) {
+        self.open_depth = if tab == 2 { 180.0 } else { 188.0 };
+        if self.opened {
+            self.springs[1].to(self.open_depth, spring::OPEN);
+            if reduced {
+                self.springs[1].jump();
+            }
+            if !self.moving {
+                self.last = Instant::now();
+            }
+            self.moving = true;
+        }
+    }
+
     fn draw(&self, ui: &NotchWindow) {
         let values = self.springs.map(|s| s.x);
         ui.set_along(values[0] as f32);
@@ -139,6 +159,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .backend_name("winit".into())
         .renderer_name(renderer)
         .with_winit_window_attributes_hook(|attributes| {
+            if !attributes.title.contains("Slint spike") {
+                return attributes.with_drag_and_drop(false);
+            }
             attributes
                 .with_transparent(true)
                 .with_decorations(false)
@@ -152,35 +175,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = NotchWindow::new()?;
     ui.global::<Theme>()
         .set_dark(options.theme.as_deref() != Some("light"));
-    let rows = vec![
-        Session {
-            name: "G · native notch".into(),
-            provider: "claude".into(),
-            state: "Done".into(),
-            context: "48k".into(),
-            ago: "2m".into(),
-        },
-        Session {
-            name: "G · toolkit spike".into(),
-            provider: "codex".into(),
-            state: "Idle".into(),
-            context: "32k".into(),
-            ago: "5m".into(),
-        },
-        Session {
-            name: "design-system".into(),
-            provider: "claude".into(),
-            state: "Done".into(),
-            context: "16k".into(),
-            ago: "12m".into(),
-        },
-    ];
-    ui.set_sessions(ModelRc::from(Rc::new(VecModel::from(rows))));
-
     let motion = Rc::new(RefCell::new(Motion::new(options.state.unwrap_or(false))));
     motion.borrow().draw(&ui);
     let reduced = options.reduced || native::system_reduced_motion();
     let forced_state = options.state;
+    let panel = ParityPanel::new()?;
+    panel_logic::connect(&panel);
+    panel
+        .global::<Theme>()
+        .set_dark(options.theme.as_deref() != Some("light"));
+    panel.set_page(0);
+    {
+        let weak = panel.as_weak();
+        ui.on_open_panel(move || {
+            if let Some(panel) = weak.upgrade() {
+                let _ = panel.show();
+            }
+        });
+    }
+    {
+        let motion = motion.clone();
+        ui.on_tab_selected(move |tab| motion.borrow_mut().tab(tab, reduced));
+    }
     {
         let motion = motion.clone();
         ui.on_pill_clicked(move || {

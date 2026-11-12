@@ -1,7 +1,7 @@
 //! The top-edge cubic outline from ui/island.js (k = 0.62).
 pub const WINDOW_WIDTH: f64 = 720.0;
 pub const WINDOW_HEIGHT: f64 = 700.0;
-pub const CLOSED: [f64; 4] = [180.0, 44.0, 16.0, 8.0];
+pub const CLOSED: [f64; 4] = [145.0, 44.0, 16.0, 8.0];
 // #v-open: 12px top + 32px bar + 8px gap + three 40px rows + 16px bottom.
 pub const OPENED: [f64; 4] = [620.0, 188.0, 32.0, 20.0];
 

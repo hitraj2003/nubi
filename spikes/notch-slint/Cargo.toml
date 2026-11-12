@@ -12,6 +12,11 @@ name = "toolkit-gate"
 path = "src/bin/toolkit-gate.rs"
 required-features = ["software"]
 
+[[bin]]
+name = "parity"
+path = "src/bin/parity.rs"
+required-features = ["software"]
+
 [features]
 default = ["software"]
 femtovg = ["slint/renderer-femtovg"]

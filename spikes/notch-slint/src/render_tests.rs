@@ -4,6 +4,7 @@ use slint::platform::software_renderer::{
     MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType,
 };
 use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent};
+use slint::{ModelRc, VecModel};
 
 struct Offscreen(Rc<MinimalSoftwareWindow>);
 
@@ -121,15 +122,20 @@ fn content_and_clip_stay_at_top_at_100_125_150_percent() {
                     if f64::from(y) >= depth {
                         continue;
                     }
-                    let dot = at(383.0, y);
+                    let dot = at(468.0, y);
                     assert!(
                         dot.green > 150 && dot.alpha == 255,
                         "missing row at {percent}%, y={y}"
                     );
                 }
             } else {
-                let ring = at(284.0, 22.0);
-                assert!(ring.red > 100, "missing closed content at {percent}%");
+                let ring = at(312.5, 11.0);
+                assert!(ring.green > 100, "missing session arc at {percent}%");
+                let gap = at(312.5, 33.0);
+                assert!(
+                    gap.green < 80,
+                    "session arc must leave its unused remainder visible"
+                );
             }
         }
     }

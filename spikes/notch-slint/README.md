@@ -1,4 +1,63 @@
-# Slint notch and H10 toolkit spike
+# Slint notch and panel parity spike
+
+The owner's current target is visual and interaction parity with production HTML,
+not the older toolkit gate below. The port is incomplete; see
+[PARITY.md](PARITY.md) for scope and remaining differences. Reference-left PNGs
+are in `compare/`; unmodified HTML captures are in `reference/`.
+
+```powershell
+node capture-reference.cjs
+python prepare-parity.py
+python prepare-shadows.py
+cargo build --release --offline
+./target/release/parity.exe --render
+python compare-parity.py
+./target/release/parity.exe --page=usage --theme=dark
+./target/release/parity.exe --page=general --theme=light
+./measure-parity.ps1
+```
+
+Reference capture uses installed headless Chrome through CDP, with no npm
+dependencies. Preparation uses installed fontTools and Pillow; Cargo builds use
+the prepared assets in `assets/` and require neither Python nor Chrome. The fixture
+is `fixture.json`. The preparation script generates the Slint session model and
+colour palette from it and Chrome's evaluation of `ui/usage-color.js`.
+
+The new `parity` binary renders the priority surfaces with the real software
+renderer, including offscreen 100% and 150% snapshots. The native notch opens the
+new panel from its window button. The full request overlay now has approval,
+parameter disclosure, question stepping, multi-select, custom answers, a held
+countdown, and explicit keyboard traversal. Exact visual/motion parity and other
+settings panes remain open; see PARITY.md.
+
+```powershell
+python prepare-overlay.py
+node capture-reference.cjs --overlays-only
+./target/release/parity.exe --render --overlays-only
+python compare-parity.py
+./target/release/parity.exe --overlay=approval --theme=dark
+./target/release/parity.exe --overlay=parameters --theme=light --reduce-motion
+./target/release/parity.exe --overlay=question
+```
+
+The default `--render` includes all six overlay states at both scales and themes.
+`--overlays-only` limits recapture/render work to those states. Comparison requires
+all 24 overlay reference/render pairs and reports cropped overlay metrics. HTML
+overlay light captures have the capture harness's gray transparent backdrop;
+Slint uses the same RGB 96 backdrop for these comparisons.
+
+Overlay fixtures live under `overlays` in `fixture.json`; they do not populate
+the panel Inbox. Question wording/options use existing production UI copy.
+`prepare-parity.py` also runs `prepare-overlay.py`. The original approval fixture
+uses `tool`, while production reads `tool_name`, so its faithful title is
+`Allow tool?`; the detailed fixture supplies `tool_name` and renders `Allow Bash?`.
+
+Initial keyboard focus is Deny for approvals and the first option for questions.
+Tab/Shift+Tab stay inside the card. Enter/Space activates buttons; Enter in a
+nonempty custom answer advances. Escape denies approvals or hands questions
+back to the terminal. The source countdown shows `1:35`, then `59s` below one
+minute. Pointer hover and simulated external holds pause it. Answers and terminal
+requests are in-memory signals; this spike does not open a real terminal.
 
 This standalone Windows crate uses static session data. It does not start Tauri,
 connect to Nubi's pipe, register hooks, or read or write production settings.

@@ -1,6 +1,7 @@
 // Values and roles copied from ui/theme.css, notch surface, default yellow accent.
 export global Theme {
     in-out property <bool> dark: true;
+    in-out property <bool> reduced: false;
     out property <color> notch-bg: dark ? #000000 : #fdfcfa;
     out property <color> ink: dark ? #ffffff : #1d1b17;
     out property <color> ink-2: dark ? #ffffff9e : #1d1b17b8;
@@ -14,8 +15,10 @@ export global Theme {
     out property <color> codex: #6e9bef;
     out property <color> ok: dark ? #4cd964 : #24865a;
     out property <color> warn: dark ? #ffb340 : #a96900;
-    out property <string> font: "Segoe UI Variable Text";
+    out property <string> font: "Segoe UI Variable";
     out property <string> num: "Geist";
+    out property <string> mono: "JetBrains Mono";
+    out property <color> switch-off: dark ? #3a3834 : #e3dfd6;
     // Panel tokens from root ui/theme.css; notch tokens above remain independent.
     out property <color> canvas: dark ? #121110 : #f4f2ee;
     out property <color> card: dark ? #1e1d1b : #fdfcfa;
