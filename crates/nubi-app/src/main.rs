@@ -4,6 +4,7 @@ mod host;
 mod launcher;
 mod motion;
 mod native;
+mod notch;
 mod notifications;
 mod panel_logic;
 mod shape;

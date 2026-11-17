@@ -2,7 +2,7 @@ use crate::host::NativeHost;
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyManager};
 use nubi_core::{host::with, settings::Settings};
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     TrayIcon, TrayIconBuilder,
 };
 
@@ -10,26 +10,12 @@ pub struct Tray {
     _icon: TrayIcon,
     dnd: CheckMenuItem,
     sounds: CheckMenuItem,
-    styles: Vec<CheckMenuItem>,
 }
 
 impl Tray {
     pub fn new(host: &NativeHost) -> Result<Self, Box<dyn std::error::Error>> {
         let menu = Menu::new();
         menu.append(&MenuItem::with_id("open", "Open settings", true, None))?;
-        menu.append(&PredefinedMenuItem::separator())?;
-        let style = Submenu::new("Change style", true);
-        let mut styles = Vec::new();
-        for (value, label) in [
-            ("island", "Notch"),
-            ("ring", "Floating ring"),
-            ("taskbar", "Taskbar strip"),
-        ] {
-            let item = CheckMenuItem::with_id(value, label, true, false, None);
-            style.append(&item)?;
-            styles.push(item);
-        }
-        menu.append(&style)?;
         menu.append(&PredefinedMenuItem::separator())?;
         let dnd = CheckMenuItem::with_id("dnd", "Do not disturb", true, false, None);
         let sounds = CheckMenuItem::with_id("sounds", "Sounds", true, false, None);
@@ -59,7 +45,6 @@ impl Tray {
             _icon: tray,
             dnd,
             sounds,
-            styles,
         };
         result.refresh(host);
         Ok(result)
@@ -69,9 +54,6 @@ impl Tray {
         with(host, |state| {
             self.dnd.set_checked(state.dnd_manual);
             self.sounds.set_checked(state.settings.sounds);
-            for (item, mode) in self.styles.iter().zip(["island", "ring", "taskbar"]) {
-                item.set_checked(state.settings.display_mode == mode);
-            }
         });
     }
 }

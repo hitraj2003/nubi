@@ -2,6 +2,7 @@
 export global Theme {
     in-out property <bool> dark: true;
     in-out property <bool> reduced: false;
+    in-out property <string> notch-accent: "yellow";
     out property <color> notch-bg: dark ? #000000 : #fdfcfa;
     out property <color> ink: dark ? #ffffff : #1d1b17;
     out property <color> ink-2: dark ? #ffffff9e : #1d1b17b8;
@@ -15,7 +16,20 @@ export global Theme {
     out property <color> codex: #6e9bef;
     out property <color> ok: dark ? #4cd964 : #24865a;
     out property <color> warn: dark ? #ffb340 : #a96900;
-    out property <string> font: "Segoe UI Variable";
+    out property <color> info: dark ? #0a84ff : #0071dd;
+    out property <color> notch-bad: dark ? #ff6961 : #bc4945;
+    out property <color> notch-accent-color: notch-accent == "terracotta" ? #d97757 : notch-accent == "blue" ? #5b8def : notch-accent == "green" ? #3fb37a : notch-accent == "violet" ? #9b7bf3 : notch-accent == "black" ? (dark ? #f3efe7 : #1d1b17) : #f5c842;
+    out property <color> notch-action: notch-accent == "yellow" ? ink : dark ? notch-accent-color : notch-accent-color.mix(#000, 0.28);
+    out property <color> notch-action-ink: notch-accent == "yellow" ? (dark ? #000 : #fff) : notch-accent == "black" && dark ? #1d1b17 : #fff;
+    out property <color> notch-action-hover: notch-accent == "yellow" ? (dark ? #e6e6e6 : #34312b) : dark ? notch-accent-color.mix(notch-bg, 0.1) : notch-accent-color.mix(#000, 0.36);
+    out property <color> notch-activity: notch-accent == "yellow" ? ink.with-alpha(0.85) : notch-accent-color;
+    out property <string> font: "Segoe UI Variable Text";
+    // The Text subfamily avoids selecting the variable font's Display default.
+    out property <string> semibold: "Segoe UI Variable Text";
+    in-out property <float> scale: 1;
+    out property <length> pixel: 1px / scale;
+    public pure function snap(value: length) -> length { return round(value / 1px * scale) * 1px / scale; }
+    out property <color> notch-ink-5: dark ? #ffffff0d : #1d1b170d;
     out property <string> num: "Geist";
     out property <string> mono: "JetBrains Mono";
     out property <color> switch-off: dark ? #3a3834 : #e3dfd6;

@@ -3,6 +3,7 @@ use crate::{
     host::{NativeHost, UiEvent},
     motion::Motion,
     native,
+    notch::Notch,
     singleton::Action,
     tray::{Shortcuts, Tray},
     updater, Fixture, NativeLauncher, NativeUpdate, NotchWindow, ParityPanel, Session, Theme,
@@ -10,7 +11,7 @@ use crate::{
 use nubi_core::host::with;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
-use slint::{ComponentHandle, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -41,7 +42,15 @@ fn foreground(window: &slint::Window) {
     }
 }
 
-fn dark(theme: &str) -> bool {
+pub(crate) fn focus_notch(ui: &NotchWindow) {
+    if let Some(handle) = hwnd(ui.window()) {
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(handle as _);
+        }
+    }
+}
+
+pub(crate) fn dark(theme: &str) -> bool {
     if theme != "system" {
         return theme != "light";
     }
@@ -561,8 +570,14 @@ pub fn run(
     let reduced = settings.reduce_motion || native::system_reduced_motion();
     ui.global::<Theme>().set_reduced(reduced);
     models(&ui, &host);
-    ui.set_sessions(ui.global::<Fixture>().get_sessions());
-    let motion = Rc::new(RefCell::new(Motion::new(false)));
+    let notch = Notch::connect(&ui, host.clone());
+    let weak = ui.as_weak();
+    ui.global::<crate::NotchData>().on_focus_input(move || {
+        if let Some(ui) = weak.upgrade() {
+            focus_notch(&ui);
+        }
+    });
+    let motion = Rc::new(RefCell::new(Motion::new()));
     motion.borrow().draw(&ui);
     let shortcuts = Rc::new(RefCell::new(Shortcuts::new()?));
     if let Err(error) = shortcuts.borrow_mut().apply(&settings) {
@@ -582,26 +597,23 @@ pub fn run(
     }));
     let surfaces_callback = surfaces.clone();
     ui.on_open_panel(move || {
-        if let Err(error) = surfaces_callback.borrow_mut().settings() {
+        let mut surfaces = surfaces_callback.borrow_mut();
+        if let Err(error) = surfaces.settings() {
             eprintln!("[nubi] settings: {error}");
+        }
+        if let Some(panel) = &surfaces.panel {
+            panel.set_page(0);
         }
     });
     let callback_host = host.clone();
     ui.on_toggle_dnd(move || callback_host.toggle_dnd());
-    let callback_host = host.clone();
-    ui.on_refresh_usage(move || nubi_core::poller::force(&callback_host));
-    let callback_host = host.clone();
-    ui.on_session_clicked(move |key| jump(&callback_host, &key));
-    let callback_motion = motion.clone();
-    ui.on_tab_selected(move |tab| callback_motion.borrow_mut().tab(tab, reduced));
-    let callback_motion = motion.clone();
-    ui.on_pill_clicked(move || callback_motion.borrow_mut().target(true, reduced));
     ui.window()
         .on_close_requested(|| slint::CloseRequestResponse::KeepWindowShown);
     ui.show()?;
     let tray = Tray::new(&host)?;
     let mut native_window: Option<native::NativeWindow> = None;
     let mut inside = false;
+    let mut focused = false;
     let mut hover = None;
     let mut last_refresh = Instant::now();
     let start = Instant::now();
@@ -638,6 +650,7 @@ pub fn run(
                     if with(&host, |state| state.settings.sounds) {
                         nubi_core::winutil::beep(&alert.kind);
                     }
+                    notch.borrow_mut().alert(alert);
                     Ok(())
                 }
                 UiEvent::Update => surfaces.borrow_mut().update(),
@@ -656,13 +669,9 @@ pub fn run(
                 }
                 "refresh" => nubi_core::poller::force(&host),
                 "dnd" => host.toggle_dnd(),
-                "sounds" | "island" | "ring" | "taskbar" => {
+                "sounds" => {
                     let mut settings = with(&host, |state| state.settings.clone());
-                    if event.id.0 == "sounds" {
-                        settings.sounds = !settings.sounds;
-                    } else {
-                        settings.display_mode = event.id.0.clone();
-                    }
+                    settings.sounds = !settings.sounds;
                     if let Err(error) = host.save_settings(settings) {
                         eprintln!("[nubi] settings: {error}");
                     }
@@ -693,7 +702,45 @@ pub fn run(
         }
         let now = Instant::now();
         if let Some(native) = &mut native_window {
-            let _ = native.refresh_placement();
+            let active = native.focused();
+            if focused && !active {
+                ui.invoke_focus_requests();
+                ui.global::<crate::NotchData>()
+                    .set_focused_request("".into());
+                ui.global::<crate::NotchData>().set_input_focused(false);
+                ui.set_menu_key("".into());
+                notch.borrow().release_holds();
+            }
+            focused = active;
+            let settings = with(&host, |state| state.settings.clone());
+            if let Ok(place) = native.configure(&settings) {
+                if place.preferences_changed {
+                    ui.global::<Theme>().set_dark(dark(&settings.notch_theme));
+                    ui.global::<Theme>()
+                        .set_reduced(settings.reduce_motion || native::system_reduced_motion());
+                }
+                ui.set_offset(place.offset as f32);
+                ui.global::<Theme>().set_scale(place.scale as f32);
+                let size = slint::PhysicalSize::new(place.width, place.height);
+                if ui.window().size() != size {
+                    ui.window().set_size(size);
+                    motion.borrow().draw(&ui);
+                }
+            }
+            if notch.borrow_mut().drag_requested {
+                notch.borrow_mut().drag_requested = false;
+                native.start_drag();
+            }
+            if let Some((ratio, ended, moved)) = native.drag() {
+                notch.borrow_mut().dragging = moved && !ended;
+                if moved {
+                    with(&host, |state| state.settings.notch_along = ratio);
+                    if ended {
+                        let settings = with(&host, |state| state.settings.clone());
+                        let _ = nubi_core::settings::save(&settings);
+                    }
+                }
+            }
             if let Some(current) = native.pointer_inside() {
                 native.click_through(!current);
                 if current != inside {
@@ -705,18 +752,34 @@ pub fn run(
         let mut motion = motion.borrow_mut();
         if let Some((since, entering)) = hover {
             if now.duration_since(since) >= Duration::from_millis(if entering { 40 } else { 140 }) {
-                motion.target(entering, reduced);
+                notch.borrow_mut().pointer(entering, &ui);
                 hover = None;
             }
         }
+        let (view, target) = notch.borrow_mut().view(&ui);
+        motion.target(view, target, ui.global::<Theme>().get_reduced());
         if motion.tick(now) {
             motion.draw(&ui);
+        }
+        let animated = ui
+            .global::<crate::NotchData>()
+            .get_providers()
+            .iter()
+            .any(|provider| !provider.activity.is_empty())
+            || ui.global::<crate::NotchData>().get_refreshing()
+            || ui.global::<crate::NotchData>().get_desk_loading();
+        if animated && !ui.global::<Theme>().get_reduced() {
+            let elapsed = start.elapsed().as_secs_f64();
+            ui.set_phase((elapsed % 1.1 / 1.1) as f32);
+            ui.set_pulse_phase((elapsed % 1.4 / 1.4) as f32);
+            ui.set_refresh_phase((elapsed % 0.7 / 0.7) as f32);
+            ui.set_equalizer_phase((elapsed % 1.) as f32);
         }
         let dirty = host.take_dirty();
         if dirty || (ui.get_opened() && last_refresh.elapsed() >= Duration::from_secs(1)) {
             last_refresh = now;
             models(&ui, &host);
-            ui.set_sessions(ui.global::<Fixture>().get_sessions());
+            notch.borrow_mut().update(&ui);
             let view = surfaces.borrow();
             if let Some(panel) = &view.panel {
                 models(panel, &host);

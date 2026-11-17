@@ -16,6 +16,11 @@ pub const CLOSE: Preset = Preset {
     damping: 0.9,
 };
 
+pub const CONTENT: Preset = Preset {
+    response: 0.5,
+    damping: 0.7,
+};
+
 #[derive(Clone, Copy, Debug)]
 pub struct Spring {
     pub x: f64,

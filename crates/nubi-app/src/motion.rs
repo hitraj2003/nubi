@@ -1,49 +1,72 @@
 use crate::{native, shape, spring, NotchWindow};
+use slint::ComponentHandle;
 use std::time::Instant;
 pub struct Motion {
     springs: [spring::Spring; 4],
-    opened: bool,
+    target: [f64; 4],
     moving: bool,
     last: Instant,
-    open_depth: f64,
+    content: spring::Spring,
+    view: i32,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enabling_reduced_motion_settles_an_active_transition() {
+        let mut motion = Motion::new();
+        motion.target(3, shape::OPENED, false);
+        motion.tick(Instant::now() + std::time::Duration::from_millis(32));
+        assert_ne!(motion.springs[0].x, shape::OPENED[0]);
+        motion.target(3, shape::OPENED, true);
+        assert_eq!(motion.springs.map(|spring| spring.x), shape::OPENED);
+        assert_eq!(motion.content.x, 1.);
+    }
+}
 impl Motion {
-    pub fn new(opened: bool) -> Self {
-        let values = if opened { shape::OPENED } else { shape::CLOSED };
+    pub fn new() -> Self {
         Self {
-            springs: values.map(spring::Spring::new),
-            opened,
+            springs: shape::CLOSED.map(spring::Spring::new),
+            target: shape::CLOSED,
             moving: false,
             last: Instant::now(),
-            open_depth: shape::OPENED[1],
+            content: spring::Spring::new(1.),
+            view: 1,
         }
     }
-
-    pub fn target(&mut self, opened: bool, reduced: bool) {
-        if opened == self.opened {
+    pub fn target(&mut self, view: i32, target: [f64; 4], reduced: bool) {
+        if target == self.target && view == self.view {
+            if reduced && self.moving {
+                for spring in &mut self.springs {
+                    spring.jump();
+                }
+                self.content.jump();
+            }
             return;
         }
-        let mut target = if opened { shape::OPENED } else { shape::CLOSED };
-        if opened {
-            target[1] = self.open_depth;
-        }
-        let growing = target[0] * target[1] > self.springs[0].target * self.springs[1].target + 1.0;
-        let preset = if growing { spring::OPEN } else { spring::CLOSE };
+        let growing = target[0] * target[1] > self.target[0] * self.target[1] + 1.;
         for (spring, value) in self.springs.iter_mut().zip(target) {
-            spring.to(value, preset);
+            spring.to(value, if growing { spring::OPEN } else { spring::CLOSE });
             if reduced {
                 spring.jump();
             }
         }
-        // motion.js kick() preserves the running frame clock during a retarget.
+        if view != self.view {
+            self.content.x = if reduced { 1. } else { 0. };
+            self.content.to(1., spring::CONTENT);
+            if reduced {
+                self.content.jump();
+            }
+        }
         if !self.moving {
             self.last = Instant::now();
         }
-        self.opened = opened;
+        self.target = target;
+        self.view = view;
         self.moving = true;
     }
-
     pub fn tick(&mut self, now: Instant) -> bool {
         if !self.moving {
             return false;
@@ -54,30 +77,22 @@ impl Motion {
         for spring in &mut self.springs {
             self.moving |= spring.step(dt);
         }
+        self.moving |= self.content.step(dt);
         true
     }
-
-    pub fn tab(&mut self, tab: i32, reduced: bool) {
-        self.open_depth = if tab == 2 { 180.0 } else { 188.0 };
-        if self.opened {
-            self.springs[1].to(self.open_depth, spring::OPEN);
-            if reduced {
-                self.springs[1].jump();
-            }
-            if !self.moving {
-                self.last = Instant::now();
-            }
-            self.moving = true;
-        }
-    }
-
     pub fn draw(&self, ui: &NotchWindow) {
-        let values = self.springs.map(|s| s.x);
+        // Render and hit-test the same physical-pixel-snapped shape.
+        let scale = ui.window().scale_factor() as f64;
+        let values = self
+            .springs
+            .map(|spring| (spring.x * scale).round() / scale);
         ui.set_along(values[0] as f32);
         ui.set_depth(values[1] as f32);
         ui.set_corner(values[2] as f32);
         ui.set_ear(values[3] as f32);
-        ui.set_opened(self.opened);
+        ui.set_opened(self.view == 3);
+        ui.set_view_mode(self.view);
+        ui.set_content_opacity(self.content.x.clamp(0., 1.) as f32);
         native::set_shape(shape::Shape(values));
     }
 }

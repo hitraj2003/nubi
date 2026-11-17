@@ -75,6 +75,7 @@ unsafe extern "system" {
 thread_local! {
     static SHAPE: Cell<Shape> = const { Cell::new(Shape(crate::shape::CLOSED)) };
     static PLACE_DIRTY: Cell<bool> = const { Cell::new(true) };
+    static SCENE: Cell<crate::shape::Scene> = const { Cell::new(crate::shape::Scene { edge: 0, offset: 0., width: WINDOW_WIDTH, height: WINDOW_HEIGHT }) };
 }
 
 /// Call before Slint/winit creates any windows. winit also establishes DPI awareness.
@@ -103,10 +104,13 @@ fn contains_screen(window: Hwnd, x: i32, y: i32) -> bool {
     }
     let scale = f64::from(unsafe { GetDpiForWindow(window) }.max(96)) / 96.0;
     SHAPE.with(|shape| {
-        shape.get().contains(
-            f64::from(x - rect.left) / scale,
-            f64::from(y - rect.top) / scale,
-        )
+        SCENE.with(|scene| {
+            scene.get().contains(
+                shape.get(),
+                f64::from(x - rect.left) / scale,
+                f64::from(y - rect.top) / scale,
+            )
+        })
     })
 }
 
@@ -148,6 +152,19 @@ pub struct NativeWindow {
     window: Hwnd,
     transparent: bool,
     base_layered: bool,
+    edge: i32,
+    ratio: f64,
+    monitor: usize,
+    drag_start: Option<(i32, i32)>,
+    dragged: bool,
+}
+
+pub struct Placement {
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    pub offset: f64,
+    pub preferences_changed: bool,
 }
 
 impl NativeWindow {
@@ -171,6 +188,11 @@ impl NativeWindow {
             window,
             transparent: true,
             base_layered: old & WS_EX_LAYERED != 0,
+            edge: 0,
+            ratio: 0.5,
+            monitor: 0,
+            drag_start: None,
+            dragged: false,
         };
         native.place()?;
         Ok(native)
@@ -182,6 +204,10 @@ impl NativeWindow {
             return None;
         }
         Some(contains_screen(self.window, cursor.x, cursor.y))
+    }
+
+    pub fn focused(&self) -> bool {
+        unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() == self.window }
     }
 
     pub fn click_through(&mut self, transparent: bool) {
@@ -202,35 +228,187 @@ impl NativeWindow {
         self.transparent = transparent;
     }
 
-    pub fn refresh_placement(&self) -> io::Result<()> {
-        if PLACE_DIRTY.with(|dirty| dirty.replace(false)) {
+    pub fn configure(&mut self, settings: &nubi_core::settings::Settings) -> io::Result<Placement> {
+        let edge = match settings.edge.as_str() {
+            "top" => 0,
+            "bottom" => 1,
+            "left" => 2,
+            _ => 3,
+        };
+        let changed = self.edge != edge
+            || self.ratio != settings.notch_along
+            || self.monitor != settings.monitor;
+        self.edge = edge;
+        self.ratio = settings.notch_along;
+        self.monitor = settings.monitor;
+        let dirty = PLACE_DIRTY.with(|dirty| dirty.replace(false));
+        if changed || dirty {
             self.place()?;
         }
-        Ok(())
+        let scene = SCENE.with(Cell::get);
+        let scale = f64::from(unsafe { GetDpiForWindow(self.window) }.max(96)) / 96.;
+        Ok(Placement {
+            width: (scene.width * scale).round() as u32,
+            height: (scene.height * scale).round() as u32,
+            scale,
+            offset: scene.offset,
+            preferences_changed: dirty,
+        })
     }
 
-    fn place(&self) -> io::Result<()> {
+    pub fn start_drag(&mut self) {
+        let mut point = Point::default();
+        if unsafe { GetCursorPos(&mut point) } != 0 {
+            self.drag_start = Some((point.x, point.y));
+            self.dragged = false;
+        }
+    }
+    pub fn drag(&mut self) -> Option<(f64, bool, bool)> {
+        let start = self.drag_start?;
+        let mut point = Point::default();
+        if unsafe { GetCursorPos(&mut point) } == 0 {
+            return None;
+        }
+        let down =
+            unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(1) } < 0;
+        if !self.dragged && f64::from(point.x - start.0).hypot(f64::from(point.y - start.1)) >= 5. {
+            self.dragged = true;
+        }
+        if !down {
+            self.drag_start = None;
+        }
+        let (_, info) = self.monitor_info().ok()?;
+        let area = if self.edge == 0 {
+            info.monitor
+        } else {
+            info.work
+        };
+        let ratio = if self.edge >= 2 {
+            f64::from(point.y - area.top) / f64::from((area.bottom - area.top).max(1))
+        } else {
+            f64::from(point.x - area.left) / f64::from((area.right - area.left).max(1))
+        };
+        Some((ratio.clamp(0., 1.), !down, self.dragged))
+    }
+
+    fn monitor_info(&self) -> io::Result<(Hwnd, MonitorInfo)> {
+        unsafe extern "system" fn collect(
+            monitor: *mut c_void,
+            _: *mut c_void,
+            _: *mut Rect,
+            data: isize,
+        ) -> i32 {
+            unsafe { &mut *(data as *mut Vec<*mut c_void>) }.push(monitor);
+            1
+        }
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn EnumDisplayMonitors(
+                dc: *mut c_void,
+                clip: *const Rect,
+                callback: unsafe extern "system" fn(
+                    *mut c_void,
+                    *mut c_void,
+                    *mut Rect,
+                    isize,
+                ) -> i32,
+                data: isize,
+            ) -> i32;
+        }
+        let mut monitors: Vec<*mut c_void> = Vec::new();
+        unsafe {
+            EnumDisplayMonitors(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                collect,
+                (&mut monitors as *mut Vec<*mut c_void>) as isize,
+            );
+        }
+        let monitor = monitors
+            .get(self.monitor)
+            .or(monitors.first())
+            .copied()
+            .unwrap_or_else(|| unsafe { MonitorFromWindow(self.window, 2) });
         let mut info = MonitorInfo {
             size: std::mem::size_of::<MonitorInfo>() as u32,
             monitor: Rect::default(),
             work: Rect::default(),
             flags: 0,
         };
-        let monitor = unsafe { MonitorFromWindow(self.window, 2) }; // MONITOR_DEFAULTTONEAREST.
         if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        let scale = f64::from(unsafe { GetDpiForWindow(self.window) }.max(96)) / 96.0;
-        let width = (WINDOW_WIDTH * scale).round() as i32;
-        let height = (WINDOW_HEIGHT * scale).round() as i32;
-        let x = info.monitor.left + (info.monitor.right - info.monitor.left - width) / 2;
+        Ok((monitor, info))
+    }
+
+    fn place(&self) -> io::Result<()> {
+        let (monitor, info) = self.monitor_info()?;
+        #[link(name = "shcore")]
+        unsafe extern "system" {
+            fn GetDpiForMonitor(monitor: Hwnd, kind: i32, x: *mut u32, y: *mut u32) -> i32;
+        }
+        let mut dpi_x = unsafe { GetDpiForWindow(self.window) }.max(96);
+        let mut dpi_y = dpi_x;
+        unsafe {
+            GetDpiForMonitor(monitor, 0, &mut dpi_x, &mut dpi_y);
+        }
+        let scale = f64::from(dpi_x.max(96)) / 96.;
+        let area = if self.edge == 0 {
+            info.monitor
+        } else {
+            info.work
+        };
+        let (logical_width, logical_height): (f64, f64) = if self.edge >= 2 {
+            (420., 860.)
+        } else {
+            (WINDOW_WIDTH, WINDOW_HEIGHT)
+        };
+        let width = ((logical_width * scale).round() as i32).min((area.right - area.left).max(1));
+        let height = ((logical_height * scale).round() as i32).min((area.bottom - area.top).max(1));
+        let logical_width = f64::from(width) / scale;
+        let logical_height = f64::from(height) / scale;
+        let along = |span: i32, size: i32| {
+            ((f64::from(span) * self.ratio - f64::from(size) / 2.).round() as i32)
+                .clamp(0, (span - size).max(0))
+        };
+        let x = if self.edge == 2 {
+            area.left
+        } else if self.edge == 3 {
+            area.right - width
+        } else {
+            area.left + along(area.right - area.left, width)
+        };
+        let y = if self.edge >= 2 {
+            area.top + along(area.bottom - area.top, height)
+        } else if self.edge == 0 {
+            area.top
+        } else {
+            area.bottom - height
+        };
+        let offset = if self.edge >= 2 {
+            (f64::from(area.top) + f64::from(area.bottom - area.top) * self.ratio
+                - f64::from(y + height / 2))
+                / scale
+        } else {
+            (f64::from(area.left) + f64::from(area.right - area.left) * self.ratio
+                - f64::from(x + width / 2))
+                / scale
+        };
+        SCENE.with(|scene| {
+            scene.set(crate::shape::Scene {
+                edge: self.edge,
+                offset,
+                width: logical_width,
+                height: logical_height,
+            })
+        });
         let topmost = -1_isize as Hwnd; // HWND_TOPMOST.
         if unsafe {
             SetWindowPos(
                 self.window,
                 topmost,
                 x,
-                info.monitor.top,
+                y,
                 width,
                 height,
                 SWP_NOACTIVATE | SWP_FRAMECHANGED,

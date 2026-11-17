@@ -1,0 +1,67 @@
+export struct NotchSession {
+    key: string, name: string, provider: string, state: string, context: string,
+    ago: string, working: bool, attention: bool, queued: bool, error: string,
+}
+export struct UsageWindow { percent: float, label: string, reset: string }
+export struct NotchProvider {
+    provider: string, name: string, text: string, session: float, week: float,
+    has-week: bool, stale: bool, activity: string, status: string,
+    message: string, windows: [UsageWindow],
+}
+export struct RequestOption { label: string, description: string, selected: bool }
+export struct NotchRequest {
+    id: string, provider: string, session-key: string, name: string, title: string,
+    summary: string, question: bool, missed: bool, slim: bool, held: bool,
+    countdown: string, remaining: float, step: string, prompt: string,
+    options: [RequestOption], custom: string, multi: bool, can-submit: bool, full: bool, question-index: int,
+    y: length, height: length, side: bool,
+}
+export struct DeskRow { label: string, value: string, note: string, tone: string }
+export struct DeskSection {
+    view: string, title: string, big: string, caption: string, note: string,
+    over: bool, percent: float, pace: float, rows: [DeskRow], y: length, height: length, column: int, columns: int, row-columns: int, row-height: length,
+}
+export global NotchData {
+    in-out property <[NotchSession]> sessions: [];
+    in-out property <[NotchProvider]> providers: [];
+    in-out property <[NotchRequest]> requests: [];
+    in-out property <[DeskSection]> desk-sections: [];
+    in-out property <length> requests-height;
+    in-out property <length> desk-height;
+    in-out property <bool> input-focused;
+    in-out property <string> focused-request;
+    in-out property <length> focus-y;
+    in-out property <string> detail-tip;
+    in-out property <length> detail-y;
+    in-out property <bool> dnd;
+    in-out property <bool> refreshing;
+    in-out property <string> refresh-error;
+    in-out property <string> request-error;
+    in-out property <bool> desk-visible;
+    in-out property <bool> desk-loading;
+    in-out property <bool> desk-retry;
+    in-out property <int> desk-step;
+    in-out property <string> desk-title;
+    in-out property <string> desk-message;
+    in-out property <string> glance;
+    in-out property <int> session-count;
+    in-out property <string> restore-session;
+    in-out property <int> pending-count;
+    in-out property <int> missed-count;
+    in-out property <string> compact-text;
+    in-out property <string> alert-title;
+    in-out property <string> alert-body;
+    in-out property <string> alert-kind;
+    callback answer(string, string);
+    callback choose(string, int);
+    callback custom(string, string);
+    callback submit(string);
+    callback hold(string, bool);
+    callback terminal(string);
+    callback dismiss(string);
+    callback session-menu(string);
+    callback close-menu();
+    callback session-action(string, string);
+    callback desk-action(string);
+    callback focus-input();
+}

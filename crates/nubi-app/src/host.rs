@@ -24,11 +24,14 @@ pub struct NativeHost {
     sender: SyncSender<UiEvent>,
     dirty: Arc<AtomicBool>,
     pub updates: Arc<Mutex<crate::updater::Inner>>,
+    pub desktime: Arc<Mutex<nubi_core::desktime::Cache>>,
 }
 
 impl NativeHost {
     pub fn new() -> (Self, Receiver<UiEvent>) {
-        Self::from_settings(nubi_core::settings::load())
+        let (host, events) = Self::from_settings(nubi_core::settings::load());
+        *host.desktime.lock().unwrap() = nubi_core::desktime::Cache::load();
+        (host, events)
     }
 
     pub fn from_settings(settings: nubi_core::settings::Settings) -> (Self, Receiver<UiEvent>) {
@@ -41,6 +44,7 @@ impl NativeHost {
                 sender,
                 dirty: Arc::new(AtomicBool::new(true)),
                 updates: Arc::default(),
+                desktime: Arc::default(),
             },
             receiver,
         )
@@ -77,7 +81,9 @@ impl NativeHost {
         if dnd {
             return;
         }
-        if settings.toast_when_fullscreen && nubi_core::winutil::fullscreen_active() {
+        if settings.edge != "top"
+            || (settings.toast_when_fullscreen && nubi_core::winutil::fullscreen_active())
+        {
             if settings.sounds {
                 nubi_core::winutil::beep(&alert.kind);
             }

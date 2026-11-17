@@ -73,6 +73,58 @@ pub struct Snapshot {
     pub extension_dir: String,
 }
 
+/// Reader-independent cache shared by native surfaces. The stage 7 reader can
+/// replace reports without coupling calendar calculations to a window runtime.
+#[derive(Default)]
+pub struct Cache {
+    pub reports: std::collections::BTreeMap<String, (Report, i64)>,
+    pub loading: bool,
+    pub step: u8,
+    pub logged_out: bool,
+    pub error: Option<String>,
+    pub synced_ms: i64,
+}
+
+impl Cache {
+    pub fn load() -> Self {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        if let Ok(file) = std::fs::File::open(crate::settings::data_dir().join("desktime-cache.json")) {
+            let _ = file.take(256 * 1024 + 1).read_to_end(&mut bytes);
+        }
+        let mut reports: std::collections::BTreeMap<String, (Report, i64)> =
+            if bytes.len() <= 256 * 1024 { serde_json::from_slice(&bytes).unwrap_or_default() }
+            else { Default::default() };
+        let today = Local::now().date_naive();
+        reports.retain(|view, (report, _)| VIEWS.contains(&view.as_str())
+            && report.view == *view && !report.logged_out && report.productive_min.is_some()
+            && validate_report(report, today).is_ok());
+        Self { reports, ..Default::default() }
+    }
+
+    pub fn snapshot(&self, settings: &Settings, now: chrono::DateTime<Local>) -> Snapshot {
+        let valid = |view: &str| self.reports.get(view)
+            .filter(|(report, _)| validate_report(report, now.date_naive()).is_ok());
+        let month = valid("month").map(|(report, _)| report);
+        let sections: Vec<_> = VIEWS.iter()
+            .filter(|view| settings.dt_views.iter().any(|item| item == **view))
+            .filter_map(|view| valid(view))
+            .map(|(report, time)| section(report, *time, settings, now, month)).collect();
+        let glance = if settings.dt_glance && settings.desktime_enabled && settings.desktime_tab && !self.logged_out {
+            valid("day").map(|(report, _)| glance(&section(report, 0, settings, now, month), &settings.dt_glance_kind)).unwrap_or_default()
+        } else { String::new() };
+        Snapshot {
+            show: settings.desktime_tab, enabled: settings.desktime_enabled,
+            logged_out: self.logged_out, loading: self.loading, step: self.step,
+            error: self.error.clone(), updated_ms: sections.iter().map(|section| section.fetched_ms).min().unwrap_or(0),
+            read_ms: self.reports.values().map(|(_, time)| *time).max().unwrap_or(0),
+            synced_ms: self.synced_ms, sections, views: settings.dt_views.clone(),
+            fetch: fetch_views(settings).into_iter().map(String::from).collect(), glance,
+            extension_dir: String::new(),
+        }
+    }
+}
+
 pub fn date(s: &str) -> Result<NaiveDate, String> {
     if s.len() != 10 { return Err("Dates must use YYYY-MM-DD".into()); }
     NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| "Invalid date".into())

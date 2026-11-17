@@ -1,0 +1,240 @@
+import { Theme } from "theme.slint";
+import { ProviderMark, SourceIcon, Hint } from "parity-widgets.slint";
+import { NotchData, NotchRequest, NotchSession } from "notch-data.slint";
+
+export component NotchButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> quiet;
+    in property <bool> enabled: true;
+    in property <string> hint;
+    in property <string> hold-id;
+    out property <bool> has-focus: keys.has-focus;
+    callback clicked();
+    width: label.preferred-width + 32px; height: 28px; border-radius: 14px;
+    background: root.primary ? (touch.has-hover ? Theme.notch-action-hover : Theme.notch-action) : touch.has-hover ? Theme.row-hover : root.quiet ? transparent : Theme.notch-ink-12;
+    border-width: keys.has-focus ? Theme.pixel * 2 : 0px; border-color: Theme.ink-3;
+    accessible-role: button; accessible-label: root.hint == "" ? root.text : root.hint; accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    opacity: root.enabled ? 1 : 0.5;
+    label := Text { x: 0px; y: 0px; width: 100%; height: 100%; text: root.text;
+        color: root.primary ? Theme.notch-action-ink : Theme.ink; font-family: Theme.semibold;
+        font-size: 12px; font-weight: 500; vertical-alignment: center; horizontal-alignment: center; }
+    touch := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { NotchData.focus-input(); keys.focus(); root.clicked(); } }
+    keys := FocusScope { enabled: root.enabled; key-pressed(event) => {
+        if event.text == " " || event.text == "\n" { root.clicked(); return accept; } return reject;
+    }
+        focus-gained => { NotchData.focus-y = root.absolute-position.y; if root.hold-id != "" { NotchData.focused-request = root.hold-id; } }
+        focus-lost => { if NotchData.focused-request == root.hold-id { NotchData.focused-request = ""; } }
+    }
+    forward-focus: keys;
+    Hint { x: 0px; y: -32px; active: touch.has-hover || keys.has-focus; text: root.hint; }
+}
+
+export component Equalizer inherits Rectangle {
+    in property <string> provider;
+    in property <float> phase;
+    width: 10px; height: 12px;
+    for i in [0,1,2] : Rectangle {
+        x: Theme.snap(i * 4px); width: Theme.snap(2px);
+        height: Theme.reduced ? 8px : Theme.snap((7.5 - 4.5 * cos(root.phase * 360deg - i * 120deg)) * 1px);
+        y: 12px - self.height; border-radius: 1px;
+        background: root.provider == "claude" ? Theme.claude : Theme.codex;
+    }
+}
+
+export component LiveSessionRow inherits Rectangle {
+    in property <NotchSession> session;
+    in property <float> phase;
+    in property <bool> side;
+    private property <string> restore: NotchData.restore-session;
+    changed restore => { if root.restore == root.session.key { keys.focus(); } }
+    height: 40px + (session.error == "" ? 0px : 32px);
+    border-width: keys.has-focus ? Theme.pixel * 2 : 0px; border-color: Theme.ink-3;
+    border-radius: 12px; background: touch.has-hover ? Theme.row : transparent;
+    ProviderMark { x: 10px; y: 12px; provider: root.session.provider; }
+    Text { x: 38px; y: 0px; width: max(50px, root.width - status.width - (root.side ? 132px : 194px)); height: 40px;
+        text: root.session.name; color: Theme.ink; font-size: 13px; font-family: Theme.semibold; font-weight: 500;
+        overflow: elide; vertical-alignment: center; }
+    status := Rectangle { x: root.width - self.width - (root.side ? 90px : 142px); y: 0px; height: 40px;
+        width: min(status-label.preferred-width + 18px, root.side ? 126px : 240px);
+        if root.session.working : Equalizer { x: 0px; y: 14px; provider: root.session.provider; phase: root.phase; }
+        if !root.session.working : Rectangle { x: 2px; y: 17px; width: 6px; height: 6px; border-radius: 3px;
+            background: root.session.attention ? Theme.warn : root.session.state == "Done" ? Theme.ok : Theme.ink-3; }
+        status-label := Text { x: 16px; y: 0px; width: parent.width - 16px; height: 40px; text: root.session.state;
+            overflow: elide; color: Theme.ink-2; font-size: root.side ? 11px : 12px; vertical-alignment: center; }
+    }
+    if !root.side : Text { x: root.width - 140px; y: 0px; width: 40px; height: 40px; text: root.session.context;
+        color: Theme.ink-3; font-family: Theme.num; font-size: 11px; vertical-alignment: center; horizontal-alignment: right; }
+    Text { x: root.width - 88px; y: 0px; width: 52px; height: 40px; text: root.session.ago;
+        color: Theme.ink-3; font-family: Theme.num; font-size: 11px; vertical-alignment: center; horizontal-alignment: right; }
+    Text { x: root.width - 24px; y: 0px; width: 14px; height: 40px; text: "›"; font-size: 16px;
+        color: Theme.ink-3; vertical-alignment: center; opacity: touch.has-hover ? 1 : 0; }
+    if root.session.error != "" : Text { x: 8px; y: 40px; width: parent.width - 16px; height: 32px;
+        text: root.session.error; color: Theme.bad; font-size: 12px; wrap: word-wrap; }
+    touch := TouchArea { mouse-cursor: pointer;
+        clicked => { keys.focus(); NotchData.terminal(root.session.key); }
+        pointer-event(event) => { if event.kind == down && event.button == right { keys.focus(); NotchData.session-menu(root.session.key); } }
+    }
+    keys := FocusScope { focus-gained => { NotchData.focus-y = root.absolute-position.y; }
+        key-pressed(event) => {
+        if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) { NotchData.session-menu(root.session.key); return accept; }
+        if event.text == "\n" || event.text == " " { NotchData.terminal(root.session.key); return accept; } return reject;
+    } }
+    forward-focus: keys;
+    accessible-role: button; accessible-label: root.session.name + ", " + root.session.state;
+    accessible-action-default => { NotchData.terminal(root.session.key); }
+    Hint { x: 38px; y: 8px; active: touch.has-hover || keys.has-focus; text: "Open terminal"; }
+}
+
+export component QuestionBody inherits Rectangle {
+    in property <NotchRequest> request;
+    height: question-layout.preferred-height;
+            question-layout := VerticalLayout { width: parent.width; spacing: 8px;
+                Text { min-height: 40px; text: root.request.step + root.request.prompt; wrap: word-wrap; color: Theme.ink; font-size: 13px; }
+                for option[index] in root.request.options : Rectangle {
+                    private property <int> step: root.request.question-index;
+                    changed step => { if self.step > 0 && index == 0 { option-key.focus(); } }
+                    height: max(44px, option-labels.preferred-height + 16px); border-radius: 10px;
+                    background: option.selected || option-touch.has-hover ? Theme.row-hover : Theme.notch-ink-5;
+                    border-width: option.selected || option-key.has-focus ? Theme.pixel : 0px;
+                    border-color: option-key.has-focus ? Theme.ink-3 : root.request.provider == "claude" ? Theme.claude : Theme.codex;
+                    Text { x: 12px; y: 0px; width: 14px; height: parent.height; text: index + 1; color: Theme.ink-3;
+                        font-family: Theme.num; font-size: 11px; vertical-alignment: center; }
+                    option-labels := VerticalLayout { x: 36px; y: 8px; width: parent.width - 48px; spacing: 2px;
+                        Text { text: option.label; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; font-size: 12px; wrap: word-wrap; }
+                        if option.description != "" : Text { text: option.description; color: Theme.ink-3; font-size: 11px; wrap: word-wrap; }
+                    }
+                    option-touch := TouchArea { mouse-cursor: pointer; clicked => { option-key.focus(); NotchData.choose(root.request.id, index); } }
+                    option-key := FocusScope { key-pressed(event) => {
+                        if event.text == " " || event.text == "\n" { NotchData.choose(root.request.id, index); return accept; } return reject;
+                    }
+                        focus-gained => { NotchData.focus-y = option-touch.absolute-position.y; NotchData.focused-request = root.request.id; }
+                        focus-lost => { if NotchData.focused-request == root.request.id { NotchData.focused-request = ""; } }
+                    }
+                    accessible-role: button; accessible-label: option.label + ". " + option.description;
+                    accessible-checkable: true; accessible-checked: option.selected;
+                    accessible-action-default => { NotchData.choose(root.request.id, index); }
+                }
+                Rectangle { height: 32px; border-radius: 10px; background: Theme.notch-ink-5;
+                    border-width: other.has-focus ? Theme.pixel : 0px; border-color: Theme.ink-3;
+                    Text { x: 12px; y: 0px; height: 32px; text: "Other answer"; visible: other.text == ""; color: Theme.ink-3; font-size: 12px; vertical-alignment: center; }
+                    other := TextInput { x: 12px; y: 0px; width: parent.width - 24px; height: 32px;
+                        text: root.request.custom; color: Theme.ink; font-size: 12px; vertical-alignment: center;
+                        accessible-label: "Your answer: " + root.request.prompt;
+                        edited => { NotchData.custom(root.request.id, self.text); }
+                        accepted => { if self.text != "" { NotchData.submit(root.request.id); } }
+                        changed has-focus => { NotchData.input-focused = self.has-focus;
+                            if self.has-focus { NotchData.focus-y = self.absolute-position.y; NotchData.focused-request = root.request.id; NotchData.focus-input(); }
+                            else if NotchData.focused-request == root.request.id { NotchData.focused-request = ""; }
+                        }
+                    }
+                }
+                HorizontalLayout { height: 28px; spacing: 6px;
+                    if root.request.multi : NotchButton { hold-id: root.request.id; text: "Done"; enabled: root.request.can-submit; clicked => { NotchData.submit(root.request.id); } }
+                    if root.request.full : NotchButton { hold-id: root.request.id; text: "Answer in terminal"; quiet: true; clicked => { NotchData.answer(root.request.id, "skip"); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    if root.request.full && !root.request.side : NotchButton { hold-id: root.request.id; text: "Open terminal"; quiet: true; clicked => { NotchData.terminal(root.request.session-key); } }
+                }
+                if root.request.full && root.request.side : NotchButton { hold-id: root.request.id; text: "Open terminal"; quiet: true; clicked => { NotchData.terminal(root.request.session-key); } }
+            }
+        }
+
+component SummaryHover inherits TouchArea {
+    in property <string> text;
+    private property <bool> hot: self.has-hover;
+    changed hot => {
+        if root.hot { NotchData.detail-tip = root.text; NotchData.detail-y = root.absolute-position.y + root.height; }
+        else if NotchData.detail-tip == root.text { NotchData.detail-tip = ""; }
+    }
+    accessible-role: AccessibleRole.text; accessible-label: root.text;
+}
+
+export component NotchTip inherits Rectangle {
+    in property <string> text;
+    in property <bool> active;
+    private property <bool> shown;
+    changed active => { root.shown = false; }
+    changed text => { root.shown = false; }
+    Timer { interval: 450ms; running: root.active && !root.shown; triggered => { root.shown = true; } }
+    visible: root.active && root.shown && root.text != "";
+    width: min(280px, measure.preferred-width + 16px); height: min(200px, tip-label.preferred-height + 12px); clip: true;
+    border-radius: 8px; border-width: Theme.pixel; border-color: Theme.line-2; background: Theme.dark ? Theme.card-3 : Theme.card;
+    measure := Text { visible: false; text: root.text; font-size: 12px; }
+    tip-label := Text { x: 8px; y: 6px; width: parent.width - 16px; text: root.text; wrap: word-wrap;
+        color: Theme.ink; font-family: Theme.font; font-size: 12px; }
+}
+
+export component RequestCard inherits Rectangle {
+    in property <NotchRequest> request;
+    height: root.request.question ? max(root.request.height, question-body.height + 68px) : root.request.height; border-radius: 16px; background: Theme.row;
+    clip: true;
+    private property <bool> held: hover.has-hover || NotchData.focused-request == root.request.id;
+    changed held => { if !root.request.missed { NotchData.hold(root.request.id, root.held); } }
+    hover := TouchArea {
+    ProviderMark { x: 16px; y: 14px; provider: root.request.provider; }
+    if root.request.slim || root.request.missed : Rectangle {
+        x: 42px; y: 8px; width: root.width - 50px; height: root.height - 16px;
+        if !root.request.side : HorizontalLayout { x: 0px; y: 0px; width: parent.width; height: parent.height; spacing: 6px;
+            Rectangle { horizontal-stretch: 1; min-width: 24px;
+                Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: root.request.missed ? root.request.title : "Allow: " + root.request.summary + "?";
+                    color: Theme.ink; font-family: Theme.mono; font-size: 12px; overflow: elide; vertical-alignment: center; }
+                SummaryHover { text: root.request.missed ? root.request.title : root.request.summary; }
+            }
+            Text { text: root.request.name; max-width: 140px; color: Theme.ink-3; font-size: 12px; overflow: elide; vertical-alignment: center; }
+            if !root.request.missed : Text { text: root.request.countdown; color: Theme.ink-3; font-family: Theme.num; font-size: 11px; vertical-alignment: center; }
+            NotchButton { hold-id: root.request.id; text: root.request.missed ? "Open terminal" : "Allow"; primary: true;
+                clicked => { if root.request.missed { NotchData.terminal(root.request.session-key); } else { NotchData.answer(root.request.id, "allow"); } } }
+            NotchButton { hold-id: root.request.id; text: root.request.missed ? "Dismiss" : "Deny";
+                clicked => { if root.request.missed { NotchData.dismiss(root.request.id); } else { NotchData.answer(root.request.id, "deny"); } } }
+        }
+        if root.request.side : Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.height;
+            Rectangle { x: 0px; y: 0px; width: parent.width - 40px; height: 20px;
+                Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: root.request.missed ? root.request.title : "Allow: " + root.request.summary + "?";
+                    color: Theme.ink; font-family: Theme.mono; font-size: 12px; overflow: elide; }
+                SummaryHover { text: root.request.missed ? root.request.title : root.request.summary; }
+            }
+            Text { x: parent.width - 40px; y: 0px; width: 40px; height: 20px; text: root.request.missed ? "" : root.request.countdown;
+                color: Theme.ink-3; font-family: Theme.num; font-size: 11px; horizontal-alignment: right; }
+            HorizontalLayout { x: 0px; y: 28px; width: parent.width; height: 28px; spacing: 6px;
+                Text { text: root.request.name; color: Theme.ink-3; font-size: 12px; overflow: elide; horizontal-stretch: 1; }
+                NotchButton { hold-id: root.request.id; text: root.request.missed ? "Open terminal" : "Allow"; primary: true;
+                    clicked => { if root.request.missed { NotchData.terminal(root.request.session-key); } else { NotchData.answer(root.request.id, "allow"); } } }
+                NotchButton { hold-id: root.request.id; text: root.request.missed ? "Dismiss" : "Deny";
+                    clicked => { if root.request.missed { NotchData.dismiss(root.request.id); } else { NotchData.answer(root.request.id, "deny"); } } }
+            }
+        }
+    }
+    if !root.request.slim && !root.request.missed : Rectangle {
+        x: 16px; y: 12px; width: root.width - 32px; height: root.height - 24px;
+        HorizontalLayout { x: 24px; y: 0px; width: parent.width - 24px; height: 20px; spacing: 8px;
+            Text { text: root.request.title; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; }
+            Text { text: root.request.name; color: Theme.ink-3; font-size: 12px; overflow: elide; horizontal-stretch: 1; }
+            Text { text: root.request.countdown; color: Theme.ink-3; font-family: Theme.num; font-size: 11px; }
+        }
+        if !root.request.question : Rectangle {
+            x: 0px; y: 30px; width: parent.width; height: 54px; border-radius: 10px; background: Theme.notch-ink-5;
+            Flickable { x: 10px; y: 8px; width: parent.width - 20px; height: 38px;
+                content-height: command.preferred-height;
+                command := TextInput { read-only: true; x: 0px; y: 0px; width: parent.width - 54px; text: root.request.summary; wrap: char-wrap;
+                    color: Theme.ink; font-family: Theme.mono; font-size: 12px; }
+            }
+            NotchButton { hold-id: root.request.id; x: parent.width - 54px; y: 12px; width: 50px; text: "Copy"; quiet: true;
+                clicked => { command.select-all(); command.copy(); command.clear-selection(); } }
+        }
+        if !root.request.question : HorizontalLayout { x: 0px; y: 94px; height: 28px; spacing: 6px;
+            NotchButton { hold-id: root.request.id; text: "Allow"; primary: true; clicked => { NotchData.answer(root.request.id, "allow"); } }
+            NotchButton { hold-id: root.request.id; text: "Deny"; clicked => { NotchData.answer(root.request.id, "deny"); } }
+            Rectangle { horizontal-stretch: 1; }
+            NotchButton { hold-id: root.request.id; text: "Open terminal"; quiet: true; clicked => { NotchData.terminal(root.request.session-key); } }
+        }
+    }
+    question-body := QuestionBody { x: 16px; y: 42px; width: root.width - 32px;
+        visible: root.request.question; request: root.request; }
+    if !root.request.missed : Rectangle { x: 0px; y: root.height - 2px; width: root.width; height: 2px; background: Theme.notch-ink-5;
+        Rectangle { x: 0px; y: 0px; width: parent.width * root.request.remaining; height: parent.height;
+            background: root.request.provider == "claude" ? Theme.claude : Theme.codex; }
+    }
+    }
+}
