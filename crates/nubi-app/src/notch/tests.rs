@@ -1335,6 +1335,7 @@ fn live_notch_decisions_folding_edges_and_physical_renders() {
     let settings = Settings {
         desktime_tab: true,
         desktime_enabled: true,
+        follow_quiet_time: false,
         ..Default::default()
     };
     let (host, _events) = NativeHost::from_settings(settings);
