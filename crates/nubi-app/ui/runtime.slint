@@ -1,48 +1,47 @@
 import { Theme } from "theme.slint";
-import { Action } from "parity-widgets.slint";
-import { TextEdit } from "std-widgets.slint";
 
-export component NativeUpdate inherits Window {
-    title: "Nubi update";
-    width: 420px; height: 400px;
-    no-frame: true; always-on-top: true; background: transparent;
-    default-font-family: Theme.font; default-font-size: 13px;
-    in property <string> version;
-    in property <string> notes;
-    in property <string> phase;
-    in property <string> message;
-    in property <string> countdown;
-    in property <bool> focused;
-    out property <bool> held: hover.has-hover || root.focused;
-    callback hold(bool);
-    callback cancel();
-    callback install();
-    callback release-notes();
-    changed held => { root.hold(root.held); }
-    FocusScope {
-        key-pressed(event) => { if event.text == Key.Escape { root.cancel(); return accept; } return reject; }
-        Rectangle { x: 8px; y: 8px; width: 404px; height: 384px;
-            background: Theme.notch-bg; border-color: Theme.notch-ink-12; border-width: 1px; border-radius: 24px;
-            hover := TouchArea {}
-            VerticalLayout { padding: 24px; spacing: 8px;
-                HorizontalLayout { spacing: 12px;
-                    Image { width: 28px; height: 28px; source: @image-url("../assets/nubi-logo.png"); }
-                    VerticalLayout { spacing: 2px;
-                        Text { text: root.phase == "error" ? "Nubi update failed" : "Nubi update available"; font-size: 16px; font-weight: 500; color: Theme.ink; }
-                        Text { text: "Version " + root.version; font-size: 12px; color: Theme.ink-2; }
-                    }
-                }
-                Text { text: "What's new"; color: Theme.ink; font-weight: 500; }
-                TextEdit { text: root.notes; read-only: true; height: 128px; accessible-label: "Release notes"; }
-                Action { text: "Read full release notes"; clicked => { root.release-notes(); } }
-                Text { text: root.message; color: Theme.ink-2; wrap: word-wrap; font-size: 12px; }
-                HorizontalLayout { spacing: 8px;
-                    Text { text: root.countdown; color: Theme.ink-3; font-size: 11px; vertical-alignment: center; }
-                    Action { text: "Cancel"; enabled: root.phase != "installing"; clicked => { root.cancel(); } }
-                    Action { text: root.phase == "downloading" ? "Downloading…" : root.phase == "installing" ? "Installing…" : root.phase == "error" ? "Retry" : "Update";
-                        enabled: root.phase != "downloading" && root.phase != "installing"; clicked => { root.install(); } }
-                }
-            }
+// Launcher/update controls use the notch palette, independently of panel actions.
+component RuntimeAction inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> selected;
+    in property <bool> quiet;
+    in property <bool> enabled: true;
+    out property <bool> has-focus: keys.has-focus;
+    callback clicked();
+    callback focused();
+    forward-focus: keys;
+    min-width: label.preferred-width + (root.quiet ? 0px : 32px);
+    height: 34px;
+    border-radius: 12px;
+    opacity: root.enabled ? 1 : 0.5;
+    background: root.quiet ? transparent : root.primary ? (touch.has-hover ? Theme.notch-action-hover : Theme.notch-action) : touch.has-hover ? Theme.row-hover : Theme.row;
+    border-width: root.selected ? 1.5px : 0px;
+    border-color: Theme.notch-action;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    if keys.has-focus : Rectangle {
+        x: -3px; y: -3px; width: parent.width + 6px; height: parent.height + 6px;
+        border-radius: 14px; border-width: 2px; border-color: Theme.notch-action;
+    }
+    label := Text {
+        width: 100%; height: 100%; text: root.text;
+        color: root.primary ? Theme.notch-action-ink : root.selected || touch.has-hover ? Theme.ink : Theme.ink-2;
+        font-family: Theme.font; font-size: root.quiet ? 12px : 13px; font-weight: 500;
+        horizontal-alignment: root.quiet ? left : center; vertical-alignment: center;
+    }
+    touch := TouchArea {
+        enabled: root.enabled; mouse-cursor: pointer;
+        clicked => { keys.focus(); root.clicked(); }
+    }
+    keys := FocusScope {
+        enabled: root.enabled;
+        changed has-focus => { if self.has-focus { root.focused(); } }
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.clicked(); return accept; }
+            return reject;
         }
     }
 }
@@ -56,14 +55,20 @@ export component NativeLauncher inherits Window {
     in-out property <int> selected;
     callback run(string);
     callback cancel();
-    public function take-focus() { keys.focus(); }
+    public function take-focus() {
+        if root.error != "" { keys.focus(); }
+        else if root.selected == 0 { claude.focus(); }
+        else { codex.focus(); }
+    }
+    forward-focus: keys;
     keys := FocusScope {
-        key-pressed(event) => {
+        focus-on-tab-navigation: false;
+        capture-key-pressed(event) => {
             if event.text == Key.Escape { root.cancel(); return accept; }
             if root.error != "" { return reject; }
             if event.text == "c" || event.text == "C" { root.run("claude"); return accept; }
             if event.text == "x" || event.text == "X" { root.run("codex"); return accept; }
-            if event.text == Key.LeftArrow || event.text == Key.RightArrow || event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.Tab { root.selected = 1 - root.selected; return accept; }
+            if event.text == Key.LeftArrow || event.text == Key.RightArrow || event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.Tab { root.selected = 1 - root.selected; root.take-focus(); return accept; }
             if event.text == "\n" { root.run(root.selected == 0 ? "claude" : "codex"); return accept; }
             return reject;
         }
@@ -71,9 +76,9 @@ export component NativeLauncher inherits Window {
             VerticalLayout { padding: 12px; spacing: 8px;
                 Text { text: "Open in terminal"; color: Theme.ink; font-size: 14px; font-weight: 500; }
                 Text { text: root.dir; color: Theme.ink-3; font-size: 11px; overflow: elide; }
-                if root.error == "" : HorizontalLayout { spacing: 8px;
-                    Action { text: "Claude   C"; primary: root.selected == 0; clicked => { root.run("claude"); } }
-                    Action { text: "Codex   X"; primary: root.selected == 1; clicked => { root.run("codex"); } }
+                HorizontalLayout { spacing: 8px; visible: root.error == "";
+                    claude := RuntimeAction { text: "Claude   C"; selected: root.selected == 0; enabled: root.error == ""; focused => { root.selected = 0; } clicked => { root.run("claude"); } }
+                    codex := RuntimeAction { text: "Codex   X"; selected: root.selected == 1; enabled: root.error == ""; focused => { root.selected = 1; } clicked => { root.run("codex"); } }
                 }
                 if root.error != "" : Text { text: root.error; color: Theme.bad; font-size: 12px; wrap: word-wrap; }
                 Text { text: root.error == "" ? "Arrows to choose, Enter to open, Esc to close" : "Esc to close"; color: Theme.ink-2; font-size: 11px; }

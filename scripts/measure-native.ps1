@@ -1,12 +1,12 @@
 param(
-    [string]$Executable = "src-tauri/target/native/release/nubi.exe",
-    [string]$Output = "src-tauri/target/native-measurement.json",
+    [string]$Executable = "target/native/release/nubi.exe",
+    [string]$Output = "target/native-measurement.json",
     [switch]$Panel
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $binary = (Resolve-Path -LiteralPath (Join-Path $root $Executable)).Path
-$data = Join-Path $root "src-tauri/target/native-measure-dev"
+$data = Join-Path $root "target/native-measure-dev"
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 $start = New-Object System.Diagnostics.ProcessStartInfo
 $start.FileName = $binary

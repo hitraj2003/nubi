@@ -140,15 +140,22 @@ impl Settings {
 
 pub fn data_dir() -> PathBuf {
     if crate::isolation::development() {
-        return std::env::var_os("NUBI_DEV_DATA_DIR").map(PathBuf::from)
-            .unwrap_or_else(|| dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("nubi-dev"));
+        return std::env::var_os("NUBI_DEV_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::config_dir()
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("nubi-dev")
+            });
     }
     // Keep debug simulations and subprocess tests away from the installed app's data.
     #[cfg(debug_assertions)]
     if let Some(dir) = std::env::var_os("NUBI_SIM_DATA_DIR") {
         return PathBuf::from(dir);
     }
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("nubi")
+    dirs::config_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("nubi")
 }
 
 fn path() -> PathBuf {
@@ -183,7 +190,9 @@ pub fn apply_auto_start(on: bool) -> Result<(), String> {
     if crate::isolation::development() {
         return Ok(());
     }
-    use windows_sys::Win32::System::Registry::{RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
+    use windows_sys::Win32::System::Registry::{
+        RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ,
+    };
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
@@ -193,7 +202,14 @@ pub fn apply_auto_start(on: bool) -> Result<(), String> {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let cmd = wide(&format!("\"{}\"", exe.display()));
         let rc = unsafe {
-            RegSetKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), REG_SZ, cmd.as_ptr() as *const _, (cmd.len() * 2) as u32)
+            RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                key.as_ptr(),
+                name.as_ptr(),
+                REG_SZ,
+                cmd.as_ptr() as *const _,
+                (cmd.len() * 2) as u32,
+            )
         };
         if rc != 0 {
             return Err(format!("could not set auto-start (error {rc})"));

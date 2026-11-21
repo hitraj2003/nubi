@@ -1,0 +1,49 @@
+export struct FieldChoice { value: string, label: string, selected: bool }
+export struct PanelField {
+    key: string, label: string, description: string, section: string, kind: string,
+    value: string, checked: bool, selected: int, options: [string], choices: [FieldChoice],
+    minimum: int, maximum: int, number: int, hour: int, minute: int, enabled: bool, error: string,
+    first: bool, last: bool,
+    hours: [string], minutes: [string], minute-index: int,
+}
+export struct PanelAlert { time: string, provider: string, text: string, queued: bool, count: int }
+export struct PanelRelease { title: string, date: string, notes: string, download: string, current: bool }
+export struct CalendarDay { label: string, date: string }
+export global PanelData {
+    in-out property <[PanelField]> fields;
+    in-out property <[PanelAlert]> alerts;
+    in-out property <[PanelRelease]> releases;
+    in-out property <[string]> monitors: ["Display 1"];
+    in-out property <[CalendarDay]> calendar;
+    in-out property <string> calendar-title;
+    in-out property <string> date-field;
+    in-out property <string> pipe-error;
+    in-out property <string> usage-age;
+    in-out property <bool> release-loading;
+    in-out property <string> release-status: "Loading…";
+    in-out property <string> action-status;
+    in-out property <bool> busy;
+    in-out property <length> focus-y;
+    in-out property <length> focus-height: 48px;
+    in-out property <length> settings-y;
+    in-out property <length> feed-y;
+    in-out property <length> report-y;
+    in-out property <bool> claude-hooks;
+    in-out property <bool> codex-hooks;
+    in-out property <bool> development;
+    in-out property <bool> desktime-tab: true;
+    in-out property <bool> report-open;
+    in-out property <bool> report-fields;
+    in-out property <bool> report-busy;
+    in-out property <string> report-status;
+    in-out property <string> report-text;
+    in-out property <[PanelField]> report-rows;
+    callback edit(string, string);
+    callback picked-date(string, int, int, int);
+    callback choice(string, string);
+    callback remove-date(string, string);
+    callback calendar-move(int);
+    callback calendar-pick(string);
+    callback capture(string, string, bool, bool, bool, bool);
+    callback action(string, string);
+}

@@ -3,7 +3,7 @@
 Nubi is a small Windows app for people who run Claude Code or Codex CLI in a terminal. It tells
 you when a session finishes or needs you, lets you approve tool calls and answer Claude's
 questions without switching windows, and shows how much of your usage limit is left. It is one
-`nubi.exe`, built with Tauri 2 and Rust, plus a small `nubi-hook.exe` helper.
+`nubi.exe`, built in Rust with Slint, plus a small `nubi-hook.exe` helper.
 
 ## Download
 
@@ -91,44 +91,36 @@ Tool input larger than 32 KB is not shown, and you can't approve it from Nubi.
 
 ## Build from source
 
-You need Rust stable, the Visual Studio 2022 C++ build tools, WebView2 (part of Windows 11) and
-`cargo install tauri-cli --version "^2"`.
+You need Rust stable, the Visual Studio 2022 C++ build tools and NSIS (`makensis.exe`).
 
 ```
 cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets
-cargo build --release --package nubi-hook
-cd src-tauri
-cargo tauri dev        # run
-cargo tauri build      # installer in target/release/bundle/nsis
-nubi.exe --diag   # print usage and hook status (no tokens)
+./scripts/build-native-installer.ps1   # installer: target/native-size/nubi-<version>-setup.exe
+nubi.exe --diag                        # print usage and hook status (no tokens)
 ```
 
-The workspace shares domain services through `crates/nubi-core`. Its `Host` trait connects
-state and pipe callbacks to `src-tauri/src/core_host.rs`; DeskTime's WebView2 scraper stays
-in the Tauri app. All 65 original Rust tests are retained: 52 in the core and 13 in the app.
-The hook disables the core's `services` feature, excluding Tauri, HTTP, polling and async
-runtime dependencies. Tauri builds also build and package the helper under `helpers/` in the
-install folder, keeping it separate from a locked stable hook during updates. Portable builds
-can keep both executables together. The stable hook path and arguments stay the same. Build
-outputs remain under `src-tauri/target`.
+The workspace shares domain services through `crates/nubi-core`. The app is
+`crates/nubi-app`; the hook helper is `crates/nubi-hook`. The installer places the helper
+under `helpers/` in the install folder, so a locked stable hook does not block updates. The
+stable hook path and arguments stay the same. Build outputs go to `target/`.
 Debug builds accept `NUBI_SIM_DATA_DIR` to isolate settings and cached data during simulations;
 release builds always use the existing Windows data directory.
 
 ## Releasing a new version
 
-Bump `version` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and both crate manifests,
-commit, then tag and
-push:
+Set the same `version` in the `nubi-app`, `nubi-core` and `nubi-hook` manifests, commit, then
+tag and push:
 
 ```
-git tag v0.1.3 && git push origin main v0.1.3
+git tag v0.1.4 && git push origin main v0.1.4
 ```
 
-GitHub Actions (`.github/workflows/build.yml`) builds the installer, signs the update and
-publishes the release with `latest.json`. It needs the repo secret `TAURI_SIGNING_PRIVATE_KEY`,
-which holds the contents of `~/.tauri/nubi.key`.
+GitHub Actions (`.github/workflows/build.yml`) builds the installer, signs it for the updater,
+checks the signature and creates a draft release with the installer and `latest.json`.
+Installed copies update after the draft is published. Signing needs the repo secret
+`TAURI_SIGNING_PRIVATE_KEY`. The updater key and feed live in `crates/nubi-app/updater.json`.
 
 ## Credits
 

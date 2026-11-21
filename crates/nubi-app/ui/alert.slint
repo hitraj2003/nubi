@@ -1,0 +1,100 @@
+import { Theme } from "theme.slint";
+
+// Ordinary alert pill from ui/overlay.html. Request cards are a separate migration.
+export component NativeAlert inherits Window {
+    title: "Nubi alert"; width: 720px; height: 160px;
+    no-frame: true; always-on-top: true; background: transparent;
+    default-font-family: Theme.font;
+    in property <string> heading;
+    in property <string> message;
+    in property <string> kind;
+    in property <float> pill-width: 120;
+    in property <float> pill-height;
+    in property <float> pill-scale: 0.8;
+    in property <float> pill-opacity;
+    in property <float> content-opacity;
+    in property <float> content-y;
+    in property <float> content-scale: 1;
+    in property <image> content-image;
+    in property <image> icon-image;
+    in property <float> icon-progress: 1;
+    in property <bool> has-raster;
+    in property <bool> capture-content;
+    in property <float> raster-width;
+    in property <float> raster-height;
+    in property <float> raster-offset-x;
+    in property <float> raster-offset-y;
+    private property <float> visual-width: capture-content ? natural-width : pill-width;
+    private property <float> visual-height: capture-content ? 56 : pill-height;
+    private property <float> visual-scale: capture-content ? 1 : pill-scale;
+    out property <float> natural-width: min(480px, 64px + max(title-measure.preferred-width, body-measure.preferred-width)) / 1px;
+    out property <float> hit-x: pill.x / 1px;
+    out property <float> hit-y: pill.y / 1px;
+    out property <float> hit-width: pill.width / 1px;
+    out property <float> hit-height: pill.height / 1px;
+    callback open-settings();
+    title-measure := Text { text: root.heading; font-size: 13px; font-weight: 600; opacity: 0; }
+    body-measure := Text { text: root.message; font-size: 11px; font-weight: 600; opacity: 0; }
+    pill := Rectangle {
+        width: root.visual-width * root.visual-scale * 1px;
+        height: max(0, root.visual-height * root.visual-scale) * 1px;
+        x: (root.width - self.width) / 2;
+        y: 12px + root.visual-height * (1 - root.visual-scale) / 2 * 1px;
+        opacity: root.capture-content ? 1 : clamp(root.pill-opacity, 0, 1);
+        if !root.capture-content : Rectangle { width: 100%; height: 100%;
+        for row in [0,1,2]: Rectangle {
+            y: row == 0 ? -80px : row == 1 ? 32px : pill.height - 32px;
+            height: row == 1 ? max(0px, pill.height - 64px) : 112px;
+            for column in [0,1,2]: Image {
+                x: column == 0 ? -80px : column == 1 ? 32px : pill.width - 32px;
+                width: column == 1 ? max(0px, pill.width - 64px) : 112px; height: parent.height;
+                source: Theme.dark ? @image-url("../assets/overlay-shadow-dark.png") : @image-url("../assets/overlay-shadow-light.png");
+                source-clip-x: column == 0 ? 0 : column == 1 ? 336 : 339;
+                source-clip-y: row == 0 ? 0 : row == 1 ? 336 : 339;
+                source-clip-width: column == 1 ? 3 : 336; source-clip-height: row == 1 ? 3 : 336; image-fit: fill;
+            }
+        }
+        }
+        if !root.capture-content : Rectangle { width: 100%; height: 100%; background: Theme.notch-bg; border-radius: 28px * root.visual-scale; }
+        if root.capture-content || !root.has-raster : Rectangle { x: 14px * root.visual-scale; width: max(0px, parent.width - 28px * root.visual-scale); height: parent.height;
+            opacity: root.capture-content ? 1 : clamp(root.content-opacity, 0, 1);
+            Image { x: 2px * root.visual-scale; y: (parent.height - self.height) / 2;
+                width: 20px * root.visual-scale; height: self.width;
+                source: root.kind == "done" ? @image-url("../assets/notch-alert-success.svg") : root.kind == "permission" ? @image-url("../assets/notch-alert-warning.svg") : @image-url("../assets/notch-alert-info.svg");
+                colorize: root.kind == "done" ? Theme.ok : root.kind == "permission" ? Theme.warn : Theme.info;
+            }
+            Rectangle { x: 36px * root.visual-scale; y: (parent.height - self.height) / 2;
+                width: max(0px, parent.width - self.x); height: 29.8px * root.visual-scale;
+                Text { x: 0px; y: 0px; width: 100%; height: 15.6px * root.visual-scale; text: root.heading; color: Theme.ink;
+                    font-size: 13px * root.visual-scale; font-weight: 600; overflow: elide; vertical-alignment: center; }
+                Text { y: 16.6px * root.visual-scale; width: 100%; height: 13.2px * root.visual-scale; text: root.message; color: Theme.ink-2;
+                    font-size: 11px * root.visual-scale; font-weight: 600; overflow: elide; vertical-alignment: center; }
+            }
+        }
+        if root.has-raster && !root.capture-content : Rectangle {
+            width: 100%; height: 100%; clip: true;
+            Image {
+                x: (root.visual-width * (1 - root.content-scale) / 2 - root.raster-offset-x * root.content-scale) * root.visual-scale * 1px;
+                y: ((root.visual-height - 56 * root.content-scale) / 2 + root.content-y - root.raster-offset-y * root.content-scale) * root.visual-scale * 1px;
+                width: root.raster-width * root.visual-scale * root.content-scale * 1px;
+                height: root.raster-height * root.visual-scale * root.content-scale * 1px;
+                source: root.content-image; image-fit: fill;
+                opacity: clamp(root.content-opacity,0,1);
+                accessible-role: none;
+            }
+            Image {
+                private property <float> pop: 0.8 + 0.2 * root.icon-progress;
+                x: (root.visual-width * (1 - root.content-scale) / 2 - root.raster-offset-x * root.content-scale * self.pop + 26 * root.content-scale * (1 - self.pop)) * root.visual-scale * 1px;
+                y: ((root.visual-height - 56 * root.content-scale) / 2 + root.content-y - root.raster-offset-y * root.content-scale * self.pop + 28 * root.content-scale * (1 - self.pop)) * root.visual-scale * 1px;
+                width: root.raster-width * root.visual-scale * root.content-scale * self.pop * 1px;
+                height: root.raster-height * root.visual-scale * root.content-scale * self.pop * 1px;
+                source: root.icon-image; image-fit: fill;
+                opacity: clamp(root.content-opacity,0,1) * root.icon-progress;
+                accessible-role: none;
+            }
+        }
+        accessible-role: button; accessible-label: root.heading + ". " + root.message;
+        accessible-action-default => { root.open-settings(); }
+        TouchArea { mouse-cursor: pointer; clicked => { root.open-settings(); } }
+    }
+}

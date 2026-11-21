@@ -1,4 +1,4 @@
-// Live core models. Palette copied from the verified source usage-color.js samples.
+// Live core models. Usage colors resolve through the original OKLCH scale in Rust.
 export struct Session { key: string, name: string, provider: string, state: string, context: string, ago: string }
 export global Fixture {
     in-out property <[Session]> sessions: [];
@@ -8,9 +8,5 @@ export global Fixture {
     in-out property <[string]> reset-labels: ["", "", "", ""];
     in-out property <[string]> alert-times: [];
     in-out property <[string]> alert-lines: [];
-    out property <[color]> full-colors: [#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#3aca60,#37ca61,#2bca65,#0cca6b,#00ca72,#00ca7b,#00c985,#00c990,#00c79c,#00c5a7,#00c3b3,#00c0bf,#00bcca,#00b8d4,#00b3dd,#00aee5,#00a9ec,#00a3f1,#009ef6,#0099f9,#0094fa,#0090fc,#1d8dfc,#2d8bfd,#3589fc,#3789fd,#3b88fd,#4487fe,#5186ff,#5f83ff,#6f81ff,#7f7eff,#907bfd,#a078f8,#af75f2,#be72e9,#cd6fde,#da6dd1,#e56dc3,#ef6db4,#f76da4,#fe6f94,#ff7284,#ff7676,#ff7b68,#ff805b,#ff8451,#ff8746,#ff8b40,#ff8c3b,#ff8d39,#ff8d39,#ff8c38,#ff8a38,#ff8937,#ff8636,#ff8334,#ff8032,#ff7c31,#ff7830,#ff742e,#ff702e,#ff6b2e,#fd672e,#fc622e,#fc5d2f,#fb592f,#fa5430,#f95031,#f84c32,#f74833,#f74434,#f64234,#f54035,#f53f35,#f53e36];
-    out property <[color]> soft-colors: [#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#94e09f,#93e09f,#90e0a1,#8be0a4,#85dfa7,#7edfac,#75deb1,#6cddb7,#62dcbe,#58dac4,#50d8cc,#49d5d2,#44d2d9,#43cfdf,#45cbe4,#4ac7e9,#51c4ed,#58bff0,#5fbcf2,#66b8f4,#6cb5f4,#71b2f5,#75b0f5,#79aef5,#7aadf5,#7bacf5,#7dacf5,#80acf6,#87abf7,#8eaaf8,#97a9f9,#a2a7f8,#aea6f7,#b9a5f5,#c5a4f2,#d1a3ec,#dca2e6,#e6a2de,#efa3d6,#f7a4cd,#fea5c3,#ffa8ba,#ffaab1,#ffada9,#ffb1a3,#ffb49c,#ffb798,#ffba94,#ffbc92,#ffbd91,#ffbe90,#ffbd90,#ffbd90,#ffbb8f,#ffba8d,#ffb88c,#ffb68b,#ffb38a,#ffb088,#ffad87,#ffab85,#ffa784,#ffa482,#ffa081,#fe9d7f,#fd9a7f,#fb977d,#fb947d,#f9917c,#f88f7b,#f78c7b,#f68b7a,#f6897a,#f5887a,#f5877a,#f5877a];
-    public pure function usage-color(percent: float, soft: bool) -> color {
-        return soft ? soft-colors[round(clamp(percent,0,100))] : full-colors[round(clamp(percent,0,100))];
-    }
+    pure callback usage-color(float, bool) -> color;
 }

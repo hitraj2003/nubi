@@ -1,16 +1,19 @@
 import { Theme } from "theme.slint";
+export { NativeAlert } from "alert.slint";
 export { Theme }
-export { NativeUpdate, NativeLauncher } from "runtime.slint";
+export { NativeLauncher } from "runtime.slint";
 export { ParityPanel } from "panel.slint";
+export { PanelData, PanelField, FieldChoice, PanelAlert, PanelRelease, CalendarDay } from "panel-data.slint";
 export { Session, Fixture } from "fixture.slint";
-export { NotchData, NotchSession, NotchProvider, UsageWindow, NotchRequest, RequestOption, DeskRow, DeskSection } from "notch-data.slint";
+export { NotchData, NotchUpdate, NotchSession, NotchProvider, UsageWindow, NotchRequest, RequestOption, DeskRow, DeskSection } from "notch-data.slint";
 import { NotchData, NotchProvider } from "notch-data.slint";
 import { Fixture } from "fixture.slint";
 import { Arc, ProviderMark, SourceIcon, Hint } from "parity-widgets.slint";
-import { LiveSessionRow, RequestCard, NotchButton, NotchTip } from "notch-cards.slint";
+import { LiveSessionRow, RequestCard, UpdateCard, NotchButton, NotchTip } from "notch-cards.slint";
 import "../assets/Geist400.ttf";
 import "../assets/Geist500.ttf";
 import "../assets/Geist600.ttf";
+import "../assets/NubiFigures.ttf";
 
 component ProviderRing inherits Rectangle {
     in property <NotchProvider> provider;
@@ -19,7 +22,13 @@ component ProviderRing inherits Rectangle {
     in property <float> pulse-phase;
     in property <float> refresh-phase;
     in property <float> equalizer-phase;
-    width: root.side ? 30px : 65px; height: root.side ? 44px : 30px;
+    // Slint rounds Text.preferred-width to whole logical pixels. Measure at
+    // 100x to retain CSS-like fractional advances before the final shell rounding.
+    measure := Text { visible: false; text: root.provider.text; font-family: Theme.num; font-size: 1100px; font-weight: 500; }
+    // Keep source advances for layout, but reserve the actual heavier ink bounds.
+    ink-measure := Text { visible: false; text: root.provider.text; font-family: Theme.num;
+        font-size: Theme.snap(root.side ? 10px : 11px); font-weight: Theme.notch-compact-weight; }
+    width: root.side ? 30px : 36px + measure.preferred-width / 100; height: root.side ? 44px : 30px;
     Rectangle { x: 0px; y: 0px; width: 30px; height: 30px; opacity: root.provider.stale ? 0.5 : 1;
         if root.provider.has-week : Arc { width: 30px; height: 30px; percent: root.provider.week;
             radius: 14.4; stroke: 1.6; track: Theme.dark ? #ffffff14 : #1d1b1714; ink: Fixture.usage-color(root.provider.week, false); }
@@ -34,8 +43,8 @@ component ProviderRing inherits Rectangle {
         ProviderMark { x: Theme.snap(9.5px); y: Theme.snap(9.5px); width: Theme.snap(11px); height: Theme.snap(11px);
             provider: root.provider.provider; opacity: root.provider.session >= 100 ? 0.35 : 1; }
     }
-    Text { x: root.side ? -2px : 36px; y: root.side ? 32px : 0px; width: root.side ? 34px : 29px; height: root.side ? 12px : 30px;
-        text: root.provider.text; color: Theme.ink-2; font-family: Theme.num; font-size: root.side ? 10px : 11px; font-weight: 500;
+    percent := Text { x: Theme.align(root.side ? (30px - self.width) / 2 : 36px, parent.absolute-position.x); y: Theme.align(root.side ? 32px : 0px, parent.absolute-position.y) + Theme.notch-compact-y; width: max(root.side ? 34px : measure.preferred-width / 100, ink-measure.preferred-width + 2 * Theme.pixel); height: Theme.snap(root.side ? 12px : 30px);
+        text: root.provider.text; color: Theme.ink-2; font-family: Theme.num; font-size: Theme.snap(root.side ? 10px : 11px); font-weight: Theme.notch-compact-weight;
         vertical-alignment: center; horizontal-alignment: root.side ? center : left; }
     accessible-role: text; accessible-label: root.provider.name + ": " + root.provider.text + " of session";
 }
@@ -54,7 +63,9 @@ component Pie inherits Rectangle {
 }
 
 export component NotchWindow inherits Window {
-    title: "Nubi notch"; width: root.side ? 420px : 720px; height: root.side ? 860px : 700px;
+    // Native placement owns the work-area size; fixed dimensions constrain winit
+    // and separate the visible shape from the native mouse hit-test scene.
+    title: "Nubi notch"; preferred-width: root.side ? 420px : 720px; preferred-height: root.side ? 860px : 700px;
     no-frame: true; always-on-top: true; background: transparent;
     default-font-family: Theme.font; default-font-size: 13px;
     in property <float> along: 145;
@@ -66,6 +77,7 @@ export component NotchWindow inherits Window {
     // top, bottom, left, right. Content remains upright on every edge.
     in property <int> edge;
     in property <float> offset;
+    in property <float> expansion-offset;
     in property <int> view-mode: 1;
     in property <float> phase;
     in property <float> pulse-phase;
@@ -73,7 +85,7 @@ export component NotchWindow inherits Window {
     in property <float> equalizer-phase;
     in property <float> content-opacity: 1;
     in property <length> open-height: 188px;
-    in property <length> compact-width: 145px;
+    out property <length> compact-width: max(120px, round(compact-layout.preferred-width / 1px) * 1px);
     in property <string> menu-key;
     in property <string> menu-error;
     in property <bool> menu-busy;
@@ -81,23 +93,40 @@ export component NotchWindow inherits Window {
     in-out property <int> confirmation;
     in-out property <int> menu-index;
     in-out property <int> tab: 1;
+    in property <float> tab-x;
+    in property <float> tab-width;
     private property <int> focus-tab: -1;
     private property <int> tip-index: -1;
     callback open-panel();
     callback refresh-usage();
     callback toggle-dnd();
     callback tab-selected(int);
+    callback tab-geometry(float, float);
     callback pill-clicked();
     callback drag-start();
     out property <bool> typing: keys.has-focus;
     out property <bool> side: edge >= 2;
     out property <length> open-width: side ? min(360px, root.width - 24px) : min(620px, root.width - 48px);
-    out property <length> requests-content-height: max(42px, requests-layout.preferred-height);
+    out property <length> requests-content-height: max(42px, requests-layout.preferred-height + (NotchData.update.id == "" ? 0px : update-card.height + (NotchData.requests.length == 0 ? 0px : Theme.space)));
+    out property <bool> update-card-held: update-card.held;
+    // Animation settling is an acknowledgment rule, not a reason to pause a
+    // readable notice. Only an actually clipped/hidden card holds its clock.
+    out property <bool> update-card-visible: root.ready && root.opened && root.view-mode == 3 && root.tab == 0
+        && root.content-opacity > 0.01 && NotchData.update.id != ""
+        && update-card.absolute-position.y < min(viewport.absolute-position.y + viewport.height, root.shape-y + root.shape-height)
+        && update-card.absolute-position.y + update-card.height > max(viewport.absolute-position.y, root.shape-y);
+    // Acknowledge only a complete, settled card inside the visible scroll viewport.
+    out property <bool> update-card-shown: root.update-card-visible
+        && root.content-opacity >= 0.99 && NotchData.update.id != ""
+        && update-card.absolute-position.y >= root.shape-y - Theme.pixel
+        && update-card.absolute-position.y + update-card.height <= root.shape-y + root.shape-height + Theme.pixel
+        && update-card.absolute-position.y >= viewport.absolute-position.y - Theme.pixel
+        && update-card.absolute-position.y + update-card.height <= viewport.absolute-position.y + viewport.height + Theme.pixel;
     private property <length> shape-width: (side ? depth : along) * 1px;
     private property <length> shape-height: (side ? along : depth) * 1px;
-    private property <length> shift: clamp(offset * 1px, -(side ? root.height - outline.height : root.width - outline.width) / 2, (side ? root.height - outline.height : root.width - outline.width) / 2);
-    private property <length> shape-x: side ? edge == 2 ? 0px : root.width - shape-width : Theme.snap((root.width - shape-width) / 2 + shift);
-    private property <length> shape-y: side ? Theme.snap((root.height - shape-height) / 2 + shift) : edge == 0 ? 0px : root.height - shape-height;
+    private property <length> shift: clamp((offset + expansion-offset) * 1px, -(side ? root.height - outline.height : root.width - outline.width) / 2, (side ? root.height - outline.height : root.width - outline.width) / 2);
+    private property <length> shape-x: side ? edge == 2 ? 0px : root.width - shape-width : (root.width - shape-width) / 2 + shift;
+    private property <length> shape-y: side ? (root.height - shape-height) / 2 + shift : edge == 0 ? 0px : root.height - shape-height;
     public pure function px(u: float, v: float) -> float { return side ? edge == 2 ? v : depth - v : u; }
     public pure function py(u: float, v: float) -> float { return side ? u : edge == 0 ? v : depth - v; }
     public function focus-menu() { keys.focus(); }
@@ -151,21 +180,46 @@ export component NotchWindow inherits Window {
                 width: root.side ? 46px : root.compact-width; height: root.side ? NotchData.providers.length * 54px + 14px + (NotchData.pending-count + NotchData.missed-count > 0 ? 26px : 0px) : 44px;
                 pill := TouchArea { clicked => { root.pill-clicked(); } pointer-event(event) => { if event.kind == down && event.button == left { root.drag-start(); } } }
                 for provider[index] in NotchData.providers : ProviderRing {
-                    x: root.side ? 8px : Theme.snap(10px + index * 66px); y: root.side ? 12px + index * 54px : 7px;
-                    provider: provider; side: root.side; phase: root.phase; pulse-phase: root.pulse-phase; }
-                if !root.side : Text { x: 12px + NotchData.providers.length * 66px; y: 0px; height: 44px; text: NotchData.compact-text;
-                    color: Theme.ink-2; font-size: 12px; vertical-alignment: center; }
-                if NotchData.pending-count + NotchData.missed-count > 0 : Rectangle {
-                    x: root.side ? 14px : root.compact-width - (NotchData.pending-count == 0 ? 48px : 28px);
-                    y: root.side ? parent.height - 22px : 13px; width: 20px; height: 18px; border-radius: 9px; background: Theme.warn;
+                    visible: root.side; x: 8px; y: 12px + index * 54px;
+                    provider: provider; side: true; phase: root.phase; pulse-phase: root.pulse-phase;
+                }
+                compact-layout := HorizontalLayout {
+                    visible: !root.side; x: 0px; y: 7px; height: 30px;
+                    padding-left: 10px; padding-right: 10px; spacing: 12px;
+                    HorizontalLayout { spacing: 8px;
+                    for provider in NotchData.providers : ProviderRing {
+                        provider: provider; side: false; phase: root.phase; pulse-phase: root.pulse-phase;
+                    }
+                    if NotchData.compact-text != "" : Text {
+                        text: NotchData.compact-text; color: Theme.ink-2; font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                    }
+                    if NotchData.pending-count + NotchData.missed-count > 0 || NotchData.glance != "" : HorizontalLayout { spacing: 8px;
+                    if NotchData.pending-count + NotchData.missed-count > 0 : Rectangle {
+                        width: max(18px, badge.preferred-width + 12px); height: 18px;
+                        border-radius: 9px; background: Theme.warn;
+                        badge := Text { width: parent.width; height: Theme.snap(18px);
+                            text: NotchData.pending-count > 0 ? NotchData.pending-count : NotchData.missed-count;
+                            color: Theme.notch-bg; font-family: Theme.num; font-size: Theme.snap(11px); font-weight: 700;
+                            horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { if NotchData.pending-count == 0 { NotchData.terminal(""); } else { root.pill-clicked(); } } }
+                    }
+                    if NotchData.pending-count == 0 && NotchData.missed-count > 0 : NotchButton {
+                        width: 18px; height: 18px; text: "?"; quiet: true; hint: "Dismiss"; clicked => { NotchData.dismiss(""); }
+                    }
+                    if NotchData.pending-count + NotchData.missed-count == 0 && NotchData.glance != "" : Text {
+                        text: NotchData.glance; color: Theme.ink-2; font-family: Theme.num; font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                }
+                }
+                if root.side && NotchData.pending-count + NotchData.missed-count > 0 : Rectangle {
+                    x: 14px; y: parent.height - 22px; width: 20px; height: 18px; border-radius: 9px; background: Theme.warn;
                     Text { width: 100%; height: 100%; text: NotchData.pending-count > 0 ? NotchData.pending-count : NotchData.missed-count;
-                        color: Theme.notch-bg; font-family: Theme.num; font-size: 11px; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+                        color: Theme.notch-bg; font-family: Theme.num; font-size: Theme.snap(11px); font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                     TouchArea { mouse-cursor: pointer; clicked => { if NotchData.pending-count == 0 { NotchData.terminal(""); } else { root.pill-clicked(); } } }
                 }
-                if NotchData.pending-count == 0 && NotchData.missed-count > 0 && !root.side : NotchButton { x: root.compact-width - 26px; y: 13px; width: 18px; height: 18px; text: "×"; quiet: true; hint: "Dismiss"; clicked => { NotchData.dismiss(""); } }
-                if NotchData.pending-count + NotchData.missed-count == 0 && !root.side : Text {
-                    x: 12px + NotchData.providers.length * 66px; y: 0px; height: 44px; text: NotchData.glance;
-                    color: Theme.ink-2; font-family: Theme.num; font-size: 12px; vertical-alignment: center; }
             }
             if root.view-mode == 0 : TouchArea { clicked => { root.pill-clicked(); } pointer-event(event) => { if event.kind == down { root.drag-start(); } } }
             Rectangle { visible: root.view-mode == 2; x: (parent.width - 360px) / 2; y: 0px; width: 360px; height: 56px;
@@ -174,31 +228,50 @@ export component NotchWindow inherits Window {
                     Image { x: 7px; y: 7px; width: 14px; height: 14px; source: NotchData.alert-kind == "done" ? @image-url("../assets/notch-alert-success.svg") : NotchData.alert-kind == "permission" ? @image-url("../assets/notch-alert-warning.svg") : @image-url("../assets/notch-alert-info.svg");
                         colorize: NotchData.alert-kind == "done" ? Theme.ok : NotchData.alert-kind == "permission" ? Theme.warn : Theme.info; }
                 }
-                Text { x: 48px; y: 10px; text: NotchData.alert-title; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; }
-                Text { x: 48px; y: 29px; width: 300px; text: NotchData.alert-body; overflow: elide; color: Theme.ink-2; font-size: 12px; }
+                Text { x: Theme.align(48px, parent.absolute-position.x); y: Theme.align(10px, parent.absolute-position.y); text: NotchData.alert-title; color: Theme.ink; font-family: Theme.semibold; font-weight: Theme.notch-title-weight + 100; }
+                Text { x: Theme.align(48px, parent.absolute-position.x); y: Theme.align(29px, parent.absolute-position.y); width: 300px; text: NotchData.alert-body; overflow: elide; color: Theme.ink-2; font-size: Theme.snap(12px); font-weight: Theme.notch-body-weight; }
             }
             open-body := Rectangle { visible: root.view-mode == 3; opacity: root.content-opacity;
-                x: (parent.width - root.open-width) / 2; y: root.edge == 1 ? parent.height - root.open-height : root.side ? (parent.height - root.open-height) / 2 : 0px;
+                x: (parent.width - root.open-width) / 2; y: root.edge == 1 ? parent.height - root.open-height : 0px;
                 width: root.open-width; height: root.open-height;
-                Rectangle { x: 12px; y: 12px; width: parent.width - 24px; height: root.side ? 64px : 32px;
+                header := Rectangle { x: 12px; y: 12px; width: parent.width - 24px; height: 32px;
+                    // Reserve the complete toolbar before allocating the narrow tab strip.
+                    private property <length> icon-width: root.side ? 22px : 28px;
+                    private property <length> icons-x: self.width - 3 * self.icon-width - 8px;
                     TouchArea { pointer-event(event) => { if event.kind == down && event.button == left { root.drag-start(); } } }
-                    HorizontalLayout { x: 0px; y: 2px; height: 28px; spacing: 2px;
+                    Rectangle { x: root.tab-x * 1px; y: 2px; width: root.tab-width * 1px; height: 28px;
+                        border-radius: 14px; background: Theme.notch-ink-12; }
+                    tabs-strip := HorizontalLayout { x: 0px; y: 2px; height: 28px; spacing: 2px;
+                        width: root.side ? header.icons-x - 8px : self.preferred-width;
                         for label[index] in ["Waiting", "Sessions", "Usage", "DeskTime"] : Rectangle {
+                            private property <bool> selected: root.tab == index;
+                            tab-measure := Text { visible: false; text: label; font-family: Theme.semibold; font-size: 1200px; font-weight: 600; }
+
+                            private property <length> label-width: tab-measure.preferred-width / 100;
+                            changed selected => { if self.selected { root.tab-geometry(self.x / 1px, self.width / 1px); } }
+                            changed x => { if self.selected { root.tab-geometry(self.x / 1px, self.width / 1px); } }
+                            changed width => { if self.selected { root.tab-geometry(self.x / 1px, self.width / 1px); } }
                             private property <int> requested-focus: root.focus-tab;
                             changed requested-focus => { if root.focus-tab == index { tab-key.focus(); } }
-                            border-width: tab-key.has-focus ? Theme.pixel * 2 : 0px; border-color: Theme.ink-3;
+                            // Match source .tabs button:focus-visible: no outline or shadow.
                             visible: index != 3 || NotchData.desk-visible;
-                            width: tab-label.preferred-width + (root.side ? 20px : 24px) + (count.text == "" ? 0px : count.preferred-width + 14px); height: 28px;
-                            border-radius: 14px; background: root.tab == index ? Theme.notch-ink-12 : transparent;
-                            tab-label := Text { x: root.side ? 10px : 12px; y: 0px; height: 28px; text: label;
-                                color: root.tab == index || tab-touch.has-hover ? Theme.ink : Theme.ink-2; font-family: Theme.semibold; font-size: 12px; font-weight: 500; vertical-alignment: center; }
-                            Rectangle { x: tab-label.x + tab-label.preferred-width + 6px; y: 6px; height: 16px; width: count.text == "" ? 0px : max(16px, count.preferred-width + 8px); border-radius: 8px;
+                            private property <length> tab-padding: root.side ? 4px : 12px;
+                            private property <length> badge-gap: root.side ? 4px : 6px;
+                            private property <length> badge-width: count.text == "" ? 0px : max(16px, count.preferred-width + 8px);
+                            preferred-width: label-width + 2 * tab-padding + (badge-width == 0px ? 0px : badge-width + badge-gap);
+                            min-width: root.side ? 0px : self.preferred-width;
+                            max-width: self.preferred-width; height: 28px;
+                            border-radius: 14px; background: root.tab-width <= 0 && self.selected ? Theme.notch-ink-12 : transparent;
+                            tab-label := Text { x: Theme.align(parent.tab-padding, parent.absolute-position.x);
+                                width: max(0px, parent.width - 2 * parent.tab-padding - (parent.badge-width == 0px ? 0px : parent.badge-width + parent.badge-gap)); overflow: elide; y: Theme.align(0px, parent.absolute-position.y) + Theme.notch-tab-y; height: Theme.snap(28px); text: label;
+                                color: root.tab == index || tab-touch.has-hover ? Theme.ink : Theme.ink-2; font-family: Theme.semibold; font-size: Theme.snap(12px); font-weight: Theme.notch-tab-weight; letter-spacing: Theme.notch-tab-spacing; vertical-alignment: center; }
+                            Rectangle { x: parent.width - parent.tab-padding - self.width; y: 6px; height: 16px; width: parent.badge-width; border-radius: 8px;
                                 background: index == 0 && NotchData.requests.length > 0 ? Theme.warn : Theme.notch-ink-14;
-                                count := Text { x: 4px; y: 0px; height: 16px; text: index == 0 && NotchData.requests.length > 0 ? NotchData.requests.length : index == 1 && NotchData.session-count > 0 ? NotchData.session-count : "";
-                                    color: index == 0 ? Theme.notch-bg : Theme.ink; font-family: Theme.num; font-size: 10px; font-weight: 500; vertical-alignment: center; }
+                                count := Text { x: Theme.align(4px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y) + Theme.notch-badge-y; height: Theme.snap(16px); text: index == 0 && NotchData.requests.length > 0 ? NotchData.requests.length : index == 1 && NotchData.session-count > 0 ? NotchData.session-count : "";
+                                    color: index == 0 ? Theme.notch-bg : root.tab == index || tab-touch.has-hover ? Theme.ink : Theme.ink-2; font-family: Theme.num; font-size: Theme.snap(10px); font-weight: Theme.notch-badge-weight; vertical-alignment: center; }
                             }
                             tab-touch := TouchArea { mouse-cursor: pointer; clicked => { NotchData.focus-input(); tab-key.focus(); root.tab = index; root.tab-selected(index); } }
-                            tab-key := FocusScope { key-pressed(event) => {
+                            tab-key := FocusScope { width: 0px; height: 0px; key-pressed(event) => {
                                 if event.text == " " || event.text == "\n" { root.tab = index; root.tab-selected(index); return accept; }
                                 if event.text == Key.Home || event.text == Key.End { root.tab = event.text == Key.Home ? 0 : NotchData.desk-visible ? 3 : 2; root.focus-tab = root.tab; root.tab-selected(root.tab); return accept; }
                                 if event.text == Key.LeftArrow || event.text == Key.RightArrow { root.tab = clamp(index + (event.text == Key.LeftArrow ? -1 : 1),0,NotchData.desk-visible ? 3 : 2); root.focus-tab = root.tab; root.tab-selected(root.tab); return accept; } return reject;
@@ -211,17 +284,17 @@ export component NotchWindow inherits Window {
                         private property <bool> hot: icon-touch.has-hover || icon-key.has-focus;
                         changed hot => { if self.hot { root.tip-index = index; } else if root.tip-index == index { root.tip-index = -1; } }
                         border-width: icon-key.has-focus ? Theme.pixel * 2 : 0px; border-color: Theme.ink-3;
-                        x: parent.width - 92px + index * 32px; y: root.side ? 34px : 2px; width: 28px; height: 28px; border-radius: 14px;
-                        visible: index != 0 || root.tab == 2 || root.tab == 3;
+                        x: header.icons-x + index * (header.icon-width + 4px); y: 2px; width: header.icon-width; height: 28px; border-radius: 14px;
                         background: icon-touch.has-hover ? Theme.row-hover : transparent;
-                        SourceIcon { x: Theme.snap(6.5px); y: Theme.snap(6.5px); width: Theme.snap(15px); height: Theme.snap(15px); name: icon;
+                        SourceIcon { x: Theme.snap((parent.width - 15px) / 2); y: Theme.snap(6.5px); width: Theme.snap(15px); height: Theme.snap(15px); name: icon;
+                            source: index == 0 ? @image-url("../assets/notch-refresh-usage.svg") : index == 1 ? @image-url("../assets/notch-dnd.svg") : @image-url("../assets/notch-open-panel.svg");
                             colorize: index == 1 && NotchData.dnd ? Theme.warn : Theme.ink-2;
                             transform-rotation: index == 0 && (root.tab == 3 ? NotchData.desk-loading : NotchData.refreshing) && !Theme.reduced ? root.refresh-phase * 360deg : 0deg; }
                         icon-touch := TouchArea { enabled: index != 0 || !(root.tab == 3 ? NotchData.desk-loading : NotchData.refreshing); mouse-cursor: pointer; clicked => {
                             NotchData.focus-input(); icon-key.focus();
                             if index == 0 { root.refresh-usage(); } else if index == 1 { root.toggle-dnd(); } else { root.open-panel(); }
                         } }
-                        icon-key := FocusScope { enabled: index != 0 || !(root.tab == 3 ? NotchData.desk-loading : NotchData.refreshing); key-pressed(event) => { if event.text == " " || event.text == "\n" {
+                        icon-key := FocusScope { width: 0px; height: 0px; enabled: index != 0 || !(root.tab == 3 ? NotchData.desk-loading : NotchData.refreshing); key-pressed(event) => { if event.text == " " || event.text == "\n" {
                             if index == 0 { root.refresh-usage(); } else if index == 1 { root.toggle-dnd(); } else { root.open-panel(); } return accept; } return reject; } }
                         accessible-role: button; accessible-label: index == 0 ? root.tab == 3 ? "Refresh DeskTime" : "Refresh usage now" : index == 1 ? "Do not disturb" : "Open Nubi window";
                         accessible-enabled: index != 0 || !(root.tab == 3 ? NotchData.desk-loading : NotchData.refreshing);
@@ -229,21 +302,27 @@ export component NotchWindow inherits Window {
                         accessible-action-default => { if index == 0 { root.refresh-usage(); } else if index == 1 { root.toggle-dnd(); } else { root.open-panel(); } }
                     }
                 }
-                Flickable {
+                viewport := Flickable {
                     private property <length> focus-position: NotchData.focus-y;
                     changed focus-position => {
                         if focus-position < self.absolute-position.y { self.content-y = min(0px, self.content-y + self.absolute-position.y - focus-position); }
                         else if focus-position + 40px > self.absolute-position.y + self.height { self.content-y = max(min(0px,self.height - self.content-height), self.content-y - (focus-position + 40px - self.absolute-position.y - self.height)); }
                     }
-                    x: 12px; y: root.side ? 84px : 52px; width: root.open-width - 24px; height: root.open-height - self.y - 16px;
+                    x: 12px; y: 52px; width: root.open-width - 24px; height: root.open-height - self.y - 16px;
                     content-height: root.tab == 0 ? root.requests-content-height : root.tab == 1 ? sessions-layout.preferred-height : root.tab == 2 ? (root.side ? NotchData.providers.length : 1) * 120px : NotchData.desk-height;
                     interactive: root.menu-key == "";
-                    requests-layout := VerticalLayout { visible: root.tab == 0; width: parent.width; spacing: 8px; for request in NotchData.requests : RequestCard { request: request; } }
-                    if root.tab == 0 && NotchData.requests.length == 0 : Text { x: 0px; y: 18px; width: parent.width; text: "Nothing is waiting for you"; color: Theme.ink-3; font-size: 12px; horizontal-alignment: center; }
+                    requests-layout := VerticalLayout { visible: root.tab == 0; width: parent.width; spacing: Theme.space;
+                        for request in NotchData.requests : RequestCard { request: request; }
+                    }
+                    update-card := UpdateCard { visible: root.tab == 0 && NotchData.update.id != "";
+                        y: requests-layout.preferred-height + (NotchData.requests.length == 0 ? 0px : Theme.space);
+                        width: parent.width;
+                    }
+                    if root.tab == 0 && NotchData.requests.length == 0 && NotchData.update.id == "" : Text { x: Theme.align(0px, parent.absolute-position.x); y: Theme.align(18px, parent.absolute-position.y); width: parent.width; text: "Nothing is waiting for you"; color: Theme.ink-3; font-size: 12px; horizontal-alignment: center; }
                     sessions-layout := VerticalLayout { visible: root.tab == 1; spacing: 0px;
                         for session in NotchData.sessions : LiveSessionRow { session: session; side: root.side; phase: root.equalizer-phase; }
                     }
-                    if root.tab == 1 && NotchData.sessions.length == 0 : Text { x: 0px; y: 18px; width: parent.width; text: "No sessions yet. Start Claude Code or Codex."; color: Theme.ink-3; font-size: 12px; horizontal-alignment: center; }
+                    if root.tab == 1 && NotchData.sessions.length == 0 : Text { x: Theme.align(0px, parent.absolute-position.x); y: Theme.align(18px, parent.absolute-position.y); width: parent.width; text: "No sessions yet. Start Claude Code or Codex."; color: Theme.ink-3; font-size: 12px; horizontal-alignment: center; }
                     if root.tab == 2 : Rectangle {
                         for provider[index] in NotchData.providers : Rectangle {
                             x: root.side ? 0px : index * (parent.width + 8px) / NotchData.providers.length;
@@ -251,14 +330,20 @@ export component NotchWindow inherits Window {
                             width: root.side ? parent.width : (parent.width - (NotchData.providers.length - 1) * 8px) / NotchData.providers.length;
                             height: 112px; border-radius: 16px; background: Theme.row;
                             ProviderMark { x: 16px; y: 16px; provider: provider.provider; }
-                            Text { x: 40px; y: 16px; text: provider.name; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; }
-                            Text { x: 100px; y: 17px; width: parent.width - 116px; text: provider.status; color: Theme.ink-3; font-size: 11px; overflow: elide; horizontal-alignment: right; }
-                            if provider.windows.length == 0 : Text { x: 16px; y: 46px; width: parent.width - 32px; text: provider.message; color: Theme.ink-3; font-size: 12px; wrap: word-wrap; }
-                            for usage[window] in provider.windows : Rectangle { x: 16px + window * (parent.width - 16px) / 2; y: 46px; width: (parent.width - 48px) / 2; height: 50px;
+
+
+                            Text { letter-spacing: Theme.notch-provider-spacing; x: Theme.align(40px, parent.absolute-position.x); y: Theme.align(16px, parent.absolute-position.y) + Theme.notch-title-y; height: Theme.snap(18.2px); text: provider.name; color: Theme.ink; font-size: Theme.snap(13px); font-family: Theme.semibold; font-weight: Theme.notch-title-weight; }
+                            Text { x: Theme.align(100px, parent.absolute-position.x); y: Theme.align(17px, parent.absolute-position.y); width: parent.width - 116px; text: provider.status; color: Theme.ink-3; font-size: Theme.snap(11px); overflow: elide; horizontal-alignment: right; }
+                            if provider.windows.length == 0 : Text { x: Theme.align(16px, parent.absolute-position.x); y: Theme.align(46px, parent.absolute-position.y); width: parent.width - 32px; text: provider.message; color: Theme.ink-3; font-size: 12px; wrap: word-wrap; }
+                            for usage[window] in provider.windows : Rectangle { x: 16px + window * (parent.width - 16px) / 2; y: 46.2px; width: (parent.width - 48px) / 2; height: 49.8px;
+
+
+
+
                                 Pie { x: 0px; y: 3px; percent: usage.percent; soft: window == 0; }
-                                Text { x: 54px; y: 0px; text: round(usage.percent) + "%"; color: Theme.ink; font-family: Theme.num; font-size: 16px; font-weight: 500; }
-                                Text { x: 54px; y: 18px; text: usage.label; color: Theme.ink-2; font-size: 12px; }
-                                Text { x: 54px; y: 35px; text: usage.reset; color: Theme.ink-3; font-size: 11px; }
+                                Text { x: Theme.align(54px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y) + Theme.notch-number-y; height: Theme.snap(17.6px); vertical-alignment: center; text: round(usage.percent) + "%"; color: Theme.ink; font-family: Theme.num; font-size: Theme.snap(16px); font-weight: Theme.notch-number-weight; }
+                                Text { x: Theme.align(54px, parent.absolute-position.x); y: Theme.align(17.6px, parent.absolute-position.y) + Theme.notch-body-y; height: Theme.snap(16.8px); vertical-alignment: center; letter-spacing: Theme.notch-body-spacing; text: usage.label; color: Theme.ink-2; font-size: Theme.snap(12px); font-weight: Theme.notch-body-weight; }
+                                Text { x: Theme.align(54px, parent.absolute-position.x); y: Theme.align(34.4px, parent.absolute-position.y) + Theme.notch-caption-y; height: Theme.snap(15.4px); vertical-alignment: center; letter-spacing: Theme.notch-caption-spacing; text: usage.reset; color: Theme.ink-3; font-size: Theme.snap(11px); font-weight: Theme.notch-caption-weight; }
                             }
                         }
                     }
@@ -267,10 +352,10 @@ export component NotchWindow inherits Window {
                             x: section.column * (parent.width + 8px) / max(1,section.columns); y: section.y;
                             width: (parent.width - (max(1,section.columns) - 1) * 8px) / max(1,section.columns); height: section.height;
                             border-radius: 16px; background: Theme.row; opacity: NotchData.desk-loading ? 0.72 : 1;
-                            Text { visible: section.view != "day"; x: 16px; y: 16px; text: section.title; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; }
-                            Text { visible: section.view != "day"; x: 120px; y: 16px; width: parent.width - 136px; text: section.note; color: Theme.ink-3; font-size: 11px; horizontal-alignment: right; }
-                            Text { x: 16px; y: section.view == "day" ? 16px : 40px; text: section.big; color: section.over ? Theme.ok : Theme.ink; font-family: Theme.num; font-size: section.view == "day" ? 28px : 22px; font-weight: 500; }
-                            Text { x: parent.width / 2; y: section.view == "day" ? 24px : 48px; text: section.caption; color: Theme.ink-2; font-size: 12px; }
+                            Text { visible: section.view != "day"; x: Theme.align(16px, parent.absolute-position.x); y: Theme.align(16px, parent.absolute-position.y); text: section.title; color: Theme.ink; font-family: Theme.semibold; font-weight: Theme.notch-title-weight; }
+                            Text { visible: section.view != "day"; x: Theme.align(120px, parent.absolute-position.x); y: Theme.align(16px, parent.absolute-position.y); width: parent.width - 136px; text: section.note; color: Theme.ink-3; font-size: Theme.snap(11px); horizontal-alignment: right; }
+                            Text { x: Theme.align(16px, parent.absolute-position.x); y: Theme.align(section.view == "day" ? 16px : 40px, parent.absolute-position.y); text: section.big; color: section.over ? Theme.ok : Theme.ink; font-family: Theme.num; font-size: section.view == "day" ? 28px : 22px; font-weight: 600; }
+                            Text { x: Theme.align(parent.width / 2, parent.absolute-position.x); y: Theme.align(section.view == "day" ? 24px : 48px, parent.absolute-position.y); text: section.caption; color: Theme.ink-2; font-size: Theme.snap(12px); font-weight: Theme.notch-body-weight; }
                             Rectangle { x: 16px; y: section.view == "day" ? 56px : 78px; width: parent.width - 32px; height: 6px; border-radius: 3px; background: Theme.notch-ink-12;
                                 Rectangle { x: 0px; y: 0px; width: Theme.snap(parent.width * section.percent / 100); height: parent.height; border-radius: 3px; background: Theme.ok; }
                                 if section.pace >= 0 : Rectangle { x: Theme.snap(parent.width * section.pace / 100); y: -3px; width: Theme.snap(2px); height: 12px; border-radius: 1px; background: Theme.ink-2; }
@@ -280,15 +365,15 @@ export component NotchWindow inherits Window {
                                 x: 16px + mod(index,section.row-columns) * (parent.width - 20px) / section.row-columns;
                                 y: (day ? 78px : 96px) + floor(index / section.row-columns) * section.row-height;
                                 width: (parent.width - 32px - (section.row-columns - 1) * 12px) / section.row-columns; height: section.row-height;
-                                Text { x: 0px; y: 0px; text: row.label; color: parent.day ? Theme.ink-3 : Theme.ink-2; font-size: parent.day ? 11px : 12px; }
-                                Text { x: parent.day ? 0px : parent.width / 2; y: parent.day ? 15px : 0px; width: parent.day ? parent.width : parent.width / 2; text: row.value;
-                                    horizontal-alignment: parent.day ? left : right; color: row.tone == "pos" ? Theme.ok : row.tone == "neg" ? Theme.bad : Theme.ink; font-family: Theme.num; font-size: parent.day ? 13px : 12px; font-weight: 500; }
-                                Text { x: 0px; y: parent.day ? 32px : 17px; width: parent.width; text: row.note; color: Theme.ink-3; font-size: 11px; horizontal-alignment: parent.day ? left : right; overflow: elide; }
+                                Text { x: Theme.align(0px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); text: row.label; color: parent.day ? Theme.ink-3 : Theme.ink-2; font-size: parent.day ? 11px : 12px; }
+                                Text { x: Theme.align(parent.day ? 0px : parent.width / 2, parent.absolute-position.x); y: Theme.align(parent.day ? 15px : 0px, parent.absolute-position.y); width: parent.day ? parent.width : parent.width / 2; text: row.value;
+                                    horizontal-alignment: parent.day ? left : right; color: row.tone == "pos" ? Theme.ok : row.tone == "neg" ? Theme.bad : Theme.ink; font-family: Theme.num; font-size: parent.day ? 13px : 12px; font-weight: 600; }
+                                Text { x: Theme.align(0px, parent.absolute-position.x); y: Theme.align(parent.day ? 32px : 17px, parent.absolute-position.y); width: parent.width; text: row.note; color: Theme.ink-3; font-size: Theme.snap(11px); horizontal-alignment: parent.day ? left : right; overflow: elide; }
                             }
                         }
                         if NotchData.desk-sections.length == 0 : Rectangle { x: 0px; y: 0px; width: parent.width; height: 190px; border-radius: 16px; background: Theme.row;
-                            Text { x: 16px; y: 20px; width: parent.width - 32px; text: NotchData.desk-title; accessible-live-region: polite; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; horizontal-alignment: center; }
-                            Text { visible: !NotchData.desk-loading; x: 16px; y: 50px; width: parent.width - 32px; text: NotchData.desk-message; wrap: word-wrap; color: Theme.ink-2; font-size: 12px; horizontal-alignment: center; }
+                            Text { x: Theme.align(16px, parent.absolute-position.x); y: Theme.align(20px, parent.absolute-position.y); width: parent.width - 32px; text: NotchData.desk-title; accessible-live-region: polite; color: Theme.ink; font-family: Theme.semibold; font-weight: Theme.notch-title-weight; horizontal-alignment: center; }
+                            Text { visible: !NotchData.desk-loading; x: Theme.align(16px, parent.absolute-position.x); y: Theme.align(50px, parent.absolute-position.y); width: parent.width - 32px; text: NotchData.desk-message; wrap: word-wrap; color: Theme.ink-2; font-size: 12px; horizontal-alignment: center; }
                             if NotchData.desk-loading : Rectangle { x: 16px; y: 54px; width: parent.width - 32px; height: 100px;
                                 for i in [0,1,2] : Rectangle { y: i * 24px; width: parent.width * (i == 0 ? 0.6 : i == 1 ? 0.85 : 0.45); height: 12px; border-radius: 6px; background: Theme.notch-ink-12; }
                                 HorizontalLayout { y: 84px; height: 3px; spacing: 4px;
@@ -307,8 +392,8 @@ export component NotchWindow inherits Window {
                     text: NotchData.detail-tip; active: root.tab == 0 && root.menu-key == "" && NotchData.detail-tip != ""; }
                 Hint { x: max(12px, root.open-width - self.width - 16px); y: root.side ? 66px : 40px;
                     active: root.tip-index >= 0 && root.menu-key == ""; text: root.tip-index == 0 ? (root.tab == 3 ? "Refresh DeskTime now" : "Refresh usage now") : root.tip-index == 1 ? "Do not disturb" : "Open Nubi window"; }
-                if root.tab == 0 && NotchData.request-error != "" : Text { x: 16px; y: parent.height - 18px; width: parent.width - 32px; text: NotchData.request-error; color: Theme.notch-bad; font-size: 11px; overflow: elide; accessible-live-region: polite; }
-                if NotchData.refresh-error != "" : Text { x: 16px; y: parent.height - 18px; width: parent.width - 32px; text: NotchData.refresh-error; color: Theme.warn; font-size: 11px; overflow: elide; accessible-live-region: polite; }
+                if root.tab == 0 && NotchData.request-error != "" : Text { x: Theme.align(16px, parent.absolute-position.x); y: Theme.align(parent.height - 18px, parent.absolute-position.y); width: parent.width - 32px; text: NotchData.request-error; color: Theme.notch-bad; font-size: Theme.snap(11px); overflow: elide; accessible-live-region: polite; }
+                if NotchData.refresh-error != "" : Text { x: Theme.align(16px, parent.absolute-position.x); y: Theme.align(parent.height - 18px, parent.absolute-position.y); width: parent.width - 32px; text: NotchData.refresh-error; color: Theme.warn; font-size: Theme.snap(11px); overflow: elide; accessible-live-region: polite; }
                 if root.menu-key != "" : Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.height;
                     TouchArea { clicked => { NotchData.close-menu(); } }
                     Rectangle { x: parent.width - 292px; y: 44px; width: 280px; height: root.confirmation == 0 ? 174px : 180px;
@@ -316,22 +401,22 @@ export component NotchWindow inherits Window {
                         if root.confirmation == 0 : VerticalLayout { x: 8px; y: 8px; width: parent.width - 16px; spacing: 0px;
                             for label[index] in ["Jump", "New terminal", root.compact-queued ? "Cancel queued compact" : "Compact context", "Close"] : Rectangle { height: 36px; border-radius: 8px;
                                 background: root.menu-index == index || item-touch.has-hover ? Theme.row-hover : transparent;
-                                Text { x: 12px; y: 0px; height: 36px; text: label; color: index == 3 ? Theme.bad : Theme.ink; vertical-alignment: center; }
+                                Text { x: Theme.align(12px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); height: Theme.snap(36px); text: label; color: index == 3 ? Theme.bad : Theme.ink; vertical-alignment: center; }
                                 item-touch := TouchArea { enabled: !root.menu-busy; mouse-cursor: pointer; clicked => { root.menu-select(index); } }
                                 accessible-role: button; accessible-label: label;
                             }
                         }
                         if root.confirmation != 0 : Rectangle { x: 16px; y: 16px; width: parent.width - 32px; height: 146px;
-                            Text { text: root.confirmation == 1 ? "Close this session?" : "Compact context?"; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; }
-                            Text { y: 30px; width: parent.width; text: root.confirmation == 1 ? "Stops this agent and its running commands. The terminal window stays open." : "Sends /compact when this session is idle. Keep the terminal prompt empty until it runs.";
-                                wrap: word-wrap; color: Theme.ink-2; font-size: 12px; }
+                            Text { text: root.confirmation == 1 ? "Close this session?" : "Compact context?"; color: Theme.ink; font-family: Theme.semibold; font-weight: Theme.notch-title-weight; }
+                            Text { y: Theme.align(30px, parent.absolute-position.y); width: parent.width; text: root.confirmation == 1 ? "Stops this agent and its running commands. The terminal window stays open." : "Sends /compact when this session is idle. Keep the terminal prompt empty until it runs.";
+                                wrap: word-wrap; color: Theme.ink-2; font-size: Theme.snap(12px); font-weight: Theme.notch-body-weight; }
                             HorizontalLayout { y: 104px; height: 28px; spacing: 8px;
                                 NotchButton { text: "Cancel"; primary: root.menu-index == 0; clicked => { NotchData.close-menu(); } }
                                 NotchButton { text: root.confirmation == 1 ? "Close session" : "Queue compact"; enabled: !root.menu-busy; primary: root.menu-index == 1;
                                     clicked => { NotchData.session-action(root.menu-key, root.confirmation == 1 ? "close" : "compact"); } }
                             }
                         }
-                        Text { x: 8px; y: parent.height - 24px; width: parent.width - 16px; text: root.menu-error; color: Theme.bad; font-size: 11px; overflow: elide; }
+                        Text { x: Theme.align(8px, parent.absolute-position.x); y: Theme.align(parent.height - 24px, parent.absolute-position.y); width: parent.width - 16px; text: root.menu-error; color: Theme.bad; font-size: Theme.snap(11px); overflow: elide; }
                     }
                 }
             }

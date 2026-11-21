@@ -1,273 +1,254 @@
 import { Theme } from "theme.slint";
-import { Fixture, Session } from "fixture.slint";
-import { Ink, Arc, Tile, SourceIcon, Action, Toggle, Segmented, Card, CssShadow, Hint } from "parity-widgets.slint";
-import { AboutSlint, Palette } from "std-widgets.slint";
-
-component Heading inherits Ink { x: 0px; y: 0px; font-family: Theme.num; font-size: 24px; font-weight: 500; height: 32px; }
-
-component Meter inherits Card { x: 0px; y: 0px;
-    in property <int> provider;
-    in property <float> percent: Fixture.session-percent[provider];
-    in property <float> weekly: Fixture.week-percent[provider];
-    height: 174px;
-    Arc { x: 20px; y: 27px; width: 120px; height: 120px;
-        radius: 12.916667; stroke: 10.666667; percent: root.percent;
-        track: Theme.card-2; ink: root.provider == 0 ? Theme.claude : #5b8def; }
-    Ink { x: 20px; y: 61px; width: 120px; height: 32px;
-        text: round(root.percent) + "%"; horizontal-alignment: center; font-family: Theme.num;
-        font-size: 28px; font-weight: 500; letter-spacing: -0.56px; }
-    Ink { x: 20px; y: 93px; width: 120px; height: 18px; text: "5-hour limit";
-        font-size: 12px; color: Theme.t3; horizontal-alignment: center; }
-    Rectangle { x: 164px; y: 20px; width: parent.width - 184px; height: 134px;
-        Tile { x: 0px; y: 0px; provider: root.provider == 0 ? "claude" : "codex"; }
-        Ink { x: 38px; y: 0px; height: 28px; text: root.provider == 0 ? "Claude" : "Codex"; font-size: 14px; font-weight: 500; }
-        for value[index] in [root.percent, root.weekly] : Rectangle {
-            x: 0px; y: 42px + index * 46px; width: parent.width; height: 46px;
-            Ink { x: 0px; y: 0px; height: 18px; text: index == 0 ? "Last 5 hours" : "This week"; color: Theme.t2; font-size: 12px; }
-            Ink { x: 0px; y: 0px; height: 18px; width: parent.width; horizontal-alignment: right;
-                text: round(value) + "% " + Fixture.reset-labels[root.provider * 2 + index];
-                color: Theme.t3; font-size: 12px; }
-            Rectangle { x: 0px; y: 26px; width: parent.width; height: 8px; border-radius: 4px;
-                background: Theme.card-2; border-width: 1px; border-color: Theme.line;
-                Rectangle { x: 0px; y: 0px; width: parent.width * value / 100; height: 8px; border-radius: 4px;
-                    background: value >= 70 ? Theme.bad : value >= 50 ? #e0a526 : root.provider == 0 ? Theme.claude : #5b8def; }
+import { Fixture } from "fixture.slint";
+import { NotchData, NotchSession, NotchProvider } from "notch-data.slint";
+import { PanelData, PanelField, FieldChoice, PanelAlert, PanelRelease, CalendarDay } from "panel-data.slint";
+export { PanelData, PanelField, FieldChoice, PanelAlert, PanelRelease, CalendarDay }
+import { FieldRow, Caption, Heading } from "panel-fields.slint";
+import { RequestCard } from "notch-cards.slint";
+import { Arc, SourceIcon, Action, Segmented, CssShadow, Hint } from "parity-widgets.slint";
+import { PanelInk, PanelCard, PanelTile, PanelToggle } from "panel-widgets.slint";
+import { Palette, TextEdit } from "std-widgets.slint";
+component Meter inherits PanelCard {
+    in property <NotchProvider> provider;
+    height: max(174px,80px + provider.windows.length * 46px);
+    if provider.windows.length > 0 : Arc { x: 20px; y: 27px; width: 120px; height: 120px; radius: 12.916667; stroke: 10.666667; percent: root.provider.windows[0].percent; track: Theme.card-2; ink: root.provider.windows[0].percent >= 70 ? Theme.bad : root.provider.windows[0].percent >= 50 ? Theme.warn : root.provider.provider == "claude" ? Theme.claude : Theme.codex; }
+    if provider.windows.length > 0 : PanelInk { x: 20px; y: 61px; width: 120px; height: 32px; text: round(root.provider.windows[0].percent) + "%"; horizontal-alignment: center; font-family: Theme.num; font-size: 28px; font-weight: 500; }
+    if provider.windows.length > 0 : Caption { x: 20px; y: 93px; width: 120px; height: 18px; text: root.provider.windows[0].label == "Last 5 hours" ? "5-hour limit" : root.provider.windows[0].label == "This week" ? "weekly limit" : "used"; horizontal-alignment: center; }
+    VerticalLayout { x: root.provider.windows.length > 0 ? 164px : 20px; y: 20px; width: root.width - self.x - 20px; spacing: 10px;
+        HorizontalLayout { height: 28px; spacing: 10px; PanelTile { provider: root.provider.provider; } PanelInk { text: root.provider.name; font-weight: 500; } }
+        if root.provider.status != "" : Caption { text: root.provider.status; wrap: word-wrap; min-height: 32px; color: Theme.bad; }
+        for window in root.provider.windows : VerticalLayout { spacing: 8px; height: 36px;
+            HorizontalLayout { Caption { text: window.label; } Caption { text: round(window.percent) + "% · " + window.reset; horizontal-alignment: right; } }
+            Rectangle { height: 8px; border-radius: 4px; background: Theme.card-2;
+                Rectangle { x: 0px; y: 0px; width: parent.width * window.percent / 100; height: 8px; border-radius: 4px; background: window.percent >= 70 ? Theme.bad : window.percent >= 50 ? Theme.warn : root.provider.provider == "claude" ? Theme.claude : Theme.codex; }
             }
         }
     }
 }
-
-component SettingRow inherits Rectangle { x: 0px; y: 0px;
-    in property <string> label;
-    in property <string> description;
-    in property <bool> first;
-    height: 64px;
-    if !first : Rectangle { x: 0px; y: 0px; height: 1px; background: Theme.line; }
-    Ink { x: 0px; y: description == "" ? 0px : 12px; width: min(440px,parent.width - 70px);
-        height: description == "" ? parent.height : 18px; text: root.label; font-weight: 500; }
-    Ink { x: 0px; y: 32px; width: min(440px,parent.width - 70px); height: parent.height - 44px;
-        text: root.description; color: Theme.t2; font-size: 12px; wrap: word-wrap; vertical-alignment: top; }
-    @children
-}
-
 export component ParityPanel inherits Window {
-    title: "Nubi";
-    preferred-width: 1100px; preferred-height: 760px; min-width: 900px; min-height: 580px;
+    title: "Nubi"; preferred-width: 1100px; preferred-height: 760px; min-width: 900px; min-height: 580px;
     background: Theme.canvas; default-font-family: Theme.font; default-font-size: 13px;
-    in-out property <int> page: 2;
-    private property <bool> theme-dark: Theme.dark;
-    changed theme-dark => { Palette.color-scheme = root.theme-dark ? dark : light; }
-    in-out property <int> pane: 0;
+    in-out property <int> page: 4;
+    in-out property <int> pane;
     in-out property <bool> dirty;
-    in-out property <bool> auto-start: true;
-    in-out property <bool> auto-update: true;
-    in-out property <bool> launcher: true;
-    in-out property <int> provider-filter;
-    out property <[Session]> session-rows: root.filtered-sessions(root.provider-filter);
-    pure callback filtered-sessions(int) -> [Session];
-    in-out property <int> providers;
     in-out property <bool> dnd;
-    in-out property <bool> saved-start: true;
-    in-out property <bool> saved-update: true;
-    in-out property <bool> saved-launcher: true;
-    in-out property <int> saved-providers;
-    in-out property <string> hotkey: "Ctrl+Shift+T";
-    in-out property <string> saved-hotkey: "Ctrl+Shift+T";
-    out property <[string]> shortcut-keys: root.hotkey-parts(root.hotkey);
-    pure callback hotkey-parts(string) -> [string];
-    callback capture-shortcut(string, bool, bool, bool);
+    in-out property <int> provider-filter;
+    in property <string> app-version;
+    in-out property <string> status;
     in-out property <bool> leave-open;
     in-out property <int> leaving-to;
-    in-out property <string> status;
-    callback terminal(string);
-    callback refresh();
-    callback test-alert();
-    callback check-update();
-    callback release-notes();
-    callback toggle-dnd();
-    in property <string> app-version;
+    in-out property <string> confirmation-key;
+    in-out property <string> confirmation-action;
+    in-out property <[NotchSession]> session-rows;
+    in-out property <int> session-count;
+    callback pane-changed(int);
+    callback filter-changed(int);
+    callback persist() -> bool;
+    callback discard();
+    callback hide-panel();
     callback navigate(int);
-    navigate(next) => { if root.dirty && next != 4 { root.leaving-to = next; root.leave-open = true; } else { root.page = next; } }
-    callback persist();
-    public function save() {
-        root.persist();
-        if root.status != "Saved" { return; }
-        saved-start = auto-start; saved-update = auto-update; saved-launcher = launcher; saved-providers = providers; saved-hotkey = hotkey;
-        dirty = false; status = "Saved";
-    }
-    public function discard() {
-        auto-start = saved-start; auto-update = saved-update; launcher = saved-launcher; providers = saved-providers; hotkey = saved-hotkey;
-        dirty = false;
-    }
+    navigate(next) => { if root.dirty && next != 4 { root.leaving-to = next; root.leave-open = true; modal-popup.show(); } else { root.page = next; } }
+    changed pane => { PanelData.settings-y = 0px; root.pane-changed(root.pane); }
+    changed page => { PanelData.feed-y = 0px; }
+    changed provider-filter => { root.filter-changed(root.provider-filter); }
+    private property <bool> theme-dark: Theme.dark;
+    changed theme-dark => { Palette.color-scheme = root.theme-dark ? dark : light; }
     init => { Palette.color-scheme = Theme.dark ? dark : light; }
-
-    Rectangle { x: 12px; y: 12px; width: 64px; height: root.height - 24px;
-        border-radius: 18px;
-        CssShadow { x: 0px; y: 0px; width: 100%; height: 100%; }
-        Rectangle { x: 0px; y: 0px; width: 100%; height: 100%; border-radius: 18px; background: Theme.rail; }
-        Image { x: 16px; y: 16px; width: 32px; height: 32px; source: @image-url("../assets/nubi-logo.png"); }
-        Rectangle { x: 12px; y: root.page == 4 ? parent.height - 56px : 72px + root.page * 44px;
-            width: 40px; height: 40px; border-radius: 12px; background: Theme.acc;
-            animate y { duration: Theme.reduced ? 0ms : 300ms; easing: cubic-bezier(0.2,0.9,0.25,1); }
+    public function request-close() { if root.dirty { root.leaving-to = -1; root.leave-open = true; modal-popup.show(); } else { root.hide-panel(); } }
+    public function leave(save: bool) { if save { if !root.persist() { return; } } else { root.discard(); } root.leave-open = false; modal-popup.close(); if root.leaving-to < 0 { root.hide-panel(); } else { root.page = root.leaving-to; } shell.focus(); }
+    public function cancel-modal() { root.leave-open = false; root.confirmation-key = ""; PanelData.report-open = false; modal-popup.close(); }
+    private property <bool> reporting: PanelData.report-open;
+    changed reporting => { if root.reporting { modal-popup.show(); } else { modal-popup.close(); } }
+    forward-focus: shell;
+    public function take-focus() { shell.focus(); }
+    shell := FocusScope {
+        focus-on-tab-navigation: false;
+        key-pressed(event) => { if event.text == Key.Escape { root.request-close(); return accept; } return reject; }
+        Rectangle { x: 12px; y: 12px; width: 64px; height: root.height - 24px; border-radius: 18px;
+            CssShadow { width: 100%; height: 100%; }
+            Rectangle { width: 100%; height: 100%; border-radius: 18px; background: Theme.rail; }
+            Image { x: 16px; y: 16px; width: 32px; height: 32px; source: @image-url("../assets/nubi-logo.png"); }
+            Rectangle { x: 12px; y: root.page == 4 ? parent.height - 56px : 72px + root.page * 44px; width: 40px; height: 40px; border-radius: 12px; background: Theme.acc; }
+            for icon[index] in ["inbox","sessions","usage","alerts","settings"] : Rectangle {
+                x: 12px; y: index == 4 ? parent.height - 56px : 72px + index * 44px; width: 40px; height: 40px; border-radius: 12px;
+                border-width: keys.has-focus ? 2px : 0px; border-color: Theme.t1;
+                SourceIcon { x: 11px; y: 11px; name: icon; colorize: root.page == index ? Theme.acc-ink : Theme.t2; }
+                accessible-role: button; accessible-label: icon; accessible-action-default => { root.navigate(index); }
+                TouchArea { mouse-cursor: pointer; clicked => { keys.focus(); root.navigate(index); } }
+                keys := FocusScope { width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { root.navigate(index); return accept; } return reject; } }
+                if index == 0 && NotchData.pending-count > 0 : Rectangle { x: 24px; y: 0px; width: 20px; height: 16px; border-radius: 8px; background: Theme.bad; PanelInk { text: NotchData.pending-count; font-size: 10px; horizontal-alignment: center; color: white; } }
+                Hint { x: 46px; y: 6px; text: icon; active: keys.has-focus; }
+            }
+            PanelToggle { x: 12px; y: parent.height - 98px; label: root.dnd ? "Do not disturb is on" : "Do not disturb"; checked: root.dnd; toggled => { PanelData.action("dnd",""); } }
         }
-        for icon[index] in ["inbox", "sessions", "usage", "alerts", "settings"] : Rectangle {
-            x: 12px; y: index == 4 ? parent.height - 56px : 72px + index * 44px;
-            width: 40px; height: 40px; border-radius: 12px;
-            background: touch.has-hover && root.page != index ? Theme.card-2 : transparent;
-            SourceIcon { x: 11px; y: 11px; name: icon; colorize: root.page == index ? Theme.acc-ink : Theme.t2; }
-            accessible-role: button; accessible-label: icon;
-            accessible-action-default => { root.navigate(index); }
-            touch := TouchArea { mouse-cursor: pointer; clicked => { keys.focus(); root.navigate(index); } }
-            keys := FocusScope { width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { root.navigate(index); return accept; } return reject; } }
-            Hint { x: 46px; y: 6px; text: index == 0 ? "Inbox" : index == 1 ? "Sessions" : index == 2 ? "Usage" : index == 3 ? "Alerts" : "Settings";
-                active: touch.has-hover || keys.has-focus; }
-        }
-        Rectangle { x: 12px; y: parent.height - 104px; width: 40px; height: 40px; border-radius: 12px;
-            background: root.dnd ? Theme.t1 : dnd-touch.has-hover ? Theme.card-2 : transparent;
-            SourceIcon { x: 11px; y: 11px; name: "dnd"; colorize: root.dnd ? Theme.canvas : Theme.t2; }
-            dnd-touch := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-dnd(); } }
-        }
-    }
-
-    if root.page != 4 : Rectangle {
-        x: 100px; y: 24px; width: min(root.width - 128px,1040px); height: root.height - 48px;
-        Heading { x: 0px; y: 0px; text: root.page == 0 ? "Inbox" : root.page == 1 ? "Sessions" : root.page == 2 ? "Usage" : "Alerts"; }
-        Ink { x: root.page == 1 ? 107px : root.page == 2 ? 82px : 72px; y: 0px; height: 32px;
-            text: root.page == 1 ? Fixture.sessions.length + " sessions" : root.page == 3 ? Fixture.alert-lines.length + " alerts" : "";
-            color: Theme.t3; font-size: 12px; }
-        if root.page == 2 || root.page == 3 : Action { y: 0px;
-            x: parent.width - self.width; text: root.page == 2 ? "Refresh" : "Show a test alert";
-            clicked => { if root.page == 2 { root.refresh(); } else { root.test-alert(); } }
-        }
-        if root.page == 1 : Segmented { y: 0px; x: parent.width - 180px; width: 180px;
-            labels: ["All","Claude","Codex"]; selected <=> root.provider-filter; }
-        if root.page == 0 : Ink { x: 0px; y: 88px; height: 18px;
-            text: "Nothing waiting. Approvals and Claude's questions appear here."; color: Theme.t3; }
-        if root.page == 2 : Rectangle { x: 0px; y: 48px; width: parent.width; height: 174px;
-            for provider in [0,1] : Meter { x: provider * (parent.width + 14px) / 2; width: (parent.width - 14px) / 2; provider: provider; }
-        }
-        if root.page == 1 : VerticalLayout {
-            y: 48px; width: parent.width; spacing: 10px;
-            for session in root.session-rows : Rectangle {
-                height: 60px; border-radius: 14px; background: Theme.card;
-                Tile { x: 14px; y: 16px; provider: session.provider; }
-                Ink { x: 54px; y: 12px; height: 18px; text: session.name; font-weight: 500; }
-                Ink { x: 54px; y: 30px; height: 18px; text: session.context + " context";
-                    font-size: 12px; color: Theme.t3; }
-                Rectangle { x: parent.width - 288px; y: 18px; width: 56px; height: 24px;
-                    background: Theme.card-2; border-width: 1px; border-color: Theme.line; border-radius: 8px;
-                    Rectangle { x: 8px; y: 9px; width: 6px; height: 6px; border-radius: 3px; background: Theme.t2; }
-                    Ink { y: 0px; x: 20px; height: 24px; text: session.state; color: Theme.t2; font-size: 12px; font-weight: 500; }
+        if root.page != 4 : Rectangle { x: 100px; y: 24px; width: min(root.width - 128px,1040px); height: root.height - 48px;
+            Heading { x: 0px; y: 0px; text: root.page == 0 ? "Inbox" : root.page == 1 ? "Sessions" : root.page == 2 ? "Usage" : "Alerts"; }
+            Caption { x: 110px; y: 0px; height: 32px; width: parent.width - 320px; text: root.page == 0 ? (NotchData.pending-count > 0 ? NotchData.pending-count + " waiting" : "") : root.page == 1 ? root.session-count + " sessions" : root.page == 2 ? PanelData.usage-age : PanelData.alerts.length >= 50 ? "Latest 50" : PanelData.alerts.length + " alerts"; }
+            if root.page == 1 : Segmented { x: parent.width - 180px; width: 180px; labels: ["All","Claude","Codex"]; selected <=> root.provider-filter; }
+            if root.page == 2 || root.page == 3 : Action { x: parent.width - self.width; text: root.page == 2 ? NotchData.refreshing ? "Refreshing…" : "Refresh" : "Show a test alert"; enabled: root.page != 2 || !NotchData.refreshing; clicked => { PanelData.action(root.page == 2 ? "refresh" : "test",""); } }
+            feed := Flickable { content-y <=> PanelData.feed-y; y: 48px; width: parent.width; height: parent.height - 48px; content-height: feed-items.preferred-height; content-width: self.width;
+                feed-items := VerticalLayout { width: feed.width - 10px; spacing: 10px;
+                    if PanelData.pipe-error != "" : PanelInk { text: PanelData.pipe-error; color: Theme.bad; wrap: word-wrap; min-height: 24px; }
+                    if NotchData.request-error != "" : PanelInk { text: NotchData.request-error; color: Theme.bad; wrap: word-wrap; min-height: 24px; }
+                    if root.page == 0 || root.page == 1 : VerticalLayout { spacing: 10px; for request in NotchData.requests : RequestCard { request: request; } }
+                    if root.page == 0 && NotchData.requests.length == 0 : Caption { text: "Nothing waiting. Approvals and Claude's questions appear here."; height: 80px; }
+                    if root.page == 1 && root.session-rows.length == 0 : Caption { text: root.session-count > 0 ? "No sessions for this filter" : "No sessions yet. Turn on Connections in Settings, then start Claude Code or Codex."; min-height: 80px; }
+                    if root.page == 1 : VerticalLayout { spacing: 10px;
+                        for session in root.session-rows : PanelCard { height: session.error == "" ? 112px : 140px;
+                            PanelTile { x: 14px; y: 16px; provider: session.provider; }
+                            PanelInk { x: 54px; y: 12px; width: parent.width - 300px; height: 18px; text: session.name; font-weight: 500; overflow: elide; }
+                            Caption { x: 54px; y: 32px; width: parent.width - 70px; height: 18px; text: session.context; overflow: elide; }
+                            Caption { x: parent.width - 230px; width: 210px; y: 12px; height: 18px; text: session.state + " · " + session.ago + " ago"; horizontal-alignment: right; }
+                            HorizontalLayout { x: 54px; y: 64px; spacing: 8px; width: parent.width - 68px;
+                                Action { text: "Open terminal"; clicked => { PanelData.action("jump",session.key); } }
+                                Action { text: "Copy path"; quiet: true; clicked => { PanelData.action("copy-session-path",session.key); } }
+                                Action { text: "New terminal"; quiet: true; clicked => { PanelData.action("new",session.key); } }
+                                Action { text: session.queued ? "Cancel compact" : "Compact"; quiet: true; clicked => { if session.queued { PanelData.action("cancel-compact",session.key); } else { root.confirmation-key = session.key; root.confirmation-action = "compact"; modal-popup.show(); } } }
+                                Action { text: "Close session"; quiet: true; clicked => { root.confirmation-key = session.key; root.confirmation-action = "close"; modal-popup.show(); } }
+                            }
+                            if session.error != "" : Caption { x: 16px; y: 104px; width: parent.width - 32px; height: 30px; text: session.error; color: Theme.bad; }
+                        }
+                    }
+                    if root.page == 2 && NotchData.refresh-error != "" : Caption { text: NotchData.refresh-error; color: Theme.bad; min-height: 28px; }
+                    if root.page == 2 : VerticalLayout { spacing: 14px; for provider in NotchData.providers : Meter { provider: provider; } }
+                    if root.page == 2 && NotchData.providers.length == 0 : Caption { text: "Loading usage…"; height: 80px; }
+                    if root.page == 3 && PanelData.alerts.length == 0 : Caption { text: "No alerts yet"; height: 80px; }
+                    if root.page == 3 : VerticalLayout { spacing: 8px;
+                        for alert in PanelData.alerts : PanelCard { height: alert.queued ? 76px : 56px;
+                            Caption { x: 14px; width: 64px; height: parent.height; text: alert.time; }
+                            PanelTile { x: 84px; y: 14px; provider: alert.provider; }
+                            PanelInk { x: 124px; y: 10px; width: parent.width - 140px; height: 36px; text: alert.text + (alert.count > 1 ? " ×" + alert.count : ""); wrap: word-wrap; }
+                            if alert.queued : Caption { x: 124px; y: 48px; width: parent.width - 140px; height: 18px; text: "Received while Do not disturb was on"; }
+                        }
+                    }
+                    if PanelData.action-status != "" : Caption { text: PanelData.action-status; min-height: 28px; }
                 }
-                Ink { x: parent.width - 220px; y: 0px; width: 64px; height: 60px; text: session.ago + " ago";
-                    color: Theme.t3; font-size: 12px; horizontal-alignment: right; }
-                Action { x: parent.width - self.width - 14px; y: 16px; height: 28px; quiet: true; text: "Open terminal";
-                    clicked => { root.terminal(session.key); } }
             }
+            private property <length> focus-y: NotchData.focus-y;
+            changed focus-y => { if root.page <= 1 { if self.focus-y < feed.absolute-position.y { feed.content-y = min(0px,feed.content-y + feed.absolute-position.y - self.focus-y); } else if self.focus-y + 48px > feed.absolute-position.y + feed.height { feed.content-y = max(feed.height - feed.content-height,feed.content-y - self.focus-y - 48px + feed.absolute-position.y + feed.height); } } }
         }
-        if root.page == 3 : Rectangle { x: 0px; y: 48px; width: parent.width;
-            for line[index] in Fixture.alert-lines : Rectangle { x: 0px;
-                y: index * 56px; width: parent.width; height: 48px; border-radius: 14px; background: Theme.card;
-                Ink { y: 0px; x: 14px; width: 54px; height: parent.height; text: Fixture.alert-times[index]; font-family: Theme.num; color: Theme.t2; font-size: 12px; }
-                Tile { x: 80px; y: 10px; provider: "claude"; }
-                Ink { y: 0px; x: 120px; height: parent.height; text: line; }
+        if root.page == 4 : Rectangle { x: 76px; width: root.width - 76px; height: root.height;
+            Caption { x: 28px; y: 28px; width: 168px; height: 18px; text: "Settings"; }
+            for name[index] in ["General","Appearance","Display","Questions & approvals","Notifications","DeskTime","Connections","About"] : Rectangle {
+                visible: index != 5 || (root.show-desktime && PanelData.desktime-tab);
+                x: 16px; y: 56px + index * 38px + (index >= 6 ? 19px : 0px) - (index >= 6 && !(root.show-desktime && PanelData.desktime-tab) ? 38px : 0px); width: 192px; height: 36px;
+                border-radius: 10px; background: root.pane == index ? Theme.high-contrast ? Theme.acc : Theme.dark ? Theme.card : Theme.card-3 : transparent;
+                border-width: side-keys.has-focus ? 2px : 0px; border-color: Theme.acc;
+                SourceIcon { x: 12px; y: 10px; width: 16px; height: 16px; name: index == 0 ? "general" : index == 1 ? "appearance" : index == 2 ? "display" : index == 3 ? "requests" : index == 4 ? "notify" : index == 6 ? "hooks" : "about"; colorize: Theme.high-contrast && root.pane == index ? Theme.acc-ink : Theme.t2; }
+                PanelInk { x: 38px; height: 36px; text: name; color: Theme.high-contrast && root.pane == index ? Theme.acc-ink : Theme.t1; font-weight: root.pane == index ? 500 : 400; }
+                TouchArea { clicked => { side-keys.focus(); root.pane = index; } }
+                side-keys := FocusScope { width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { root.pane = index; return accept; } return reject; } }
+                accessible-role: button; accessible-label: name; accessible-action-default => { root.pane = index; }
             }
-        }
-    }
-
-    if root.page == 4 : Rectangle { y: 0px;
-        x: 76px; width: root.width - 76px; height: root.height;
-        Ink { x: 28px; y: 28px; height: 18px; text: "Settings"; color: Theme.t2; font-size: 12px; font-weight: 500; }
-        for name[index] in ["General","Appearance","Display","Questions & approvals","Notifications","Connections","About"] : Rectangle {
-            x: 16px; y: 56px + index * 38px + (index >= 5 ? 19px : 0px); width: 192px; height: 36px;
-            border-radius: 10px; background: root.pane == index ? Theme.dark ? Theme.card : Theme.card-3 : transparent;
-            SourceIcon { x: 12px; y: 10px; width: 16px; height: 16px;
-                name: index == 0 ? "general" : index == 1 ? "appearance" : index == 2 ? "display" : index == 3 ? "requests" : index == 4 ? "notify" : index == 5 ? "hooks" : "about";
-                colorize: root.pane == index || !Theme.dark ? Theme.t1 : Theme.t2; }
-            Ink { y: 0px; x: 38px; height: 36px; text: name; font-weight: root.pane == index ? 500 : 400;
-                color: root.pane == index || !Theme.dark ? Theme.t1 : Theme.t2; }
-            side-touch := TouchArea { mouse-cursor: pointer; clicked => { side-keys.focus(); root.pane = index; } }
-            side-keys := FocusScope { width: 0px; height: 0px;
-                key-pressed(event) => { if event.text == " " || event.text == "\n" { root.pane = index; return accept; } return reject; }
-            }
-        }
-        Rectangle { x: 28px; y: 254px; width: 168px; height: 1px; background: Theme.line; }
-        Rectangle { x: 224px; y: 24px; width: min(752px,parent.width - 262px); height: parent.height - 48px;
-            Heading { x: 0px; y: 0px; text: root.pane == 0 ? "General" : root.pane == 1 ? "Appearance" : root.pane == 2 ? "Display" : root.pane == 3 ? "Questions & approvals" : root.pane == 4 ? "Notifications" : root.pane == 5 ? "Connections" : "About"; }
-            Ink { x: 0px; y: 32px; height: 18px; text: root.status; color: Theme.t2; font-size: 12px; }
-            if root.pane == 0 : Rectangle { x: 0px; y: 48px; width: parent.width;
-                Card { x: 0px; y: 0px; width: parent.width; height: 217px;
-                    SettingRow { x: 20px; y: 4px; width: parent.width - 40px; first: true;
-                        label: "Show sessions from"; description: "Which coding agents Nubi keeps an eye on";
-                        Segmented { x: parent.width - 180px; y: 16px; width: 180px; labels: ["Both","Claude","Codex"];
-                            selected <=> root.providers; changed(index) => { root.dirty = true; } }
-                    }
-                    SettingRow { x: 20px; y: 68px; width: parent.width - 40px;
-                        label: "Start with Windows"; description: "Opens Nubi when you sign in";
-                        Toggle { x: parent.width - 40px; y: 20px; checked <=> root.auto-start; toggled => { root.dirty = true; } }
-                    }
-                    SettingRow { x: 20px; y: 132px; width: parent.width - 40px; height: 81px;
-                        label: "Update automatically"; description: "Updates at startup when idle. During use, asks first. When off, still notifies you about updates.";
-                        Toggle { x: parent.width - 40px; y: 28.5px; checked <=> root.auto-update; toggled => { root.dirty = true; } }
-                    }
-                }
-                Ink { x: 0px; y: 241px; height: 20px; text: "Launcher"; color: Theme.t2; font-weight: 500; }
-                Card { x: 0px; y: 269px; width: parent.width; height: 136px;
-                    SettingRow { x: 20px; y: 4px; width: parent.width - 40px; first: true;
-                        label: "Open Claude or Codex from Explorer"; description: "Press the shortcut in a File Explorer window to open a terminal in that folder";
-                        Toggle { x: parent.width - 40px; y: 20px; checked <=> root.launcher; toggled => { root.dirty = true; } }
-                    }
-                    SettingRow { x: 20px; y: 68px; width: parent.width - 40px;
-                        label: "Launcher shortcut"; description: "Click the box and press the keys. Backspace clears.";
-                        Rectangle { x: parent.width - 168px; y: 16px; width: 168px; height: 32px;
-                            background: Theme.card-2; border-radius: 10px; border-width: 1px; border-color: Theme.line;
-                            for key[index] in root.shortcut-keys : Rectangle { visible: root.hotkey != "";
-                                x: 8px + index * 36px; y: 5px; width: index == 1 ? 38px : index == 2 ? 24px : 30px; height: 22px;
-                                background: Theme.card-3; border-radius: 6px; border-width: 1px; border-color: Theme.line-2;
-                                Ink { x: 0px; y: 0px; text: key; font-size: 12px; font-weight: 500; horizontal-alignment: center; } }
-                            TouchArea { mouse-cursor: pointer; clicked => { shortcut.focus(); } }
-                            shortcut := FocusScope { width: 0px; height: 0px;
-                                key-pressed(event) => {
-                                    if event.text == Key.Tab { return reject; }
-                                    root.capture-shortcut(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift);
-                                    return accept;
+            Rectangle { x: 224px; y: 24px; width: min(752px,parent.width - 252px); height: parent.height - 48px;
+                Heading { x: 0px; y: 0px; text: root.pane == 0 ? "General" : root.pane == 1 ? "Appearance" : root.pane == 2 ? "Display" : root.pane == 3 ? "Questions & approvals" : root.pane == 4 ? "Notifications" : root.pane == 5 ? "DeskTime" : root.pane == 6 ? "Connections" : "About"; }
+                content := Flickable { content-y <=> PanelData.settings-y; y: 48px; width: parent.width; height: parent.height - (root.dirty ? 132px : 72px); content-width: self.width; content-height: settings-items.preferred-height;
+                    settings-items := VerticalLayout { width: content.width - 10px; spacing: 8px;
+                        if root.pane == 5 : PanelCard { height: 310px;
+                            VerticalLayout { x: 20px; y: 16px; width: parent.width - 40px; spacing: 8px;
+                                PanelInk { text: "Status · Not connected"; height: 18px; font-weight: 500; }
+                                Caption { text: "DeskTime connection is unavailable in this build. Configuration below is saved now."; min-height: 36px; }
+                                HorizontalLayout { spacing: 8px; Action { text: "Log in with email"; enabled: false; } Action { text: "Use browser"; enabled: false; } Action { text: "Read now"; enabled: false; } }
+                                Caption { text: "Last read: Never · Browser session: Not received · Last error: Integration unavailable"; min-height: 36px; }
+                                PanelInk { text: "Browser extension"; height: 18px; font-weight: 500; }
+                                Caption { text: "Open chrome://extensions (edge://extensions in Edge), enable Developer mode, choose Load unpacked, then select the unzipped extension folder."; min-height: 36px; }
+                                HorizontalLayout { spacing: 8px; Action { text: "Download"; clicked => { PanelData.action("extension-download",""); } } Action { text: "Open folder"; clicked => { PanelData.action("extension-folder",""); } } }
+                            }
+                        }
+                        VerticalLayout { spacing: 0px; for field in PanelData.fields : FieldRow { field: field; } }
+                        if root.pane == 6 : VerticalLayout { spacing: 12px;
+                            for provider[index] in ["Claude","Codex"] : PanelCard { height: 96px;
+                                PanelTile { x: 20px; y: 20px; provider: index == 0 ? "claude" : "codex"; }
+                                PanelInk { x: 60px; y: 16px; width: parent.width - 220px; height: 18px; text: provider; font-weight: 500; }
+                                Caption { x: 60px; y: 38px; width: parent.width - 220px; height: 42px; text: index == 0 ? "~/.claude/settings.json" : PanelData.codex-hooks ? "In Codex, run /hooks once and allow Nubi" : "$CODEX_HOME/hooks.json"; }
+                                Action { x: parent.width - self.width - 108px; y: 24px; text: "Copy"; quiet: true; clicked => { PanelData.action("copy",index == 0 ? "~/.claude/settings.json" : PanelData.codex-hooks ? "/hooks" : "$CODEX_HOME/hooks.json"); } }
+                                Action { x: parent.width - self.width - 20px; y: 24px; text: (index == 0 ? PanelData.claude-hooks : PanelData.codex-hooks) ? "Turn off" : "Turn on"; clicked => { PanelData.action("hooks",index == 0 ? "claude" : "codex"); } }
+                            }
+                            if root.show-desktime : PanelCard { height: 104px;
+                                PanelInk { x: 20px; y: 16px; height: 18px; text: "DeskTime"; font-weight: 500; }
+                                Caption { x: 20px; y: 38px; height: 18px; text: "Your DeskTime hours in the notch"; }
+                                HorizontalLayout { x: 20px; y: 64px; spacing: 8px;
+                                    Action { text: PanelData.desktime-tab ? "Turn off" : "Turn on"; clicked => { PanelData.action("desktime-tab",""); } }
+                                    if PanelData.desktime-tab : Action { text: "Settings"; quiet: true; clicked => { root.pane = 5; } }
+                                }
+                            }
+                            if PanelData.development : Caption { text: "Development mode: hook registration is disabled."; min-height: 32px; }
+                        }
+                        if root.pane == 7 : VerticalLayout { spacing: 12px;
+                            PanelCard { height: 148px;
+                                PanelInk { x: 20px; y: 16px; height: 18px; text: "Nubi"; font-weight: 500; }
+                                Caption { x: 20px; y: 38px; height: 18px; text: "Version " + root.app-version; }
+                                HorizontalLayout { x: 20px; y: 72px; spacing: 8px;
+                                    Action { text: "What's new"; quiet: true; clicked => { PanelData.action("release-notes",""); } }
+                                    Action { text: PanelData.busy ? "Checking…" : "Check for updates"; enabled: !PanelData.busy; clicked => { PanelData.action("check-update",""); } }
+                                    Action { text: "Report an issue"; clicked => { PanelData.action("report",""); } }
+                                }
+                            }
+                            PanelInk { text: "Version history"; height: 20px; font-weight: 500; }
+                            Caption { text: "Download any version and run its installer to switch to it"; height: 18px; }
+                            Caption { text: PanelData.release-status; min-height: 18px; }
+                            Action { text: "Refresh versions"; quiet: true; clicked => { PanelData.action("releases",""); } }
+                            for release in PanelData.releases : PanelCard { height: 76px;
+                                PanelInk { x: 20px; y: 12px; width: parent.width - 220px; height: 18px; text: release.title; font-weight: 500; }
+                                Caption { x: 20px; y: 36px; width: parent.width - 220px; height: 18px; text: release.date; }
+                                HorizontalLayout { x: parent.width - 190px; y: 20px; width: 170px; spacing: 8px;
+                                    Action { text: "Notes"; quiet: true; clicked => { PanelData.action("release-link",release.notes); } }
+                                    if !release.current : Action { text: "Download"; enabled: release.download != ""; clicked => { PanelData.action("release-link",release.download); } }
                                 }
                             }
                         }
                     }
                 }
-            }
-            if root.pane == 6 : Rectangle { x: 0px; y: 48px; width: parent.width;
-                Card { x: 0px; y: 0px; width: parent.width; height: 136px;
-                    SettingRow { x: 20px; y: 4px; width: parent.width - 40px; first: true;
-                        label: "Nubi"; description: "Version " + root.app-version;
-                        Action { x: parent.width - 269px; y: 16px; text: "What's new"; quiet: true; clicked => { root.release-notes(); } }
-                        Action { x: parent.width - self.width; y: 16px; text: "Check for updates"; clicked => { root.check-update(); } }
-                    }
-                    SettingRow { x: 20px; y: 68px; width: parent.width - 40px;
-                        label: "Found a problem?"; description: "Describe it in a sentence; Claude or Codex can fill in the GitHub form for you";
-                        Action { x: parent.width - self.width; y: 16px; text: "Report an issue"; }
-                    }
+                if root.dirty : PanelCard { y: parent.height - 76px; width: parent.width; height: 48px;
+                    PanelInk { x: 16px; width: parent.width - 190px; text: "Unsaved changes"; font-weight: 500; }
+                    Action { x: parent.width - 160px; y: 8px; text: "Discard"; quiet: true; clicked => { root.discard(); } }
+                    Action { x: parent.width - self.width - 8px; y: 8px; text: "Save"; primary: true; clicked => { root.persist(); } }
                 }
-                Card { x: 0px; y: 148px; width: parent.width; height: 76px;
-                    Ink { x: 20px; y: 20px; height: 18px; text: "Version history"; font-size: 14px; font-weight: 500; }
-                    Ink { x: 20px; y: 40px; height: 18px; text: "Download any version and run its installer to switch to it"; font-size: 12px; color: Theme.t2; }
-                }
-                AboutSlint { x: 0px; y: 244px; width: 280px; height: 80px; }
-            }
-            if root.dirty : Card { x: 0px; y: parent.height - 64px; width: parent.width; height: 48px; border-radius: 14px;
-                Ink { y: 0px; x: 20px; height: 48px; text: "Unsaved changes"; font-weight: 500; }
-                Action { x: parent.width - 154px; y: 8px; text: "Discard"; quiet: true; clicked => { root.discard(); } }
-                Action { x: parent.width - self.width - 8px; y: 8px; text: "Save"; primary: true; clicked => { root.save(); } }
+                Caption { y: parent.height - 24px; width: parent.width; height: 24px; text: root.status; }
             }
         }
     }
-    if root.leave-open : Rectangle { x: 0px; y: 0px;
-        background: #140f0559;
-        Card { x: (parent.width - 340px) / 2; y: (parent.height - 138px) / 2; width: 340px; height: 138px;
-            Ink { x: 20px; y: 20px; height: 24px; text: "Save changes?"; font-size: 16px; font-family: Theme.num; font-weight: 500; }
-            Ink { x: 20px; y: 48px; width: 300px; height: 18px; text: "You changed settings and have not saved them."; color: Theme.t2; }
-            Action { x: 182px; y: 86px; text: "Discard"; quiet: true; clicked => { root.discard(); root.leave-open = false; root.page = root.leaving-to; } }
-            Action { x: 265px; y: 86px; text: "Save"; primary: true; clicked => { root.save(); if !root.dirty { root.leave-open = false; root.page = root.leaving-to; } } }
+    private property <bool> show-desktime: false;
+    private property <length> control-focus-y: PanelData.focus-y;
+    changed control-focus-y => { PanelData.action("reveal-focus", ""); }
+    modal-popup := PopupWindow {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        close-policy: no-auto-close; forward-focus: modal;
+        modal := FocusScope {
+        focus-on-tab-navigation: false;
+        capture-key-pressed(event) => { if event.text == Key.Escape { root.cancel-modal(); return accept; } return reject; }
+        Rectangle { width: root.width; height: root.height; background: #140f0559; TouchArea { clicked => { root.cancel-modal(); } } }
+        if root.leave-open : PanelCard { x: (root.width - 380px) / 2; y: (root.height - 160px) / 2; width: 380px; height: 160px;
+            VerticalLayout { padding: 20px; spacing: 12px;
+                PanelInk { text: "Save changes?"; height: 24px; font-size: 18px; font-weight: 500; }
+                Caption { text: "Your settings have unsaved changes."; height: 18px; }
+                HorizontalLayout { spacing: 8px; Action { text: "Cancel"; quiet: true; clicked => { root.cancel-modal(); } } Action { text: "Discard"; clicked => { root.leave(false); } } Action { text: "Save"; primary: true; clicked => { root.leave(true); } } }
+            }
+        }
+        if root.confirmation-key != "" : PanelCard { x: (root.width - 420px) / 2; y: (root.height - 180px) / 2; width: 420px; height: 180px;
+            VerticalLayout { padding: 20px; spacing: 12px;
+                PanelInk { text: root.confirmation-action == "close" ? "Close session?" : "Compact session?"; height: 24px; font-size: 18px; }
+                Caption { text: root.confirmation-action == "close" ? "Closes this agent process and removes its pending requests." : "Queues /compact when the session is idle and has no pending requests."; min-height: 36px; }
+                HorizontalLayout { spacing: 8px; Action { text: "Cancel"; clicked => { root.cancel-modal(); } } Action { text: "Confirm"; primary: true; clicked => { PanelData.action(root.confirmation-action,root.confirmation-key); root.confirmation-key = ""; modal-popup.close(); } } }
+            }
+        }
+        if PanelData.report-open : PanelCard { x: (root.width - 680px) / 2; y: 24px; width: 680px; height: root.height - 48px;
+            report-scroll := Flickable { content-y <=> PanelData.report-y; x: 20px; y: 20px; width: parent.width - 40px; height: parent.height - 80px; content-width: self.width; content-height: report-layout.preferred-height;
+                report-layout := VerticalLayout { width: parent.width - 10px; spacing: 10px;
+                    Heading { text: "Report an issue"; }
+                    Caption { text: "Nubi adds your versions and setup. It never sends tokens or code. Nothing is posted until you press Submit on GitHub."; min-height: 36px; }
+                    TextEdit { text <=> PanelData.report-text; height: 84px; accessible-label: "What went wrong?"; }
+                    HorizontalLayout { spacing: 8px;
+                        Action { text: "Claude"; enabled: !PanelData.report-busy; clicked => { PanelData.action("draft-report","claude"); } }
+                        Action { text: "Codex"; enabled: !PanelData.report-busy; clicked => { PanelData.action("draft-report","codex"); } }
+                        Action { text: "Fill in myself"; enabled: !PanelData.report-busy; clicked => { PanelData.action("manual-report",""); } }
+                    }
+                    Caption { text: PanelData.report-status; min-height: 24px; }
+                    if PanelData.report-fields : VerticalLayout { spacing: 8px; for field in PanelData.report-rows : FieldRow { field: field; } }
+                }
+            }
+            HorizontalLayout { x: 20px; y: parent.height - 52px; spacing: 8px; Action { text: "Cancel"; clicked => { root.cancel-modal(); } } Action { text: "Open on GitHub"; primary: true; enabled: PanelData.report-fields && !PanelData.report-busy; clicked => { PanelData.action("open-report",""); } } }
+        }
         }
     }
 }

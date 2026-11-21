@@ -50,12 +50,13 @@ export component ProviderMark inherits Image { x: 0px; y: 0px;
 export component Tile inherits Rectangle { x: 0px; y: 0px;
     in property <string> provider;
     width: 28px; height: 28px; border-radius: 8px;
-    background: provider == "claude" ? Theme.claude : Theme.dark ? #f3efe7 : #111;
-    Ink { x: 0px; y: 0px; text: root.provider == "claude" ? "C" : "X"; color: root.provider == "codex" && Theme.dark ? #111 : white;
+    background: Theme.high-contrast ? Theme.contrast-fg : provider == "claude" ? Theme.claude : Theme.dark ? #f3efe7 : #111;
+    Ink { x: 0px; y: 0px; text: root.provider == "claude" ? "C" : "X"; color: Theme.high-contrast ? Theme.contrast-bg : root.provider == "codex" && Theme.dark ? #111 : white;
         font-size: 12px; font-weight: 600; horizontal-alignment: center; }
 }
 
 export component Action inherits Rectangle {
+    out property <bool> has-focus: keys.has-focus;
     in property <string> text;
     in property <bool> primary;
     in property <bool> enabled: true;
@@ -64,7 +65,7 @@ export component Action inherits Rectangle {
     callback clicked();
     width: label.preferred-width + 24px; height: 32px; border-radius: 10px;
     background: primary ? Theme.acc : touch.has-hover ? Theme.card-3 : quiet ? transparent : Theme.card-2;
-    border-width: keys.has-focus ? 2px : quiet || primary ? 0px : 1px;
+    border-width: keys.has-focus ? 2px : Theme.high-contrast ? 1px : quiet || primary ? 0px : 1px;
     border-color: keys.has-focus ? Theme.acc : Theme.line;
     animate background { duration: Theme.reduced ? 0ms : 150ms; }
     accessible-role: button; accessible-label: text; accessible-description: hint;
@@ -77,15 +78,16 @@ export component Action inherits Rectangle {
 }
 
 export component Toggle inherits Rectangle { x: 0px; y: 0px;
+    out property <bool> has-focus: keys.has-focus;
     in-out property <bool> checked;
     callback toggled();
     width: 40px; height: 24px; border-radius: 12px;
-    background: checked ? Theme.dark ? Theme.acc : Theme.t1 : Theme.switch-off;
-    border-width: keys.has-focus ? 2px : 0px; border-color: Theme.acc;
+    background: checked ? Theme.high-contrast || Theme.dark ? Theme.acc : Theme.t1 : Theme.switch-off;
+    border-width: keys.has-focus ? 2px : Theme.high-contrast ? 1px : 0px; border-color: keys.has-focus ? Theme.acc : Theme.line;
     animate background { duration: Theme.reduced ? 0ms : 200ms; }
     Rectangle { x: root.checked ? touch.pressed ? 16px : 20px : 4px; y: 4px;
         width: touch.pressed ? 20px : 16px; height: 16px; border-radius: 8px;
-        background: root.checked ? Theme.dark ? Theme.rail : Theme.acc : Theme.card;
+        background: Theme.high-contrast ? root.checked ? Theme.acc-ink : Theme.t1 : root.checked ? Theme.dark ? Theme.rail : Theme.acc : Theme.card;
         animate x { duration: Theme.reduced ? 0ms : 200ms; easing: cubic-bezier(0.2,0.9,0.25,1); }
     }
     accessible-role: checkbox; accessible-checked: checked;
@@ -103,11 +105,11 @@ export component Segmented inherits Rectangle { x: 0px; y: 0px;
     border-width: 1px; border-color: Theme.line;
     HorizontalLayout { padding: 2px; spacing: 0px;
         for label[index] in root.labels : Rectangle {
-            border-radius: 8px; background: root.selected == index ? Theme.dark ? Theme.card-3 : Theme.card : transparent;
-            border-width: keys.has-focus ? 2px : 0px; border-color: Theme.acc;
+            border-radius: 8px; background: root.selected == index ? Theme.high-contrast ? Theme.acc : Theme.dark ? Theme.card-3 : Theme.card : transparent;
+            border-width: keys.has-focus ? 2px : Theme.high-contrast ? 1px : 0px; border-color: keys.has-focus ? Theme.acc : Theme.line;
             accessible-role: button; accessible-label: label;
             accessible-action-default => { root.selected = index; root.changed(index); }
-            Ink { x: 0px; y: 0px; text: label; color: root.selected == index || touch.has-hover ? Theme.t1 : Theme.t2;
+            Ink { x: 0px; y: 0px; text: label; color: Theme.high-contrast && root.selected == index ? Theme.acc-ink : root.selected == index || touch.has-hover ? Theme.t1 : Theme.t2;
                 font-weight: root.selected == index ? 500 : 400; horizontal-alignment: center; }
             touch := TouchArea { width: 100%; height: 100%; mouse-cursor: pointer; clicked => { keys.focus(); root.selected = index; root.changed(index); } }
             keys := FocusScope { width: 0px; height: 0px;
@@ -138,7 +140,7 @@ export component Hint inherits Rectangle {
 }
 
 export component CssShadow inherits Rectangle {
-    for row in [0,1,2] : Rectangle {
+    for row in (Theme.high-contrast ? [] : [0,1,2]) : Rectangle {
         y: row == 0 ? -48px : row == 1 ? 32px : root.height - 32px;
         height: row == 1 ? root.height - 64px : 80px;
         for column in [0,1,2] : Image {

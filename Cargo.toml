@@ -1,6 +1,10 @@
 [workspace]
-members = ["crates/nubi-core", "crates/nubi-hook", "crates/nubi-app", "src-tauri"]
+members = ["crates/nubi-core", "crates/nubi-hook", "crates/nubi-app"]
 resolver = "2"
+exclude = ["crates/nubi-app/vendor/i-slint-renderer-software"]
+
+[patch.crates-io]
+i-slint-renderer-software = { path = "crates/nubi-app/vendor/i-slint-renderer-software" }
 
 [profile.release]
 lto = true

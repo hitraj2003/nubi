@@ -1,0 +1,34 @@
+{
+  "source_sha256": "7b48a4caac8bb245bc2daa8ca12f8382050c9e8a67d4f21d5c2bd5f2f8561064",
+  "browser": "Chrome/157.0.8103.79",
+  "sample_rate": 48000,
+  "channels": 1,
+  "bits": 16,
+  "sounds": {
+    "done": {
+      "sha256": "d4ea31589eeb55196fcc9cec8a0db99d498bed01f350673cbeb313f18c86dd49",
+      "samples": 48000,
+      "peak": 0.17202404141426086
+    },
+    "question": {
+      "sha256": "7c0765957c2ff3c5fd24c11c66c5cd813c1077af1e9ddc5a044abce3c0a9775a",
+      "samples": 48000,
+      "peak": 0.1334468275308609
+    },
+    "permission": {
+      "sha256": "9eb57dbbf2580346696fd070621cf80aa770bc39f5d5c01ab9c06624ed968b1a",
+      "samples": 48000,
+      "peak": 0.16652032732963562
+    },
+    "idle": {
+      "sha256": "519d5cef1e11e981a206af2b3c08e8ad35172caed608702128e3bf47bae9da28",
+      "samples": 48000,
+      "peak": 0.10912878066301346
+    },
+    "info": {
+      "sha256": "bf3f4aa06ad07fbddd0e0061854aac02e55fdab1890b1ddb2b906e0c87977701",
+      "samples": 48000,
+      "peak": 0.10365907847881317
+    }
+  }
+}

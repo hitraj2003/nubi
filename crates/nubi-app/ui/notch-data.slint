@@ -21,7 +21,13 @@ export struct DeskSection {
     view: string, title: string, big: string, caption: string, note: string,
     over: bool, percent: float, pace: float, rows: [DeskRow], y: length, height: length, column: int, columns: int, row-columns: int, row-height: length,
 }
+export struct NotchUpdate { id: string, version: string, phase: string, message: string, countdown: string, automatic: bool }
 export global NotchData {
+    in-out property <NotchUpdate> update;
+    in-out property <bool> update-submitting;
+    callback update-install(string);
+    callback update-dismiss(string);
+    callback update-release(string);
     in-out property <[NotchSession]> sessions: [];
     in-out property <[NotchProvider]> providers: [];
     in-out property <[NotchRequest]> requests: [];
@@ -52,9 +58,11 @@ export global NotchData {
     in-out property <string> alert-title;
     in-out property <string> alert-body;
     in-out property <string> alert-kind;
+    pure callback equalizer-height(float, int) -> float;
     callback answer(string, string);
     callback choose(string, int);
     callback custom(string, string);
+    callback submit-custom(string, string);
     callback submit(string);
     callback hold(string, bool);
     callback terminal(string);

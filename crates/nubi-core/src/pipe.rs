@@ -13,7 +13,9 @@ use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
-use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
+use windows_sys::Win32::Security::{
+    GetTokenInformation, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+};
 use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -30,7 +32,13 @@ pub fn current_user_sid() -> Option<String> {
         let mut len = 0u32;
         GetTokenInformation(tok, TokenUser, std::ptr::null_mut(), 0, &mut len);
         let mut buf = vec![0u8; len as usize];
-        let ok = GetTokenInformation(tok, TokenUser, buf.as_mut_ptr() as *mut c_void, len, &mut len);
+        let ok = GetTokenInformation(
+            tok,
+            TokenUser,
+            buf.as_mut_ptr() as *mut c_void,
+            len,
+            &mut len,
+        );
         CloseHandle(tok);
         if ok == 0 {
             return None;
@@ -56,7 +64,12 @@ fn security_descriptor() -> Result<usize, String> {
     let sddl = wide(&format!("D:P(A;;GA;;;{sid})(A;;GA;;;SY)"));
     let mut sd: *mut c_void = std::ptr::null_mut();
     let ok = unsafe {
-        ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut())
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut sd,
+            std::ptr::null_mut(),
+        )
     };
     if ok == 0 {
         return Err("cannot build pipe security descriptor".into());
@@ -79,7 +92,9 @@ impl PipeSecurity {
 
 impl Drop for PipeSecurity {
     fn drop(&mut self) {
-        unsafe { LocalFree(self.0 as *mut c_void); }
+        unsafe {
+            LocalFree(self.0 as *mut c_void);
+        }
     }
 }
 
@@ -110,9 +125,15 @@ pub fn client_allowed(pipe: &NamedPipeServer) -> bool {
 
 /// Activation requires this exact executable; hook transport also admits its shim.
 pub fn process_allowed(pid: u32, allow_hook: bool) -> bool {
-    let Some(img) = crate::winutil::process_image(pid) else { return false };
+    let Some(img) = crate::winutil::process_image(pid) else {
+        return false;
+    };
     let norm = |p: std::path::PathBuf| {
-        std::fs::canonicalize(&p).unwrap_or(p).display().to_string().to_lowercase()
+        std::fs::canonicalize(&p)
+            .unwrap_or(p)
+            .display()
+            .to_string()
+            .to_lowercase()
     };
     let img = norm(img.into());
     let mut allowed = vec![];
@@ -171,7 +192,9 @@ async fn handle(app: impl Host, pipe: NamedPipeServer) {
     let mut buf = Vec::new();
     let read = tokio::time::timeout(
         Duration::from_secs(5),
-        (&mut reader).take(MAX_FRAME as u64).read_until(b'\n', &mut buf),
+        (&mut reader)
+            .take(MAX_FRAME as u64)
+            .read_until(b'\n', &mut buf),
     )
     .await;
     if !matches!(read, Ok(Ok(n)) if n > 0) {
@@ -184,7 +207,9 @@ async fn handle(app: impl Host, pipe: NamedPipeServer) {
         let a = app.clone();
         let reply = tokio::task::spawn_blocking(move || a.on_browser(frame.browser))
             .await
-            .unwrap_or_else(|_| BrowserReply::result(Err("Nubi could not apply the session".into())));
+            .unwrap_or_else(|_| {
+                BrowserReply::result(Err("Nubi could not apply the session".into()))
+            });
         if let Ok(mut line) = serde_json::to_string(&reply) {
             line.push('\n');
             let _ = wr.write_all(line.as_bytes()).await;
@@ -210,7 +235,11 @@ async fn handle(app: impl Host, pipe: NamedPipeServer) {
     if terminal_question || (question && app.questions_mode() == "off") {
         return; // connection closes, the hook prints nothing, Claude asks in the terminal
     }
-    let cap = if question { QUESTION_DEADLINE_SECS } else { PERMISSION_DEADLINE_SECS };
+    let cap = if question {
+        QUESTION_DEADLINE_SECS
+    } else {
+        PERMISSION_DEADLINE_SECS
+    };
     // The user's takeover time, kept inside the hook's own deadline.
     let takeover = app.takeover_secs().max(3);
     let wait = Duration::from_secs(takeover.min(msg.deadline_secs.min(cap).saturating_sub(5)));
@@ -222,7 +251,9 @@ async fn handle(app: impl Host, pipe: NamedPipeServer) {
     let hard_ms = crate::state::now_ms() + msg.deadline_secs.min(cap).saturating_sub(5) * 1000;
     let countdown = async {
         while !app.pending_tick(id, 250, hard_ms) {
-            if question && question_in_terminal(&msg, crate::winutil::pids_focused(&msg.pids)) {
+            if question
+                && question_in_terminal(&msg, crate::winutil::pids_focused(msg.window, &msg.pids))
+            {
                 break; // user returned to this terminal; let its native question appear
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -250,28 +281,41 @@ async fn handle(app: impl Host, pipe: NamedPipeServer) {
 /// test script drive the UI without the named pipe. Not compiled into release builds.
 #[cfg(debug_assertions)]
 pub fn start_sim(app: impl Host) {
-    let Some(dir) = std::env::var_os("NUBI_SIM_DIR").map(std::path::PathBuf::from) else { return };
+    let Some(dir) = std::env::var_os("NUBI_SIM_DIR").map(std::path::PathBuf::from) else {
+        return;
+    };
     let _ = std::fs::create_dir_all(&dir);
     tokio::task::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(150)).await;
-            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 if p.extension().and_then(|x| x.to_str()) != Some("json") {
                     continue;
                 }
-                let Ok(text) = std::fs::read_to_string(&p) else { continue };
+                let Ok(text) = std::fs::read_to_string(&p) else {
+                    continue;
+                };
                 let _ = std::fs::remove_file(&p);
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    continue;
+                };
                 let provider = v["provider"].as_str().unwrap_or("claude").to_string();
-                let Some(msg) = build_msg(&provider, &v["hook"], vec![]) else { continue };
+                let Some(msg) = build_msg(&provider, &v["hook"], vec![]) else {
+                    continue;
+                };
                 let app = app.clone();
                 let out = p.with_extension("reply");
                 tokio::task::spawn(async move {
                     let terminal_question = app.on_hook(&msg);
                     let question = is_question(&msg.provider, &msg.event, msg.tool_name.as_deref());
-                    if !msg.wants_reply || terminal_question || (question && app.questions_mode() == "off") {
+                    if !msg.wants_reply
+                        || terminal_question
+                        || (question && app.questions_mode() == "off")
+                    {
                         return;
                     }
                     let wait = Duration::from_secs(app.takeover_secs().max(3));
@@ -280,7 +324,9 @@ pub fn start_sim(app: impl Host) {
                     let mut timed_out = false;
                     let reply = tokio::select! { r = rx => r.ok(), _ = tokio::time::sleep(wait) => { timed_out = true; None } };
                     app.remove_pending(id, timed_out);
-                    let text = reply.and_then(|r| serde_json::to_string(&r).ok()).unwrap_or_else(|| "timeout".into());
+                    let text = reply
+                        .and_then(|r| serde_json::to_string(&r).ok())
+                        .unwrap_or_else(|| "timeout".into());
                     let _ = std::fs::write(out, text);
                 });
             }

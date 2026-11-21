@@ -165,7 +165,11 @@ pub fn open_terminal(cwd: &str, run: Option<&str>) -> Result<(), String> {
         if wt.is_file()
             && Command::new(wt)
                 .args(["-w", "new", "-d", cwd])
-                .args(if run.is_some() { vec!["powershell.exe"] } else { vec![] })
+                .args(if run.is_some() {
+                    vec!["powershell.exe"]
+                } else {
+                    vec![]
+                })
                 .args(if run.is_some() { ps.clone() } else { vec![] })
                 .current_dir(path)
                 .creation_flags(CREATE_NO_WINDOW)

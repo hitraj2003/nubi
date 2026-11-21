@@ -8,14 +8,25 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 pub fn run(provider: &str) -> i32 {
-    let provider = if provider == "codex" { "codex" } else { "claude" };
+    let provider = if provider == "codex" {
+        "codex"
+    } else {
+        "claude"
+    };
     let mut buf = Vec::new();
-    let _ = std::io::stdin().take(MAX_STDIN as u64 + 1).read_to_end(&mut buf);
+    let _ = std::io::stdin()
+        .take(MAX_STDIN as u64 + 1)
+        .read_to_end(&mut buf);
     if buf.len() > MAX_STDIN {
         return 0;
     }
-    let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&buf) else { return 0 };
-    let Some(msg) = build_msg(provider, &raw, crate::winutil::ancestors()) else { return 0 };
+    let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&buf) else {
+        return 0;
+    };
+    let Some(mut msg) = build_msg(provider, &raw, crate::winutil::ancestors()) else {
+        return 0;
+    };
+    msg.window = crate::winutil::console_window();
     let question = is_question(provider, &msg.event, msg.tool_name.as_deref());
     let tool_input = raw.get("tool_input").cloned().unwrap_or_default();
     let wants = msg.wants_reply;
@@ -26,7 +37,11 @@ pub fn run(provider: &str) -> i32 {
     });
     if let Ok(Some(reply)) = rx.recv_timeout(Duration::from_secs(wait)) {
         if wants {
-            let out = if question { question_json(&tool_input, &reply) } else { decision_json(&reply) };
+            let out = if question {
+                question_json(&tool_input, &reply)
+            } else {
+                decision_json(&reply)
+            };
             if let Some(out) = out {
                 let mut so = std::io::stdout();
                 let _ = so.write_all(out.as_bytes());
@@ -44,7 +59,9 @@ pub fn open_pipe() -> Option<std::fs::File> {
         match OpenOptions::new().read(true).write(true).open(&name) {
             Ok(f) => return Some(f),
             // 231 = all pipe instances busy; anything else (2 = GUI not running) gives up.
-            Err(e) if e.raw_os_error() == Some(231) => std::thread::sleep(Duration::from_millis(50)),
+            Err(e) if e.raw_os_error() == Some(231) => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
             Err(e) => {
                 if std::env::var_os("NUBI_DEBUG").is_some() {
                     eprintln!("[nubi hook] open {name}: {e}");
@@ -76,14 +93,20 @@ fn exchange(msg: &HookMsg) -> Option<Reply> {
 /// command with the same stdin and print its output, so their status line looks as before.
 pub fn statusline() -> i32 {
     let mut buf = Vec::new();
-    let _ = std::io::stdin().take(MAX_STDIN as u64 + 1).read_to_end(&mut buf);
+    let _ = std::io::stdin()
+        .take(MAX_STDIN as u64 + 1)
+        .read_to_end(&mut buf);
     if let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&buf) {
         if let Some(rl) = raw.get("rate_limits").filter(|v| v.is_object()) {
             let msg = HookMsg {
                 v: 1,
                 provider: "claude".into(),
                 event: "StatusLine".into(),
-                session_id: raw.get("session_id").and_then(|s| s.as_str()).unwrap_or_default().into(),
+                session_id: raw
+                    .get("session_id")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or_default()
+                    .into(),
                 tool_input: Some(rl.clone()),
                 ..Default::default()
             };
@@ -113,10 +136,13 @@ fn run_shell(cmd: &str, stdin: &[u8]) -> Option<Vec<u8>> {
         .map(std::path::PathBuf::from)
         .filter(|p| p.exists())
         .or_else(|| {
-            ["C:/Program Files/Git/bin/bash.exe", "C:/Program Files (x86)/Git/bin/bash.exe"]
-                .iter()
-                .map(std::path::PathBuf::from)
-                .find(|p| p.exists())
+            [
+                "C:/Program Files/Git/bin/bash.exe",
+                "C:/Program Files (x86)/Git/bin/bash.exe",
+            ]
+            .iter()
+            .map(std::path::PathBuf::from)
+            .find(|p| p.exists())
         });
     let mut c = match bash {
         Some(b) => {
@@ -135,7 +161,12 @@ fn run_shell(cmd: &str, stdin: &[u8]) -> Option<Vec<u8>> {
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let mut child = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut child = c
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
     if let Some(mut si) = child.stdin.take() {
         let _ = si.write_all(stdin);
     }

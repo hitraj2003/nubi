@@ -1,0 +1,51 @@
+name: Native installer signing check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install packaging tools
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE) { throw "NSIS installation failed" }
+          cargo install tauri-cli --version 2.12.4 --locked
+          if ($LASTEXITCODE) { throw "Tauri signer installation failed" }
+
+      - name: Build native installer
+        shell: pwsh
+        run: |
+          cargo fetch --locked
+          if ($LASTEXITCODE) { throw "Dependency download failed" }
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'NSIS/makensis.exe'
+          ./scripts/build-native-installer.ps1 -MakeNsis $compiler
+
+      - name: Sign installer and create updater manifest
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: ./scripts/sign-native-candidate.ps1
+
+      - name: Verify signed bytes with the production public key
+        shell: pwsh
+        env:
+          NUBI_NATIVE_UPDATE_CANDIDATE: target/native-size/signed-candidate
+        run: cargo test --locked --offline -p nubi-app update_transport::tests::signed_native_candidate -- --ignored --exact
+
+      - name: Save the signed candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-native-candidate
+          path: target/native-size/signed-candidate/
+          if-no-files-found: error

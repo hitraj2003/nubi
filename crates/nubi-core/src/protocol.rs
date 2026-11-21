@@ -24,8 +24,16 @@ pub fn pipe_name() -> String {
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
-    let user = if user.is_empty() { "default".to_string() } else { user };
-    let suffix = if crate::isolation::development() { "-dev" } else { "" };
+    let user = if user.is_empty() {
+        "default".to_string()
+    } else {
+        user
+    };
+    let suffix = if crate::isolation::development() {
+        "-dev"
+    } else {
+        ""
+    };
     format!(r"\\.\pipe\nubi-{user}{suffix}")
 }
 
@@ -44,6 +52,10 @@ pub struct HookMsg {
     pub message: Option<String>,
     pub notification_type: Option<String>,
     pub pids: Vec<u32>,
+    /// Visible top-level window that owns the hook's console, or 0 when unknown.
+    /// One terminal process can host several windows, so the PID alone is ambiguous.
+    #[serde(default)]
+    pub window: u64,
     pub wants_reply: bool,
     pub deadline_secs: u64,
 }
@@ -85,7 +97,11 @@ pub struct BrowserCookie {
 // Cookie values are secrets: Debug never prints them.
 impl std::fmt::Debug for BrowserCookie {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BrowserCookie({} @ {}{})", self.name, self.domain, self.path)
+        write!(
+            f,
+            "BrowserCookie({} @ {}{})",
+            self.name, self.domain, self.path
+        )
     }
 }
 
@@ -120,17 +136,27 @@ pub struct BrowserReply {
 impl BrowserReply {
     pub fn result(r: Result<(), String>) -> Self {
         match r {
-            Ok(()) => Self { ok: true, ..Default::default() },
-            Err(e) => Self { error: Some(e), ..Default::default() },
+            Ok(()) => Self {
+                ok: true,
+                ..Default::default()
+            },
+            Err(e) => Self {
+                error: Some(e),
+                ..Default::default()
+            },
         }
     }
 }
 
 /// desktime.com or a subdomain, with or without the leading dot cookies use for subdomains.
 pub fn desktime_domain(domain: &str) -> bool {
-    let d = domain.strip_prefix('.').unwrap_or(domain).to_ascii_lowercase();
+    let d = domain
+        .strip_prefix('.')
+        .unwrap_or(domain)
+        .to_ascii_lowercase();
     d.len() <= 253
-        && d.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        && d.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
         && !d.starts_with('.')
         && !d.contains("..")
         && (d == "desktime.com" || d.ends_with(".desktime.com"))
@@ -143,19 +169,32 @@ fn cookie_ok(c: &BrowserCookie) -> Result<(), &'static str> {
         return Err("Invalid cookie name");
     }
     // Visible ASCII without `;`, so a value can never add cookie attributes.
-    if c.value.len() > 4096 || !c.value.bytes().all(|b| (b.is_ascii_graphic() && b != b';') || b == b' ') {
+    if c.value.len() > 4096
+        || !c
+            .value
+            .bytes()
+            .all(|b| (b.is_ascii_graphic() && b != b';') || b == b' ')
+    {
         return Err("Invalid cookie value");
     }
     if !desktime_domain(&c.domain) {
         return Err("Cookie is not for desktime.com");
     }
-    if !c.path.starts_with('/') || c.path.len() > 1024 || !c.path.bytes().all(|b| b.is_ascii_graphic() && b != b';') {
+    if !c.path.starts_with('/')
+        || c.path.len() > 1024
+        || !c.path.bytes().all(|b| b.is_ascii_graphic() && b != b';')
+    {
         return Err("Invalid cookie path");
     }
-    if c.expires.is_some_and(|e| !e.is_finite() || !(0.0..1e11).contains(&e)) {
+    if c.expires
+        .is_some_and(|e| !e.is_finite() || !(0.0..1e11).contains(&e))
+    {
         return Err("Invalid cookie expiry");
     }
-    if c.same_site.as_deref().is_some_and(|s| !["no_restriction", "lax", "strict", "unspecified"].contains(&s)) {
+    if c.same_site
+        .as_deref()
+        .is_some_and(|s| !["no_restriction", "lax", "strict", "unspecified"].contains(&s))
+    {
         return Err("Invalid cookie SameSite");
     }
     Ok(())
@@ -179,7 +218,8 @@ pub fn parse_browser_msg(body: &[u8]) -> Result<BrowserMsg, String> {
         return Err("Message is too large".into());
     }
     // serde errors can quote input, which may hold cookie values: report a fixed message.
-    let msg: BrowserMsg = serde_json::from_slice(body).map_err(|_| "Unexpected message".to_string())?;
+    let msg: BrowserMsg =
+        serde_json::from_slice(body).map_err(|_| "Unexpected message".to_string())?;
     validate_browser_msg(&msg)?;
     Ok(msg)
 }
@@ -205,7 +245,11 @@ pub fn build_msg(provider: &str, raw: &Value, pids: Vec<u32>) -> Option<HookMsg>
     let mut tool_input = raw.get("tool_input").cloned();
     let mut oversize = false;
     if let Some(ti) = &tool_input {
-        if serde_json::to_string(ti).map(|t| t.len()).unwrap_or(usize::MAX) > MAX_TOOL_INPUT {
+        if serde_json::to_string(ti)
+            .map(|t| t.len())
+            .unwrap_or(usize::MAX)
+            > MAX_TOOL_INPUT
+        {
             tool_input = None;
             oversize = true;
         }
@@ -226,8 +270,13 @@ pub fn build_msg(provider: &str, raw: &Value, pids: Vec<u32>) -> Option<HookMsg>
         message: s(raw, "message"),
         notification_type: s(raw, "notification_type"),
         pids,
+        window: 0,
         wants_reply,
-        deadline_secs: if question { QUESTION_DEADLINE_SECS } else { PERMISSION_DEADLINE_SECS },
+        deadline_secs: if question {
+            QUESTION_DEADLINE_SECS
+        } else {
+            PERMISSION_DEADLINE_SECS
+        },
     })
 }
 
@@ -259,7 +308,10 @@ pub fn question_json(tool_input: &Value, r: &Reply) -> Option<String> {
     let answers = r.answers.as_ref().filter(|a| !a.is_empty())?;
     let questions = tool_input.get("questions")?.as_array()?;
     // Every answer must name a question that was asked.
-    let asked: Vec<&str> = questions.iter().filter_map(|q| q["question"].as_str()).collect();
+    let asked: Vec<&str> = questions
+        .iter()
+        .filter_map(|q| q["question"].as_str())
+        .collect();
     if !answers.keys().all(|k| asked.contains(&k.as_str())) {
         return None;
     }
@@ -279,7 +331,12 @@ mod tests {
 
     #[test]
     fn allow_json_matches_contract() {
-        let out = decision_json(&Reply { decision: "allow".into(), message: None, answers: None }).unwrap();
+        let out = decision_json(&Reply {
+            decision: "allow".into(),
+            message: None,
+            answers: None,
+        })
+        .unwrap();
         assert_eq!(
             out,
             r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
@@ -288,7 +345,12 @@ mod tests {
 
     #[test]
     fn deny_carries_message() {
-        let out = decision_json(&Reply { decision: "deny".into(), message: Some("no".into()), answers: None }).unwrap();
+        let out = decision_json(&Reply {
+            decision: "deny".into(),
+            message: Some("no".into()),
+            answers: None,
+        })
+        .unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], "deny");
         assert_eq!(v["hookSpecificOutput"]["decision"]["message"], "no");
@@ -296,7 +358,12 @@ mod tests {
 
     #[test]
     fn unknown_decision_prints_nothing() {
-        assert!(decision_json(&Reply { decision: "maybe".into(), message: None, answers: None }).is_none());
+        assert!(decision_json(&Reply {
+            decision: "maybe".into(),
+            message: None,
+            answers: None
+        })
+        .is_none());
     }
 
     #[test]
@@ -322,11 +389,25 @@ mod tests {
         let ti = json!({"questions":[{"question":"Which framework?","header":"F","options":[{"label":"React"},{"label":"Vue"}],"multiSelect":false}]});
         let mut a = serde_json::Map::new();
         a.insert("Which framework?".into(), json!("React"));
-        let out = question_json(&ti, &Reply { decision: "answer".into(), message: None, answers: Some(a) }).unwrap();
+        let out = question_json(
+            &ti,
+            &Reply {
+                decision: "answer".into(),
+                message: None,
+                answers: Some(a),
+            },
+        )
+        .unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
-        assert_eq!(v["hookSpecificOutput"]["updatedInput"]["answers"]["Which framework?"], "React");
-        assert_eq!(v["hookSpecificOutput"]["updatedInput"]["questions"][0]["header"], "F");
+        assert_eq!(
+            v["hookSpecificOutput"]["updatedInput"]["answers"]["Which framework?"],
+            "React"
+        );
+        assert_eq!(
+            v["hookSpecificOutput"]["updatedInput"]["questions"][0]["header"],
+            "F"
+        );
     }
 
     #[test]
@@ -334,15 +415,34 @@ mod tests {
         let ti = json!({"questions":[{"question":"Q1","options":[]}]});
         let mut a = serde_json::Map::new();
         a.insert("Other".into(), json!("x"));
-        assert!(question_json(&ti, &Reply { decision: "answer".into(), message: None, answers: Some(a) }).is_none());
-        assert!(question_json(&ti, &Reply { decision: "skip".into(), message: None, answers: None }).is_none());
+        assert!(question_json(
+            &ti,
+            &Reply {
+                decision: "answer".into(),
+                message: None,
+                answers: Some(a)
+            }
+        )
+        .is_none());
+        assert!(question_json(
+            &ti,
+            &Reply {
+                decision: "skip".into(),
+                message: None,
+                answers: None
+            }
+        )
+        .is_none());
     }
 
     #[test]
     fn only_claude_questions_wait() {
         let raw = json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion","tool_input":{"questions":[]}});
         assert!(build_msg("claude", &raw, vec![]).unwrap().wants_reply);
-        assert_eq!(build_msg("claude", &raw, vec![]).unwrap().deadline_secs, QUESTION_DEADLINE_SECS);
+        assert_eq!(
+            build_msg("claude", &raw, vec![]).unwrap().deadline_secs,
+            QUESTION_DEADLINE_SECS
+        );
         assert!(!build_msg("codex", &raw, vec![]).unwrap().wants_reply);
         let raw = json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash"});
         assert!(!build_msg("claude", &raw, vec![]).unwrap().wants_reply);
@@ -360,17 +460,35 @@ mod tests {
     #[test]
     fn browser_session_parses_and_validates() {
         let body = json!({"type":"desktime_session","cookies":[cookie()]}).to_string();
-        let BrowserMsg::DesktimeSession { cookies, sync } = parse_browser_msg(body.as_bytes()).unwrap() else { panic!() };
+        let BrowserMsg::DesktimeSession { cookies, sync } =
+            parse_browser_msg(body.as_bytes()).unwrap()
+        else {
+            panic!()
+        };
         assert!(!sync);
         assert_eq!(cookies[0].name, "desktime_session");
         assert!(cookies[0].http_only);
         let body = json!({"type":"desktime_session","cookies":[],"sync":true}).to_string();
-        assert_eq!(parse_browser_msg(body.as_bytes()).unwrap(), BrowserMsg::DesktimeSession { cookies: vec![], sync: true });
-        assert_eq!(parse_browser_msg(br#"{"type":"desktime_revoke"}"#).unwrap(), BrowserMsg::DesktimeRevoke);
+        assert_eq!(
+            parse_browser_msg(body.as_bytes()).unwrap(),
+            BrowserMsg::DesktimeSession {
+                cookies: vec![],
+                sync: true
+            }
+        );
+        assert_eq!(
+            parse_browser_msg(br#"{"type":"desktime_revoke"}"#).unwrap(),
+            BrowserMsg::DesktimeRevoke
+        );
         // Session cookies carry no expiry.
         let mut c = cookie();
         c["expires"] = Value::Null;
-        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).is_ok());
+        assert!(parse_browser_msg(
+            json!({"type":"desktime_session","cookies":[c]})
+                .to_string()
+                .as_bytes()
+        )
+        .is_ok());
     }
 
     #[test]
@@ -385,14 +503,34 @@ mod tests {
         }
         let mut c = cookie();
         c["sameSite"] = json!("lax");
-        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c.clone()]}).to_string().as_bytes()).is_ok());
+        assert!(parse_browser_msg(
+            json!({"type":"desktime_session","cookies":[c.clone()]})
+                .to_string()
+                .as_bytes()
+        )
+        .is_ok());
         c["sameSite"] = json!("none; Domain=evil.com");
-        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c.clone()]}).to_string().as_bytes()).is_err());
+        assert!(parse_browser_msg(
+            json!({"type":"desktime_session","cookies":[c.clone()]})
+                .to_string()
+                .as_bytes()
+        )
+        .is_err());
         c["sameSite"] = json!("lax");
         c["hostOnly"] = json!(true);
-        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).is_err());
+        assert!(parse_browser_msg(
+            json!({"type":"desktime_session","cookies":[c]})
+                .to_string()
+                .as_bytes()
+        )
+        .is_err());
         let many: Vec<Value> = (0..65).map(|_| cookie()).collect();
-        assert!(parse_browser_msg(json!({"type":"desktime_session","cookies":many}).to_string().as_bytes()).is_err());
+        assert!(parse_browser_msg(
+            json!({"type":"desktime_session","cookies":many})
+                .to_string()
+                .as_bytes()
+        )
+        .is_err());
         assert!(parse_browser_msg(&vec![b' '; MAX_BROWSER_MSG + 1]).is_err());
     }
 
@@ -400,9 +538,16 @@ mod tests {
     fn cookie_errors_never_echo_values() {
         let mut c = cookie();
         c["value"] = json!("secret;Domain=evil.com");
-        let err = parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).unwrap_err();
+        let err = parse_browser_msg(
+            json!({"type":"desktime_session","cookies":[c]})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap_err();
         assert!(!err.contains("secret"));
-        let err = parse_browser_msg(br#"{"type":"desktime_session","cookies":[{"value":"secret"}]}"#).unwrap_err();
+        let err =
+            parse_browser_msg(br#"{"type":"desktime_session","cookies":[{"value":"secret"}]}"#)
+                .unwrap_err();
         assert!(!err.contains("secret"));
     }
 
@@ -411,12 +556,29 @@ mod tests {
         let bad = |k: &str, v: Value| {
             let mut c = cookie();
             c[k] = v;
-            parse_browser_msg(json!({"type":"desktime_session","cookies":[c]}).to_string().as_bytes()).is_err()
+            parse_browser_msg(
+                json!({"type":"desktime_session","cookies":[c]})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .is_err()
         };
-        for d in ["evil.com", "desktime.com.evil.com", "evildesktime.com", "..desktime.com", "a..desktime.com", "desk time.com"] {
+        for d in [
+            "evil.com",
+            "desktime.com.evil.com",
+            "evildesktime.com",
+            "..desktime.com",
+            "a..desktime.com",
+            "desk time.com",
+        ] {
             assert!(bad("domain", json!(d)), "{d}");
         }
-        for d in ["desktime.com", ".desktime.com", "app.desktime.com", "DeskTime.com"] {
+        for d in [
+            "desktime.com",
+            ".desktime.com",
+            "app.desktime.com",
+            "DeskTime.com",
+        ] {
             assert!(!bad("domain", json!(d)), "{d}");
         }
         assert!(bad("name", json!("")));
@@ -428,30 +590,57 @@ mod tests {
         assert!(bad("path", json!("/a;b")));
         assert!(bad("expires", json!(-1.0)));
         assert!(bad("expires", json!(1e12)));
-        assert!(format!("{:?}", serde_json::from_value::<BrowserCookie>(cookie()).unwrap()).find("abc").is_none());
+        assert!(format!(
+            "{:?}",
+            serde_json::from_value::<BrowserCookie>(cookie()).unwrap()
+        )
+        .find("abc")
+        .is_none());
     }
 
     #[test]
     fn browser_frames_and_hook_frames_do_not_mix() {
-        let frame = serde_json::to_string(&BrowserFrame { browser: BrowserMsg::DesktimeRevoke }).unwrap();
+        let frame = serde_json::to_string(&BrowserFrame {
+            browser: BrowserMsg::DesktimeRevoke,
+        })
+        .unwrap();
         assert_eq!(frame, r#"{"browser":{"type":"desktime_revoke"}}"#);
         assert!(serde_json::from_str::<HookMsg>(&frame).is_err());
-        let hook = serde_json::to_string(&HookMsg { v: 1, provider: "claude".into(), ..Default::default() }).unwrap();
+        let hook = serde_json::to_string(&HookMsg {
+            v: 1,
+            provider: "claude".into(),
+            ..Default::default()
+        })
+        .unwrap();
         assert!(serde_json::from_str::<BrowserFrame>(&hook).is_err());
-        assert_eq!(serde_json::to_string(&BrowserReply::result(Ok(()))).unwrap(), r#"{"ok":true}"#);
-        assert_eq!(serde_json::to_string(&BrowserReply::result(Err("x".into()))).unwrap(), r#"{"ok":false,"error":"x"}"#);
+        assert_eq!(
+            serde_json::to_string(&BrowserReply::result(Ok(()))).unwrap(),
+            r#"{"ok":true}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&BrowserReply::result(Err("x".into()))).unwrap(),
+            r#"{"ok":false,"error":"x"}"#
+        );
     }
 
     #[test]
     fn focused_questions_use_terminal_but_permissions_keep_their_route() {
-        let question = json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion"});
+        let question =
+            json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion"});
         let msg = build_msg("claude", &question, vec![]).unwrap();
         assert!(question_in_terminal(&msg, true));
         assert!(!question_in_terminal(&msg, false));
-        assert!(!question_in_terminal(&build_msg("codex", &question, vec![]).unwrap(), true));
-        let permission = json!({"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash"});
+        assert!(!question_in_terminal(
+            &build_msg("codex", &question, vec![]).unwrap(),
+            true
+        ));
+        let permission =
+            json!({"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash"});
         for provider in ["claude", "codex"] {
-            assert!(!question_in_terminal(&build_msg(provider, &permission, vec![]).unwrap(), true));
+            assert!(!question_in_terminal(
+                &build_msg(provider, &permission, vec![]).unwrap(),
+                true
+            ));
         }
     }
 }

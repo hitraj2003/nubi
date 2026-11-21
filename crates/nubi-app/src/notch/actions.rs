@@ -2,11 +2,14 @@ use super::*;
 pub fn session_action(host: &NativeHost, key: &str, action: &str) -> Result<(), String> {
     match action {
         "jump" => {
-            let pids = with(host, |state| {
-                state.sessions.get(key).map(|session| session.pids.clone())
+            let (window, pids) = with(host, |state| {
+                state
+                    .sessions
+                    .get(key)
+                    .map(|session| (session.window, session.pids.clone()))
             })
             .ok_or("unknown session")?;
-            if !nubi_core::winutil::focus_pids(&pids) {
+            if !nubi_core::winutil::focus_pids(window, &pids) {
                 return Err("Terminal window not found".into());
             }
         }

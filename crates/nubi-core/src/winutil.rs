@@ -1,22 +1,24 @@
 //! Small Win32 helpers: process tree, window focus, notification state, beeps.
 use std::collections::HashMap;
 use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, INVALID_HANDLE_VALUE, LPARAM};
+use windows_sys::Win32::System::Console::GetConsoleWindow;
+use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
-use windows_sys::Win32::System::Console::GetConsoleWindow;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOTOWNER};
 use windows_sys::Win32::UI::Shell::SHQueryUserNotificationState;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindow, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-    SetForegroundWindow, ShowWindow, GW_OWNER, MB_ICONASTERISK, MB_ICONEXCLAMATION, SW_RESTORE,
+    EnumWindows, GetForegroundWindow, GetWindow, GetWindowTextLengthW, GetWindowThreadProcessId,
+    IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow, ShowWindow, GW_OWNER,
+    MB_ICONASTERISK, MB_ICONEXCLAMATION, SW_RESTORE,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOTOWNER};
 
-/// Parent chain of the current process, nearest first (excludes self).
+/// Session window candidates: visible console owner first, then parents nearest first.
+/// Excludes self and the desktop shell; a hidden console owner is a final fallback.
 pub fn ancestors() -> Vec<u32> {
     let mut parent: HashMap<u32, u32> = HashMap::new();
     // explorer.exe: the shell. Its windows are File Explorer folders, never the terminal.
@@ -31,8 +33,14 @@ pub fn ancestors() -> Vec<u32> {
         if Process32FirstW(snap, &mut e) != 0 {
             loop {
                 parent.insert(e.th32ProcessID, e.th32ParentProcessID);
-                let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
-                if String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case("explorer.exe") {
+                let len = e
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(e.szExeFile.len());
+                if String::from_utf16_lossy(&e.szExeFile[..len])
+                    .eq_ignore_ascii_case("explorer.exe")
+                {
                     shell.push(e.th32ProcessID);
                 }
                 if Process32NextW(snap, &mut e) == 0 {
@@ -53,20 +61,59 @@ pub fn ancestors() -> Vec<u32> {
             _ => break,
         }
     }
-    // Windows Terminal hosts the shell without being its parent. The console window of this
-    // process is owned by the terminal window, so add the owner's process as a last choice.
+    // A new console can inherit ancestors from an unrelated terminal. Prefer its visible
+    // root owner. Pseudoconsole message windows are hidden; keep ancestor fallback for
+    // Windows Terminal and integrated terminals instead of treating them as visible hosts.
     unsafe {
         let con = GetConsoleWindow();
         if !con.is_null() {
             let top = GetAncestor(con, GA_ROOTOWNER);
+            let top = if top.is_null() { con } else { top };
             let mut pid = 0u32;
-            GetWindowThreadProcessId(if top.is_null() { con } else { top }, &mut pid);
-            if pid != 0 && !out.contains(&pid) && !shell.contains(&pid) {
-                out.push(pid);
+            GetWindowThreadProcessId(top, &mut pid);
+            if !shell.contains(&pid) {
+                add_console_host(&mut out, pid, IsWindowVisible(top) != 0);
             }
         }
     }
     out
+}
+
+/// Visible top-level window that owns this process's console, or 0 when hidden or absent.
+/// Windows Terminal owns its pseudoconsole windows, so this names the exact terminal window
+/// even when one WindowsTerminal.exe process hosts several windows.
+pub fn console_window() -> u64 {
+    unsafe {
+        let con = GetConsoleWindow();
+        if con.is_null() {
+            return 0;
+        }
+        let top = GetAncestor(con, GA_ROOTOWNER);
+        let top = if top.is_null() { con } else { top };
+        if IsWindowVisible(top) != 0 {
+            top as u64
+        } else {
+            0
+        }
+    }
+}
+
+/// The bound console window when it still exists and is visible.
+fn bound_window(window: u64) -> Option<HWND> {
+    let hwnd = window as usize as HWND;
+    (window != 0 && unsafe { IsWindow(hwnd) != 0 && IsWindowVisible(hwnd) != 0 }).then_some(hwnd)
+}
+
+fn add_console_host(pids: &mut Vec<u32>, pid: u32, visible: bool) {
+    if pid == 0 {
+        return;
+    }
+    if visible {
+        pids.retain(|candidate| *candidate != pid);
+        pids.insert(0, pid);
+    } else if !pids.contains(&pid) {
+        pids.push(pid);
+    }
 }
 
 pub fn process_image(pid: u32) -> Option<String> {
@@ -88,7 +135,10 @@ pub fn process_image(pid: u32) -> Option<String> {
 
 unsafe extern "system" fn collect(hwnd: HWND, lp: LPARAM) -> BOOL {
     let list = &mut *(lp as *mut Vec<(HWND, u32)>);
-    if IsWindowVisible(hwnd) != 0 && GetWindow(hwnd, GW_OWNER).is_null() && GetWindowTextLengthW(hwnd) > 0 {
+    if IsWindowVisible(hwnd) != 0
+        && GetWindow(hwnd, GW_OWNER).is_null()
+        && GetWindowTextLengthW(hwnd) > 0
+    {
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, &mut pid);
         list.push((hwnd, pid));
@@ -96,49 +146,62 @@ unsafe extern "system" fn collect(hwnd: HWND, lp: LPARAM) -> BOOL {
     1
 }
 
-/// Bring the nearest ancestor window to the front. Best effort: whole window, not tab.
-pub fn focus_pids(pids: &[u32]) -> bool {
+/// Bring the first unambiguous session host to the front. Best effort: whole window, not tab.
+/// A bound console window wins over PID matching.
+pub fn focus_pids(window: u64, pids: &[u32]) -> bool {
     let mut list: Vec<(HWND, u32)> = vec![];
     unsafe {
         EnumWindows(Some(collect), &mut list as *mut _ as LPARAM);
     }
-    for pid in pids {
-        if let Some((hwnd, _)) = list.iter().find(|(_, p)| p == pid) {
-            unsafe {
-                if IsIconic(*hwnd) != 0 {
-                    ShowWindow(*hwnd, SW_RESTORE);
-                }
-                return SetForegroundWindow(*hwnd) != 0;
+    if let Some(hwnd) = bound_window(window).or_else(|| nearest_host(pids, &list)) {
+        unsafe {
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
             }
+            return SetForegroundWindow(hwnd) != 0;
         }
     }
     false
 }
 
-fn focused_host(pids: &[u32], windows: &[(usize, u32)], foreground: usize) -> bool {
-    if foreground == 0 {
-        return false;
-    }
+fn nearest_host<T: Copy>(pids: &[u32], windows: &[(T, u32)]) -> Option<T> {
     for pid in pids {
         let mut hosts = windows.iter().filter(|(_, owner)| owner == pid);
         if let Some((window, _)) = hosts.next() {
             // A shared process with several windows does not identify this session's window.
-            return hosts.next().is_none() && *window == foreground;
+            // Do not guess one or continue to a farther ancestor from another session.
+            return hosts.next().is_none().then_some(*window);
         }
     }
-    false
+    None
+}
+
+fn focused_host(pids: &[u32], windows: &[(usize, u32)], foreground: usize) -> bool {
+    foreground != 0 && nearest_host(pids, windows) == Some(foreground)
 }
 
 fn terminal_host(image: &str) -> bool {
     let name = image.rsplit(['\\', '/']).next().unwrap_or("");
-    ["WindowsTerminal.exe", "WindowsTerminalPreview.exe", "OpenConsole.exe", "conhost.exe",
-        "cmd.exe", "powershell.exe", "pwsh.exe", "claude.exe"]
-        .iter().any(|terminal| name.eq_ignore_ascii_case(terminal))
+    [
+        "WindowsTerminal.exe",
+        "WindowsTerminalPreview.exe",
+        "OpenConsole.exe",
+        "conhost.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "claude.exe",
+    ]
+    .iter()
+    .any(|terminal| name.eq_ignore_ascii_case(terminal))
 }
 
 /// Whether the nearest identifiable session host is foreground. Unknown/ambiguous hosts
 /// keep popup handling. Win32 identifies windows here, not tabs or panes inside a host.
-pub fn pids_focused(pids: &[u32]) -> bool {
+pub fn pids_focused(window: u64, pids: &[u32]) -> bool {
+    if let Some(bound) = bound_window(window) {
+        return unsafe { GetForegroundWindow() } == bound;
+    }
     if pids.is_empty() {
         return false;
     }
@@ -155,37 +218,11 @@ pub fn pids_focused(pids: &[u32]) -> bool {
             return false;
         }
         EnumWindows(Some(collect), &mut windows as *mut _ as LPARAM);
-        let windows: Vec<_> = windows.into_iter().map(|(hwnd, pid)| (hwnd as usize, pid)).collect();
+        let windows: Vec<_> = windows
+            .into_iter()
+            .map(|(hwnd, pid)| (hwnd as usize, pid))
+            .collect();
         focused_host(pids, &windows, foreground as usize)
-    }
-}
-
-#[cfg(test)]
-mod focus_tests {
-    use super::{focused_host, terminal_host};
-
-    #[test]
-    fn editor_window_is_not_a_focused_terminal() {
-        assert!(terminal_host("C:/Windows/System32/conhost.exe"));
-        assert!(terminal_host("C:/Program Files/WindowsApps/WindowsTerminal.exe"));
-        assert!(!terminal_host("C:/Code.exe"));
-        assert!(!terminal_host("C:/explorer.exe"));
-    }
-
-    #[test]
-    fn only_the_nearest_session_host_counts_as_focused() {
-        let windows = [(100, 10), (200, 20), (300, 30)];
-        assert!(focused_host(&[1, 10, 20], &windows, 100));
-        assert!(!focused_host(&[1, 10, 20], &windows, 200));
-        assert!(!focused_host(&[1, 10, 20], &windows, 300));
-    }
-
-    #[test]
-    fn unknown_or_ambiguous_focus_keeps_popup_handling() {
-        assert!(!focused_host(&[], &[(100, 10)], 100));
-        assert!(!focused_host(&[10], &[], 100));
-        assert!(!focused_host(&[10], &[(100, 10)], 0));
-        assert!(!focused_host(&[10], &[(100, 10), (200, 10)], 100));
     }
 }
 
@@ -211,7 +248,11 @@ pub fn quiet_time_active() -> bool {
 }
 
 pub fn beep(kind: &str) {
-    let t = if kind == "permission" { MB_ICONEXCLAMATION } else { MB_ICONASTERISK };
+    let t = if kind == "permission" {
+        MB_ICONEXCLAMATION
+    } else {
+        MB_ICONASTERISK
+    };
     unsafe {
         MessageBeep(t);
     }
@@ -229,7 +270,15 @@ pub fn monitor_names() -> HashMap<String, String> {
         }
         let mut paths: Vec<DISPLAYCONFIG_PATH_INFO> = vec![std::mem::zeroed(); np as usize];
         let mut modes: Vec<DISPLAYCONFIG_MODE_INFO> = vec![std::mem::zeroed(); nm as usize];
-        if QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), std::ptr::null_mut()) != 0 {
+        if QueryDisplayConfig(
+            QDC_ONLY_ACTIVE_PATHS,
+            &mut np,
+            paths.as_mut_ptr(),
+            &mut nm,
+            modes.as_mut_ptr(),
+            std::ptr::null_mut(),
+        ) != 0
+        {
             return out;
         }
         for p in &paths[..np as usize] {
@@ -249,15 +298,98 @@ pub fn monitor_names() -> HashMap<String, String> {
             if DisplayConfigGetDeviceInfo(&mut tgt.header) != 0 {
                 continue;
             }
-            let gdi = String::from_utf16_lossy(&src.viewGdiDeviceName).trim_end_matches('\0').to_string();
+            let gdi = String::from_utf16_lossy(&src.viewGdiDeviceName)
+                .trim_end_matches('\0')
+                .to_string();
             let tech = tgt.outputTechnology;
             let internal = tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL
                 || tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EMBEDDED
                 || tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED;
-            let name = String::from_utf16_lossy(&tgt.monitorFriendlyDeviceName).trim_end_matches('\0').to_string();
-            let name = if internal { "Internal Display".to_string() } else if name.is_empty() { continue } else { name };
+            let name = String::from_utf16_lossy(&tgt.monitorFriendlyDeviceName)
+                .trim_end_matches('\0')
+                .to_string();
+            let name = if internal {
+                "Internal Display".to_string()
+            } else if name.is_empty() {
+                continue;
+            } else {
+                name
+            };
             out.insert(gdi, name);
         }
     }
     out
+}
+
+#[cfg(test)]
+mod focus_tests {
+    use super::{add_console_host, focused_host, nearest_host, terminal_host};
+
+    #[test]
+    fn bound_visible_console_precedes_unrelated_ancestor_terminal() {
+        let mut pids = vec![25184, 200, 11128];
+        let windows = [(100, 11128), (200, 13036)];
+        add_console_host(&mut pids, 13036, true);
+        assert_eq!(pids, [13036, 25184, 200, 11128]);
+        assert_eq!(nearest_host(&pids, &windows), Some(200));
+        assert!(focused_host(&pids, &windows, 200));
+        assert!(!focused_host(&pids, &windows, 100));
+    }
+
+    #[test]
+    fn visible_console_owner_already_in_ancestry_is_promoted_once() {
+        let mut pids = vec![1, 20, 30];
+        add_console_host(&mut pids, 30, true);
+        add_console_host(&mut pids, 30, true);
+        assert_eq!(pids, [30, 1, 20]);
+    }
+
+    #[test]
+    fn hidden_console_preserves_terminal_and_editor_ancestor_fallback() {
+        for host in [20, 30] {
+            let mut pids = vec![1, host, 40];
+            add_console_host(&mut pids, 50, false);
+            add_console_host(&mut pids, host, false);
+            add_console_host(&mut pids, 0, true);
+            assert_eq!(pids, [1, host, 40, 50]);
+            assert_eq!(nearest_host(&pids, &[(100, host), (200, 40)]), Some(100));
+        }
+    }
+
+    #[test]
+    fn ambiguous_host_never_selects_a_window_or_farther_ancestor() {
+        let windows = [(100, 10), (200, 10), (300, 30)];
+        assert_eq!(nearest_host(&[1, 10, 30], &windows), None);
+        assert!(!focused_host(&[1, 10, 30], &windows, 100));
+        assert!(!focused_host(&[1, 10, 30], &windows, 300));
+        assert_eq!(nearest_host(&[30, 10], &windows), Some(300));
+        assert_eq!(nearest_host(&[], &windows), None);
+        assert_eq!(nearest_host::<usize>(&[10], &[]), None);
+    }
+
+    #[test]
+    fn editor_window_is_not_a_focused_terminal() {
+        assert!(terminal_host("C:/Windows/System32/conhost.exe"));
+        assert!(terminal_host(
+            "C:/Program Files/WindowsApps/WindowsTerminal.exe"
+        ));
+        assert!(!terminal_host("C:/Code.exe"));
+        assert!(!terminal_host("C:/explorer.exe"));
+    }
+
+    #[test]
+    fn only_the_nearest_session_host_counts_as_focused() {
+        let windows = [(100, 10), (200, 20), (300, 30)];
+        assert!(focused_host(&[1, 10, 20], &windows, 100));
+        assert!(!focused_host(&[1, 10, 20], &windows, 200));
+        assert!(!focused_host(&[1, 10, 20], &windows, 300));
+    }
+
+    #[test]
+    fn unknown_or_ambiguous_focus_keeps_popup_handling() {
+        assert!(!focused_host(&[], &[(100, 10)], 100));
+        assert!(!focused_host(&[10], &[], 100));
+        assert!(!focused_host(&[10], &[(100, 10)], 0));
+        assert!(!focused_host(&[10], &[(100, 10), (200, 10)], 100));
+    }
 }

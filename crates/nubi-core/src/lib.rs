@@ -3,9 +3,9 @@
 pub mod desktime;
 pub mod hook_client;
 pub mod hooks_config;
-pub mod isolation;
 #[cfg(feature = "services")]
 pub mod host;
+pub mod isolation;
 #[cfg(feature = "services")]
 pub mod native_host;
 #[cfg(feature = "services")]

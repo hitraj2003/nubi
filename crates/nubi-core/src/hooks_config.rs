@@ -17,29 +17,109 @@ struct EventSpec {
 }
 
 const CLAUDE_EVENTS: &[EventSpec] = &[
-    EventSpec { name: "SessionStart", matcher: None, timeout: Some(10) },
-    EventSpec { name: "SessionEnd", matcher: None, timeout: Some(10) },
-    EventSpec { name: "UserPromptSubmit", matcher: None, timeout: Some(10) },
-    EventSpec { name: "PreToolUse", matcher: Some("*"), timeout: Some(QUESTION_HOOK_TIMEOUT_SECS) },
-    EventSpec { name: "PostToolUse", matcher: Some("*"), timeout: Some(10) },
-    EventSpec { name: "Notification", matcher: None, timeout: Some(10) },
-    EventSpec { name: "Stop", matcher: None, timeout: Some(10) },
-    EventSpec { name: "SubagentStop", matcher: None, timeout: Some(10) },
-    EventSpec { name: "PermissionRequest", matcher: Some("*"), timeout: Some(HOOK_TIMEOUT_SECS) },
+    EventSpec {
+        name: "SessionStart",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "SessionEnd",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "UserPromptSubmit",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "PreToolUse",
+        matcher: Some("*"),
+        timeout: Some(QUESTION_HOOK_TIMEOUT_SECS),
+    },
+    EventSpec {
+        name: "PostToolUse",
+        matcher: Some("*"),
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "Notification",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "Stop",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "SubagentStop",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "PermissionRequest",
+        matcher: Some("*"),
+        timeout: Some(HOOK_TIMEOUT_SECS),
+    },
 ];
 
 const CODEX_EVENTS: &[EventSpec] = &[
-    EventSpec { name: "SessionStart", matcher: None, timeout: Some(10) },
-    EventSpec { name: "SessionEnd", matcher: None, timeout: Some(3) },
-    EventSpec { name: "UserPromptSubmit", matcher: None, timeout: Some(10) },
-    EventSpec { name: "PreToolUse", matcher: None, timeout: Some(10) },
-    EventSpec { name: "PostToolUse", matcher: None, timeout: Some(10) },
-    EventSpec { name: "Interrupt", matcher: None, timeout: Some(10) },
-    EventSpec { name: "PreModelRequest", matcher: None, timeout: Some(10) },
-    EventSpec { name: "Stop", matcher: None, timeout: Some(10) },
-    EventSpec { name: "SubagentStart", matcher: None, timeout: Some(10) },
-    EventSpec { name: "SubagentStop", matcher: None, timeout: Some(10) },
-    EventSpec { name: "PermissionRequest", matcher: None, timeout: Some(HOOK_TIMEOUT_SECS) },
+    EventSpec {
+        name: "SessionStart",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "SessionEnd",
+        matcher: None,
+        timeout: Some(3),
+    },
+    EventSpec {
+        name: "UserPromptSubmit",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "PreToolUse",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "PostToolUse",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "Interrupt",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "PreModelRequest",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "Stop",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "SubagentStart",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "SubagentStop",
+        matcher: None,
+        timeout: Some(10),
+    },
+    EventSpec {
+        name: "PermissionRequest",
+        matcher: None,
+        timeout: Some(HOOK_TIMEOUT_SECS),
+    },
 ];
 
 pub fn claude_settings_path() -> Option<PathBuf> {
@@ -68,7 +148,9 @@ pub fn shim_path() -> Option<PathBuf> {
 /// Copy the separate helper to the stable path. A locked shim is left as is.
 pub fn install_shim() -> std::io::Result<PathBuf> {
     if crate::isolation::development() {
-        return Err(std::io::Error::other("Hook installation is disabled in development mode"));
+        return Err(std::io::Error::other(
+            "Hook installation is disabled in development mode",
+        ));
     }
     let dst = shim_path().ok_or_else(|| std::io::Error::other("no local app data dir"))?;
     install_shim_from(&std::env::current_exe()?, dst)
@@ -79,7 +161,11 @@ fn install_shim_from(app_exe: &Path, dst: PathBuf) -> std::io::Result<PathBuf> {
     // The default install folder and stable shim folder differ only in case on Windows.
     // Keep the packaged source in a subfolder so installers never overwrite a held hook.
     let packaged = app_exe.parent().unwrap().join("helpers").join(HOOK_EXE);
-    let src = if packaged.is_file() { packaged } else { app_exe.with_file_name(HOOK_EXE) };
+    let src = if packaged.is_file() {
+        packaged
+    } else {
+        app_exe.with_file_name(HOOK_EXE)
+    };
     if src == dst && dst.is_file() {
         return Ok(dst);
     }
@@ -94,28 +180,42 @@ fn install_shim_from(app_exe: &Path, dst: PathBuf) -> std::io::Result<PathBuf> {
 }
 
 fn command_for(shim: &Path, provider: &str) -> String {
-    format!("\"{}\" --hook {}", shim.display().to_string().replace('\\', "/"), provider)
+    format!(
+        "\"{}\" --hook {}",
+        shim.display().to_string().replace('\\', "/"),
+        provider
+    )
 }
 
 fn windows_command_for(shim: &Path, provider: &str) -> String {
-    let path = shim.display().to_string().replace('\\', "/").replace('\'', "''");
+    let path = shim
+        .display()
+        .to_string()
+        .replace('\\', "/")
+        .replace('\'', "''");
     // Invoke explicitly so both PowerShell and cmd hosts handle quoted executable paths.
     format!("powershell.exe -NoProfile -NonInteractive -Command \"& '{path}' --hook {provider}\"")
 }
 
 fn is_ours(h: &Value) -> bool {
-    ["command", "commandWindows"]
-        .iter()
-        .any(|k| h.get(*k).and_then(|c| c.as_str()).is_some_and(|c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE)))
+    ["command", "commandWindows"].iter().any(|k| {
+        h.get(*k)
+            .and_then(|c| c.as_str())
+            .is_some_and(|c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE))
+    })
 }
 
 /// Remove our entries. Returns true when anything was removed.
 pub fn strip(root: &mut Value) -> bool {
-    let Some(hooks) = root.get_mut("hooks").and_then(|h| h.as_object_mut()) else { return false };
+    let Some(hooks) = root.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
+        return false;
+    };
     let mut changed = false;
     let events: Vec<String> = hooks.keys().cloned().collect();
     for ev in events {
-        let Some(groups) = hooks.get_mut(&ev).and_then(|g| g.as_array_mut()) else { continue };
+        let Some(groups) = hooks.get_mut(&ev).and_then(|g| g.as_array_mut()) else {
+            continue;
+        };
         for g in groups.iter_mut() {
             if let Some(list) = g.get_mut("hooks").and_then(|l| l.as_array_mut()) {
                 let before = list.len();
@@ -123,7 +223,11 @@ pub fn strip(root: &mut Value) -> bool {
                 changed |= list.len() != before;
             }
         }
-        groups.retain(|g| g.get("hooks").and_then(|l| l.as_array()).is_none_or(|l| !l.is_empty()));
+        groups.retain(|g| {
+            g.get("hooks")
+                .and_then(|l| l.as_array())
+                .is_none_or(|l| !l.is_empty())
+        });
         if groups.is_empty() {
             hooks.remove(&ev);
         }
@@ -169,7 +273,9 @@ pub fn has_ours(root: &Value) -> bool {
         .and_then(|h| h.as_object())
         .is_some_and(|h| {
             h.values().filter_map(|g| g.as_array()).flatten().any(|g| {
-                g.get("hooks").and_then(|l| l.as_array()).is_some_and(|l| l.iter().any(is_ours))
+                g.get("hooks")
+                    .and_then(|l| l.as_array())
+                    .is_some_and(|l| l.iter().any(is_ours))
             })
         })
 }
@@ -177,7 +283,8 @@ pub fn has_ours(root: &Value) -> bool {
 fn read_json(path: &Path) -> Result<Value, String> {
     match std::fs::read_to_string(path) {
         Ok(t) if t.trim().is_empty() => Ok(json!({})),
-        Ok(t) => serde_json::from_str(&t).map_err(|e| format!("{} is not valid JSON: {e}", path.display())),
+        Ok(t) => serde_json::from_str(&t)
+            .map_err(|e| format!("{} is not valid JSON: {e}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
         Err(e) => Err(e.to_string()),
     }
@@ -206,7 +313,9 @@ fn path_for(provider: &str) -> Option<PathBuf> {
 }
 
 pub fn is_enabled(provider: &str) -> bool {
-    path_for(provider).and_then(|p| read_json(&p).ok()).is_some_and(|v| has_ours(&v))
+    path_for(provider)
+        .and_then(|p| read_json(&p).ok())
+        .is_some_and(|v| has_ours(&v))
 }
 
 // ---- Claude Code status line ----
@@ -219,23 +328,35 @@ fn prev_statusline_path() -> PathBuf {
 }
 
 fn statusline_is_ours(v: &Value) -> bool {
-    v.get("command").and_then(|c| c.as_str()).is_some_and(|c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE))
+    v.get("command")
+        .and_then(|c| c.as_str())
+        .is_some_and(|c| c.contains(HOOK_EXE) || c.contains(LEGACY_HOOK_EXE))
 }
 
 /// Command of the status line Nubi replaced, if there was one.
 pub fn previous_statusline() -> Option<String> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(prev_statusline_path()).ok()?).ok()?;
-    v.get("command").and_then(|c| c.as_str()).map(String::from).filter(|c| !c.trim().is_empty())
+    let v: Value =
+        serde_json::from_str(&std::fs::read_to_string(prev_statusline_path()).ok()?).ok()?;
+    v.get("command")
+        .and_then(|c| c.as_str())
+        .map(String::from)
+        .filter(|c| !c.trim().is_empty())
 }
 
 fn take_statusline(root: &mut Value, shim: &Path) {
     let cur = root.get("statusLine").cloned().unwrap_or(Value::Null);
     if !statusline_is_ours(&cur) {
         let _ = std::fs::create_dir_all(crate::settings::data_dir());
-        let _ = std::fs::write(prev_statusline_path(), serde_json::to_string_pretty(&cur).unwrap_or_default());
+        let _ = std::fs::write(
+            prev_statusline_path(),
+            serde_json::to_string_pretty(&cur).unwrap_or_default(),
+        );
     }
     let padding = cur.get("padding").cloned().unwrap_or(json!(0));
-    let cmd = format!("\"{}\" --statusline", shim.display().to_string().replace('\\', "/"));
+    let cmd = format!(
+        "\"{}\" --statusline",
+        shim.display().to_string().replace('\\', "/")
+    );
     root["statusLine"] = json!({ "type": "command", "command": cmd, "padding": padding });
 }
 
@@ -244,7 +365,9 @@ fn give_back_statusline(root: &mut Value) {
     if !ours {
         return;
     }
-    let prev = std::fs::read_to_string(prev_statusline_path()).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    let prev = std::fs::read_to_string(prev_statusline_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok());
     match prev {
         Some(v) if v.is_object() => root["statusLine"] = v,
         _ => {
@@ -294,7 +417,11 @@ mod tests {
         std::fs::write(&helper, b"hook").unwrap();
         assert_eq!(install_shim_from(&app, dst.clone()).unwrap(), dst);
         assert_eq!(std::fs::read(&dst).unwrap(), b"hook");
-        let locked = std::fs::OpenOptions::new().read(true).share_mode(1).open(&dst).unwrap();
+        let locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&dst)
+            .unwrap();
         std::fs::write(&helper, b"new hook").unwrap();
         assert_eq!(install_shim_from(&app, dst.clone()).unwrap(), dst);
         assert_eq!(std::fs::read(&dst).unwrap(), b"hook");
@@ -313,7 +440,8 @@ mod tests {
 
     #[test]
     fn portable_helper_is_required_and_installs_separately() {
-        let dir = std::env::temp_dir().join(format!("nubi-missing-hook-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("nubi-missing-hook-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let app = dir.join("nubi.exe");
         let dst = dir.join("stable").join(HOOK_EXE);
@@ -337,12 +465,20 @@ mod tests {
             "model": "x",
             "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "other.exe" } ] } ] }
         });
-        add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", None);
+        add(
+            &mut root,
+            CLAUDE_EVENTS,
+            "\"C:/x/nubi-hook.exe\" --hook claude",
+            None,
+        );
         assert!(has_ours(&root));
         assert_eq!(root["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
         assert!(strip(&mut root));
         assert!(!has_ours(&root));
-        assert_eq!(root["hooks"]["SessionStart"][0]["hooks"][0]["command"], "other.exe");
+        assert_eq!(
+            root["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "other.exe"
+        );
         assert!(root["hooks"].get("Stop").is_none());
         assert_eq!(root["model"], "x");
     }
@@ -351,13 +487,24 @@ mod tests {
     fn strip_removes_empty_hooks_key() {
         let mut root = json!({});
         let windows_cmd = windows_command_for(Path::new("C:/x/nubi-hook.exe"), "codex");
-        add(&mut root, CODEX_EVENTS, "\"C:/x/nubi-hook.exe\" --hook codex", Some(&windows_cmd));
-        assert_eq!(root["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"], HOOK_TIMEOUT_SECS);
+        add(
+            &mut root,
+            CODEX_EVENTS,
+            "\"C:/x/nubi-hook.exe\" --hook codex",
+            Some(&windows_cmd),
+        );
+        assert_eq!(
+            root["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"],
+            HOOK_TIMEOUT_SECS
+        );
         assert!(root["hooks"]["PostToolUse"][0]["hooks"][0]["commandWindows"].is_string());
         assert!(root["hooks"]["Interrupt"][0]["hooks"][0]["commandWindows"].is_string());
         assert!(root["hooks"]["PreModelRequest"][0]["hooks"][0]["commandWindows"].is_string());
         assert!(root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"].is_string());
-        assert_eq!(root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"], windows_cmd);
+        assert_eq!(
+            root["hooks"]["Stop"][0]["hooks"][0]["commandWindows"],
+            windows_cmd
+        );
         strip(&mut root);
         assert!(root.get("hooks").is_none());
     }
@@ -367,7 +514,12 @@ mod tests {
         let mut root = json!({});
         for _ in 0..2 {
             strip(&mut root);
-            add(&mut root, CLAUDE_EVENTS, "\"C:/x/nubi-hook.exe\" --hook claude", None);
+            add(
+                &mut root,
+                CLAUDE_EVENTS,
+                "\"C:/x/nubi-hook.exe\" --hook claude",
+                None,
+            );
         }
         assert_eq!(root["hooks"]["Stop"].as_array().unwrap().len(), 1);
     }

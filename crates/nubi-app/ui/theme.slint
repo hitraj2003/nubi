@@ -1,52 +1,98 @@
 // Values and roles copied from ui/theme.css, notch surface, default yellow accent.
 export global Theme {
     in-out property <bool> dark: true;
+    in-out property <bool> high-contrast: false;
+    in-out property <color> contrast-bg;
+    in-out property <color> contrast-fg;
+    in-out property <color> contrast-accent;
+    in-out property <color> contrast-accent-ink;
     in-out property <bool> reduced: false;
     in-out property <string> notch-accent: "yellow";
-    out property <color> notch-bg: dark ? #000000 : #fdfcfa;
-    out property <color> ink: dark ? #ffffff : #1d1b17;
-    out property <color> ink-2: dark ? #ffffff9e : #1d1b17b8;
-    out property <color> ink-3: dark ? #ffffff61 : #1d1b1799;
-    out property <color> row: dark ? #ffffff0f : #1d1b170f;
-    out property <color> row-hover: dark ? #ffffff1a : #1d1b171a;
-    out property <color> notch-ink-12: dark ? #ffffff1f : #1d1b171f;
-    out property <color> notch-ink-14: dark ? #ffffff24 : #1d1b1724;
-    out property <color> track: dark ? #ffffff29 : #1d1b1729;
-    out property <color> claude: #d97757;
-    out property <color> codex: #6e9bef;
-    out property <color> ok: dark ? #4cd964 : #24865a;
-    out property <color> warn: dark ? #ffb340 : #a96900;
-    out property <color> info: dark ? #0a84ff : #0071dd;
-    out property <color> notch-bad: dark ? #ff6961 : #bc4945;
-    out property <color> notch-accent-color: notch-accent == "terracotta" ? #d97757 : notch-accent == "blue" ? #5b8def : notch-accent == "green" ? #3fb37a : notch-accent == "violet" ? #9b7bf3 : notch-accent == "black" ? (dark ? #f3efe7 : #1d1b17) : #f5c842;
-    out property <color> notch-action: notch-accent == "yellow" ? ink : dark ? notch-accent-color : notch-accent-color.mix(#000, 0.28);
-    out property <color> notch-action-ink: notch-accent == "yellow" ? (dark ? #000 : #fff) : notch-accent == "black" && dark ? #1d1b17 : #fff;
-    out property <color> notch-action-hover: notch-accent == "yellow" ? (dark ? #e6e6e6 : #34312b) : dark ? notch-accent-color.mix(notch-bg, 0.1) : notch-accent-color.mix(#000, 0.36);
-    out property <color> notch-activity: notch-accent == "yellow" ? ink.with-alpha(0.85) : notch-accent-color;
+    out property <color> notch-bg: high-contrast ? contrast-bg : dark ? #000000 : #fdfcfa;
+    out property <color> ink: high-contrast ? contrast-fg : dark ? #ffffff : #1d1b17;
+    out property <color> ink-2: high-contrast ? contrast-fg : dark ? #ffffff9e : #1d1b17b8;
+    out property <color> ink-3: high-contrast ? contrast-fg : dark ? #ffffff61 : #1d1b1799;
+    out property <color> row: high-contrast ? contrast-bg : dark ? #ffffff0f : #1d1b170f;
+    out property <color> row-hover: high-contrast ? contrast-bg : dark ? #ffffff1a : #1d1b171a;
+    out property <color> notch-ink-12: high-contrast ? contrast-bg : dark ? #ffffff1f : #1d1b171f;
+    out property <color> notch-ink-14: high-contrast ? contrast-bg : dark ? #ffffff24 : #1d1b1724;
+    out property <color> track: high-contrast ? contrast-bg : dark ? #ffffff29 : #1d1b1729;
+    out property <color> claude: high-contrast ? contrast-fg : #d97757;
+    out property <color> codex: high-contrast ? contrast-fg : #6e9bef;
+    out property <color> ok: high-contrast ? contrast-fg : dark ? #4cd964 : #24865a;
+    out property <color> warn: high-contrast ? contrast-fg : dark ? #ffb340 : #a96900;
+    out property <color> info: high-contrast ? contrast-fg : dark ? #0a84ff : #0071dd;
+    out property <color> notch-bad: high-contrast ? contrast-fg : dark ? #ff6961 : #bc4945;
+    out property <color> notch-accent-color: high-contrast ? contrast-accent : notch-accent == "terracotta" ? #d97757 : notch-accent == "blue" ? #5b8def : notch-accent == "green" ? #3fb37a : notch-accent == "violet" ? #9b7bf3 : notch-accent == "black" ? (dark ? #f3efe7 : #1d1b17) : #f5c842;
+    out property <color> notch-action: high-contrast ? contrast-accent : notch-accent == "yellow" ? ink : dark ? notch-accent-color : notch-accent-color.mix(#000, 0.28);
+    out property <color> notch-action-ink: high-contrast ? contrast-accent-ink : notch-accent == "yellow" ? (dark ? #000 : #fff) : notch-accent == "black" && dark ? #1d1b17 : #fff;
+    out property <color> notch-action-hover: high-contrast ? contrast-accent : notch-accent == "yellow" ? (dark ? #e6e6e6 : #34312b) : dark ? notch-accent-color.mix(notch-bg, 0.1) : notch-accent-color.mix(#000, 0.36);
+    out property <color> notch-activity: high-contrast ? contrast-fg : notch-accent == "yellow" ? ink.with-alpha(0.85) : notch-accent-color;
     out property <string> font: "Segoe UI Variable Text";
-    // The Text subfamily avoids selecting the variable font's Display default.
+    // The Text subfamily avoids Display's optical size. Chrome resolves source
+    // CSS 500 labels to Text Semibold (600); notch labels request that weight.
     out property <string> semibold: "Segoe UI Variable Text";
     in-out property <float> scale: 1;
     out property <length> pixel: 1px / scale;
     public pure function snap(value: length) -> length { return round(value / 1px * scale) * 1px / scale; }
-    out property <color> notch-ink-5: dark ? #ffffff0d : #1d1b170d;
-    out property <string> num: "Geist";
+    out property <color> notch-ink-5: high-contrast ? contrast-bg : dark ? #ffffff0d : #1d1b170d;
+    // Software coverage is lighter than the Chrome fixture at these sizes. Keep the
+    // source faces and layout advances; compensate only the visible glyphs.
+    out property <int> notch-title-weight: scale < 1.125 ? 700 : scale < 1.375 ? 695 : scale < 1.625 ? 670 : 660;
+    out property <int> notch-tab-weight: scale < 1.375 ? 700 : scale < 1.625 ? 680 : 675;
+    out property <int> notch-body-weight: scale < 1.125 ? 665 : scale < 1.375 ? 625 : scale < 1.625 ? 600 : 575;
+    out property <int> notch-caption-weight: scale < 1.125 ? 685 : scale < 1.375 ? 625 : scale < 1.625 ? 610 : 580;
+    out property <int> notch-state-weight: scale < 1.125 ? 550 : scale < 1.375 ? 500 : scale < 1.625 ? 450 : 440;
+    out property <int> notch-number-weight: scale < 1.125 ? 750 : scale < 1.375 ? 710 : scale < 1.625 ? 675 : 650;
+    out property <int> notch-small-number-weight: scale < 1.125 ? 650 : scale < 1.375 ? 570 : scale < 1.625 ? 530 : 550;
+    out property <int> notch-compact-weight: scale < 1.125 ? 810 : scale < 1.375 ? 845 : scale < 1.625 ? 760 : 810;
+    out property <int> notch-badge-weight: scale < 1.125 ? 750 : scale < 1.375 ? 675 : scale < 1.625 ? 700 : 650;
+    // Heavier outlines slightly widen glyphs. Role spacing keeps their measured
+    // source advances without adding intrinsic sizing constraints to the cards.
+    out property <length> notch-tab-spacing: (scale < 1.125 ? -0.28 : scale < 1.375 ? -0.16 : scale < 1.625 ? -0.2 : -0.12) * 1px;
+    out property <length> notch-provider-spacing: -pixel / 5;
+    out property <length> notch-name-spacing: (scale < 1.125 ? -0.2 : scale < 1.375 ? -0.12 : scale < 1.625 ? -0.26 : -0.15) * 1px;
+    out property <length> notch-body-spacing: scale < 1.125 ? -0.16px : 0px;
+    out property <length> notch-caption-spacing: (scale < 1.125 ? -0.14 : scale < 1.375 ? -0.23 : scale < 1.625 ? -0.24 : -0.08) * 1px;
+    out property <length> notch-state-spacing: -0.8px;
+    // Corrections are whole physical pixels, applied after absolute-origin snapping.
+    out property <length> notch-tab-y: (scale < 1.125 ? 0 : scale < 1.375 ? -1 : scale < 1.625 ? 1 : 0) * pixel;
+    out property <length> notch-title-y: (scale < 1.125 ? 0 : scale < 1.375 ? 1 : scale < 1.625 ? -1 : 0) * pixel;
+    out property <length> notch-session-y: (scale < 1.125 ? 0 : scale < 1.375 ? -1 : scale < 1.625 ? 0 : -1) * pixel;
+    out property <length> notch-state-y: (scale >= 1.375 && scale < 1.625 ? 1 : 0) * pixel;
+    out property <length> notch-compact-y: (scale < 1.375 ? 0 : scale < 1.625 ? -1 : 1) * pixel;
+    out property <length> notch-number-y: -pixel;
+    out property <length> notch-body-y: (scale >= 1.125 && scale < 1.375 ? -1 : 0) * pixel;
+    out property <length> notch-badge-y: (scale < 1.375 || scale >= 1.625 ? -1 : 0) * pixel;
+    out property <length> notch-caption-y: (scale < 1.625 ? 0 : 1) * pixel;
+    public pure function align(value: length, origin: length) -> length { return snap(origin + value) - origin; }
+    out property <string> num: "Nubi Figures";
     out property <string> mono: "JetBrains Mono";
-    out property <color> switch-off: dark ? #3a3834 : #e3dfd6;
+    out property <color> switch-off: high-contrast ? contrast-bg : dark ? #3a3834 : #e3dfd6;
     // Panel tokens from root ui/theme.css; notch tokens above remain independent.
-    out property <color> canvas: dark ? #121110 : #f4f2ee;
-    out property <color> card: dark ? #1e1d1b : #fdfcfa;
-    out property <color> card-2: dark ? #252421 : #f6f4ef;
-    out property <color> card-3: dark ? #2f2d2a : #ece8e0;
-    out property <color> rail: dark ? #1b1a18 : #ffffff;
-    out property <color> line: dark ? #fff0d212 : #281e0a12;
-    out property <color> line-2: dark ? #fff0d221 : #281e0a21;
-    out property <color> t1: dark ? #f3efe7 : #1d1b17;
-    out property <color> t2: dark ? #a7a094 : #6b665d;
-    out property <color> t3: dark ? #6d675d : #767066;
-    out property <color> acc: #f5c842;
-    out property <color> acc-ink: #3a2e05;
-    out property <color> bad: #ef5a4c;
+    out property <color> canvas: high-contrast ? contrast-bg : dark ? #121110 : #f4f2ee;
+    out property <color> card: high-contrast ? contrast-bg : dark ? #1e1d1b : #fdfcfa;
+    out property <color> card-2: high-contrast ? contrast-bg : dark ? #252421 : #f6f4ef;
+    out property <color> card-3: high-contrast ? contrast-bg : dark ? #2f2d2a : #ece8e0;
+    out property <color> rail: high-contrast ? contrast-bg : dark ? #1b1a18 : #ffffff;
+    out property <color> line: high-contrast ? contrast-fg : dark ? #fff0d212 : #281e0a12;
+    out property <color> line-2: high-contrast ? contrast-fg : dark ? #fff0d221 : #281e0a21;
+    out property <color> t1: high-contrast ? contrast-fg : dark ? #f3efe7 : #1d1b17;
+    out property <color> t2: high-contrast ? contrast-fg : dark ? #a7a094 : #6b665d;
+    out property <color> t3: high-contrast ? contrast-fg : dark ? #6d675d : #767066;
+    in-out property <string> panel-accent: "yellow";
+    out property <color> acc: high-contrast ? contrast-accent : panel-accent == "terracotta" ? #d97757 : panel-accent == "blue" ? #5b8def : panel-accent == "green" ? #3fb37a : panel-accent == "violet" ? #9b7bf3 : panel-accent == "black" ? t1 : #f5c842;
+    out property <color> acc-ink: high-contrast ? contrast-accent-ink : panel-accent == "yellow" ? #3a2e05 : panel-accent == "black" && dark ? #1d1b17 : white;
+    out property <color> bad: high-contrast ? contrast-fg : #ef5a4c;
+    // Permission and update rows share one layout contract.
+    out property <length> notice-height: 64px;
+    out property <length> notice-inset: 8px;
+    out property <length> notice-copy-inset: 42px;
+    out property <length> notice-title-height: 18px;
+    out property <length> notice-copy-gap: 2px;
+    out property <length> notice-body-height: 16px;
+    out property <length> notice-action-height: 28px;
+    out property <length> notice-action-gap: 6px;
     out property <length> space: 8px;
     out property <length> radius: 8px;
     out property <length> body-size: 13px;

@@ -26,7 +26,7 @@ impl Tray {
             &PredefinedMenuItem::separator(),
             &MenuItem::with_id("quit", "Quit", true, None),
         ])?;
-        let pixels = image::load_from_memory(include_bytes!("../../../src-tauri/icons/32x32.png"))?
+        let pixels = image::load_from_memory(include_bytes!("../assets/32x32.png"))?
             .into_rgba8();
         let (width, height) = pixels.dimensions();
         let icon = tray_icon::Icon::from_rgba(pixels.into_raw(), width, height)?;

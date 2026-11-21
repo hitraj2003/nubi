@@ -62,6 +62,7 @@ pub struct Draft {
     pub answers: BTreeMap<String, Vec<String>>,
     pub custom: String,
     pub total_ms: u64,
+    pub held_left_ms: Option<u64>,
 }
 impl Draft {
     pub fn selected(&self, pending: &Pending) -> Vec<String> {
@@ -92,8 +93,7 @@ impl Notch {
                 "left" => 2,
                 _ => 3,
             });
-            ui.global::<Theme>()
-                .set_dark(crate::ui::dark(&settings.notch_theme));
+            crate::ui::apply_theme(ui.global::<Theme>(), &settings.notch_theme);
             ui.global::<Theme>()
                 .set_notch_accent(settings.notch_accent.as_str().into());
             ui.global::<Theme>()
@@ -166,6 +166,14 @@ impl Notch {
                     .collect(),
             );
             data.set_dnd(crate::host::dnd_active(state));
+            // Removing a filtered card must release its hold, like requestClock.release().
+            for pending in state
+                .pending
+                .values_mut()
+                .filter(|pending| !settings.wants(&pending.provider))
+            {
+                pending.held = false;
+            }
             let mut pending: Vec<_> = state
                 .pending
                 .values()
@@ -182,10 +190,7 @@ impl Notch {
                 .map(|item| item.id)
                 .chain(missed.iter().map(|item| item.id))
                 .collect();
-            if ids.iter().any(|id| !self.seen.contains(id))
-                && !crate::host::dnd_active(state)
-                && ui.get_edge() == 0
-            {
+            if ids.iter().any(|id| !self.seen.contains(id)) && !crate::host::dnd_active(state) {
                 ui.set_tab(0);
                 self.popup = Some(Instant::now());
             }
@@ -195,7 +200,12 @@ impl Notch {
                 .get_focused_request()
                 .parse::<u64>()
                 .ok()
-                .is_some_and(|id| !state.pending.contains_key(&id))
+                .is_some_and(|id| {
+                    !state
+                        .pending
+                        .get(&id)
+                        .is_some_and(|pending| settings.wants(&pending.provider))
+                })
             {
                 data.set_focused_request("".into());
                 data.set_input_focused(false);
@@ -224,6 +234,13 @@ impl Notch {
                 let draft = self.drafts.entry(pending.id).or_default();
                 if draft.total_ms == 0 {
                     draft.total_ms = pending.expires_ms.saturating_sub(pending.created_ms).max(1);
+                }
+                if pending.held {
+                    draft
+                        .held_left_ms
+                        .get_or_insert_with(|| pending.expires_ms.saturating_sub(now));
+                } else {
+                    draft.held_left_ms = None;
                 }
                 let mut row = request_row(pending, draft, settings.questions_mode != "full", now);
                 row.side = ui.get_edge() >= 2;
@@ -360,11 +377,7 @@ impl Notch {
                     })
                     .collect();
                 let row_columns = if section.view == "day" {
-                    if side {
-                        2
-                    } else {
-                        rows.len().max(1)
-                    }
+                    if side { 2 } else { rows.len().max(1) }
                 } else if !side && period_count == 1 {
                     2
                 } else {
@@ -372,11 +385,7 @@ impl Notch {
                 };
                 let row_count = rows.len().div_ceil(row_columns);
                 let row_height = if section.view == "day" {
-                    if settings.dt_notes {
-                        48.
-                    } else {
-                        32.
-                    }
+                    if settings.dt_notes { 48. } else { 32. }
                 } else if settings.dt_notes {
                     36.
                 } else {
@@ -492,17 +501,8 @@ impl Notch {
                     )
                     .into(),
                 );
-                ui.global::<NotchData>().set_alert_body(
-                    alert
-                        .body
-                        .split_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                        .chars()
-                        .take(160)
-                        .collect::<String>()
-                        .into(),
-                );
+                ui.global::<NotchData>()
+                    .set_alert_body(crate::alert_text::notch_body(&alert.body).into());
                 ui.global::<NotchData>()
                     .set_alert_kind(alert.kind.as_str().into());
                 self.alert = Some((alert, now));
@@ -522,6 +522,7 @@ impl Notch {
             1
         } else if (self.hovering && (self.clicked || !settings.notch_on_hover))
             || self.popup.is_some()
+            || (!data.get_update().id.is_empty() && ui.get_tab() == 0)
             || !ui.get_menu_key().is_empty()
             || (!data.get_focused_request().is_empty() && ui.get_opened())
         {
@@ -557,11 +558,7 @@ impl Notch {
             _ => data.get_desk_height() as f64,
         };
         let max = if ui.get_tab() == 3 {
-            if side {
-                780.
-            } else {
-                600.
-            }
+            if side { 780. } else { 600. }
         } else if side {
             620.
         } else {
@@ -569,29 +566,15 @@ impl Notch {
         };
         let available =
             f64::from(ui.window().size().height) / f64::from(ui.window().scale_factor());
-        let open_height =
-            ((if side { 100. } else { 68. }) + pane.min(max)).min((available - 48.).max(100.));
+        let open_height = (68. + pane.min(max)).min((available - 48.).max(100.));
         let open_height = if ui.get_menu_key().is_empty() {
             open_height
         } else {
             open_height.max(240.).min((available - 48.).max(100.))
         };
         ui.set_open_height(open_height as f32);
-        let text_width = (data.get_compact_text().len() as f64 * 6.3
-            + if data.get_pending_count() > 0 {
-                38.
-            } else {
-                0.
-            })
-            + if data.get_missed_count() > 0 {
-                50.
-            } else if !waiting && !data.get_glance().is_empty() {
-                data.get_glance().len() as f64 * 7. + 8.
-            } else {
-                0.
-            };
-        let compact_width = (13. + self.providers.row_count() as f64 * 66. + text_width).max(120.);
-        ui.set_compact_width(compact_width as f32);
+        // Match DOM offsetWidth: measure the laid-out content, then round logical pixels.
+        let compact_width = f64::from(ui.get_compact_width());
         let target = match mode {
             0 => [56., 6., 3., 4.],
             1 => {
@@ -625,7 +608,7 @@ impl Notch {
         (mode, target)
     }
 }
-fn provider_row(state: &Inner, provider: &str, now: u64) -> NotchProvider {
+pub(crate) fn provider_row(state: &Inner, provider: &str, now: u64) -> NotchProvider {
     let usage = state.usage.get(provider);
     let session = usage.and_then(|usage| {
         usage
@@ -708,7 +691,7 @@ fn provider_row(state: &Inner, provider: &str, now: u64) -> NotchProvider {
         }
         .into(),
         text: session
-            .map(|window| format!("{:.0}%", window.used_percent))
+            .map(|window| format!("{:.0}%", window.used_percent.round()))
             .unwrap_or_else(|| if status == "loading" { "…" } else { "—" }.into())
             .into(),
         session: session
@@ -759,7 +742,12 @@ pub fn request_row(pending: &Pending, draft: &Draft, system: bool, now: u64) -> 
         .and_then(|input| input["questions"].as_array())
         .map(Vec::len)
         .unwrap_or(0);
-    let left = pending.expires_ms.saturating_sub(now);
+    let left = if pending.held {
+        draft.held_left_ms
+    } else {
+        None
+    }
+    .unwrap_or_else(|| pending.expires_ms.saturating_sub(now));
     NotchRequest {
         id: pending.id.to_string().into(),
         provider: pending.provider.as_str().into(),
@@ -824,23 +812,37 @@ pub fn request_row(pending: &Pending, draft: &Draft, system: bool, now: u64) -> 
     }
 }
 // Preserve model identity: countdown updates must not recreate active inputs.
-fn sync_requests(target: &VecModel<NotchRequest>, rows: Vec<NotchRequest>) {
+pub(crate) fn sync_requests(target: &VecModel<NotchRequest>, rows: Vec<NotchRequest>) {
+    // Remove disappeared cards instead of assigning their successor into an active input.
+    for index in (0..target.row_count()).rev() {
+        if target
+            .row_data(index)
+            .is_some_and(|old| !rows.iter().any(|row| row.id == old.id))
+        {
+            target.remove(index);
+        }
+    }
     for (index, mut row) in rows.iter().cloned().enumerate() {
         if let Some(previous) = target
             .row_data(index)
             .filter(|previous| previous.id == row.id)
         {
-            let same_options = previous.options.row_count() == row.options.row_count()
-                && previous.options.iter().eq(row.options.iter());
-            if same_options {
-                row.options = previous.options.clone();
+            if previous.question_index == row.question_index && previous.prompt == row.prompt {
+                if let Some(options) = previous
+                    .options
+                    .as_any()
+                    .downcast_ref::<VecModel<RequestOption>>()
+                {
+                    sync(options, row.options.iter().collect());
+                    row.options = previous.options.clone();
+                }
             }
             if previous == row {
                 continue;
             }
             target.set_row_data(index, row);
         } else if index < target.row_count() {
-            target.set_row_data(index, row);
+            target.insert(index, row);
         } else {
             target.push(row);
         }
@@ -907,15 +909,17 @@ mod tests {
             rx.try_recv().unwrap().answers.unwrap()["Which?"],
             "日本語, Rust"
         );
-        assert!(with(&host, |state| state.answer(
-            id,
-            Reply {
-                decision: "deny".into(),
-                answers: None,
-                message: None
-            }
-        ))
-        .is_err());
+        assert!(
+            with(&host, |state| state.answer(
+                id,
+                Reply {
+                    decision: "deny".into(),
+                    answers: None,
+                    message: None
+                }
+            ))
+            .is_err()
+        );
     }
 
     #[test]

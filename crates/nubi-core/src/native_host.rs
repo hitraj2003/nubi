@@ -14,13 +14,29 @@ pub const HOST_NAME: &str = "dev.nubi.desktime";
 /// Fixed by the `key` in extension/desktime-connect/manifest.json.
 pub const EXTENSION_ID: &str = "gpoebchpnogppdkgjphjelcipnfiecif";
 /// Browsers that read native host registrations from these HKCU keys.
-const BROWSER_KEYS: [&str; 3] = [r"Software\Google\Chrome", r"Software\BraveSoftware\Brave-Browser", r"Software\Microsoft\Edge"];
+const BROWSER_KEYS: [&str; 3] = [
+    r"Software\Google\Chrome",
+    r"Software\BraveSoftware\Brave-Browser",
+    r"Software\Microsoft\Edge",
+];
 /// The unpacked extension, written next to the settings so installed builds have a folder to load.
 const EXTENSION_FILES: [(&str, &str); 4] = [
-    ("manifest.json", include_str!("../../../extension/desktime-connect/manifest.json")),
-    ("background.js", include_str!("../../../extension/desktime-connect/background.js")),
-    ("popup.html", include_str!("../../../extension/desktime-connect/popup.html")),
-    ("popup.js", include_str!("../../../extension/desktime-connect/popup.js")),
+    (
+        "manifest.json",
+        include_str!("../../../extension/desktime-connect/manifest.json"),
+    ),
+    (
+        "background.js",
+        include_str!("../../../extension/desktime-connect/background.js"),
+    ),
+    (
+        "popup.html",
+        include_str!("../../../extension/desktime-connect/popup.html"),
+    ),
+    (
+        "popup.js",
+        include_str!("../../../extension/desktime-connect/popup.js"),
+    ),
 ];
 
 pub fn origin() -> String {
@@ -61,9 +77,14 @@ fn forward(msg: BrowserMsg) -> BrowserReply {
     std::thread::spawn(move || {
         let exchange = || -> Result<BrowserReply, &'static str> {
             let mut f = crate::hook_client::open_pipe().ok_or("Nubi is not running")?;
-            f.write_all(line.as_bytes()).and_then(|_| f.flush()).map_err(|_| "Could not reach Nubi")?;
+            f.write_all(line.as_bytes())
+                .and_then(|_| f.flush())
+                .map_err(|_| "Could not reach Nubi")?;
             let mut resp = String::new();
-            BufReader::new(f).take(4096).read_line(&mut resp).map_err(|_| "Nubi did not answer")?;
+            BufReader::new(f)
+                .take(4096)
+                .read_line(&mut resp)
+                .map_err(|_| "Nubi did not answer")?;
             serde_json::from_str(resp.trim()).map_err(|_| "Nubi did not answer")
         };
         let _ = tx.send(exchange());
@@ -104,11 +125,22 @@ fn write_if_changed(path: &Path, text: &str) -> Result<(), String> {
 }
 fn set_default_value(subkey: &str, value: &str) -> Result<(), String> {
     use windows_sys::Win32::System::Registry::{RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
-    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let wide = |s: &str| {
+        s.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
     let (key, data) = (wide(subkey), wide(value));
     // Creates the key when missing; a null value name sets the key's default value.
     let rc = unsafe {
-        RegSetKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), std::ptr::null(), REG_SZ, data.as_ptr() as *const _, (data.len() * 2) as u32)
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            std::ptr::null(),
+            REG_SZ,
+            data.as_ptr() as *const _,
+            (data.len() * 2) as u32,
+        )
     };
     if rc != 0 {
         return Err(format!("could not write HKCU\\{subkey} (error {rc})"));
@@ -127,9 +159,15 @@ fn try_register() -> Result<(), String> {
         "allowed_origins": [origin()],
     });
     let path = dir.join(format!("{HOST_NAME}.json"));
-    write_if_changed(&path, &serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?)?;
+    write_if_changed(
+        &path,
+        &serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+    )?;
     for base in BROWSER_KEYS {
-        set_default_value(&format!(r"{base}\NativeMessagingHosts\{HOST_NAME}"), &path.display().to_string())?;
+        set_default_value(
+            &format!(r"{base}\NativeMessagingHosts\{HOST_NAME}"),
+            &path.display().to_string(),
+        )?;
     }
     let ext = extension_dir();
     std::fs::create_dir_all(&ext).map_err(|e| e.to_string())?;
@@ -141,7 +179,9 @@ fn try_register() -> Result<(), String> {
 /// Writes the host manifest and the extension folder and registers the host for each browser.
 /// Idempotent; runs at every start so the manifest follows the current exe path.
 pub fn register() {
-    if crate::isolation::development() { return; }
+    if crate::isolation::development() {
+        return;
+    }
     if let Err(e) = try_register() {
         eprintln!("[desktime] native host not registered: {e}");
     }
@@ -179,7 +219,10 @@ mod tests {
     #[test]
     fn only_our_extension_and_valid_messages_pass() {
         let body = framed(br#"{"type":"desktime_revoke"}"#);
-        let r = handle("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/", &mut body.as_slice());
+        let r = handle(
+            "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+            &mut body.as_slice(),
+        );
         assert_eq!(r.error.as_deref(), Some("Unknown extension"));
         let body = framed(br#"{"type":"desktime_session","cookies":[{"name":"a","value":"secret","domain":"evil.com","path":"/","secure":true,"httpOnly":true,"expires":null}]}"#);
         let r = handle(&origin(), &mut body.as_slice());
@@ -196,6 +239,8 @@ mod tests {
         // Chrome's ID: first 32 hex digits of SHA-256 of the public key, mapped 0-f to a-p.
         // Checked by length and alphabet here; the key itself is fixed in the manifest.
         assert!(m["key"].as_str().is_some_and(|k| k.len() > 300));
-        assert!(EXTENSION_ID.len() == 32 && EXTENSION_ID.bytes().all(|b| (b'a'..=b'p').contains(&b)));
+        assert!(
+            EXTENSION_ID.len() == 32 && EXTENSION_ID.bytes().all(|b| (b'a'..=b'p').contains(&b))
+        );
     }
 }

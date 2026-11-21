@@ -15,6 +15,7 @@ pub enum UiEvent {
     Activate(Action),
     LauncherReady(Result<String, String>),
     Alert(Alert),
+    OverlayAlert(Alert),
     Update,
 }
 
@@ -81,9 +82,8 @@ impl NativeHost {
         if dnd {
             return;
         }
-        if settings.edge != "top"
-            || (settings.toast_when_fullscreen && nubi_core::winutil::fullscreen_active())
-        {
+        let fullscreen = settings.toast_when_fullscreen && nubi_core::winutil::fullscreen_active();
+        if fullscreen {
             if settings.sounds {
                 nubi_core::winutil::beep(&alert.kind);
             }
@@ -101,7 +101,12 @@ impl NativeHost {
                 eprintln!("[nubi] toast: {error}");
             }
         } else {
-            let _ = self.post(UiEvent::Alert(alert));
+            let event = if settings.edge == "top" {
+                UiEvent::Alert(alert)
+            } else {
+                UiEvent::OverlayAlert(alert)
+            };
+            let _ = self.post(event);
         }
     }
 }
@@ -164,7 +169,7 @@ impl Host for NativeHost {
             message.tool_name.as_deref(),
         ) && nubi_core::protocol::question_in_terminal(
             message,
-            nubi_core::winutil::pids_focused(&message.pids),
+            nubi_core::winutil::pids_focused(message.window, &message.pids),
         );
         let (alert, wanted) = with(self, |state| {
             (
@@ -297,5 +302,51 @@ mod tests {
         let id = host.add_pending(&message, tx, 1000);
         host.remove_pending(id, true);
         assert_eq!(with(&host, |state| state.missed[0].id), id);
+    }
+}
+
+#[cfg(test)]
+mod alert_routing_tests {
+    use super::*;
+    use nubi_core::settings::Settings;
+    #[test]
+    fn ordinary_alerts_use_notch_or_overlay_and_dnd_only_queues() {
+        for edge in ["top", "bottom", "left", "right"] {
+            let settings = Settings {
+                edge: edge.into(),
+                sounds: false,
+                toast_when_fullscreen: false,
+                follow_quiet_time: false,
+                quiet_start: None,
+                quiet_end: None,
+                ..Default::default()
+            };
+            let (host, events) = NativeHost::from_settings(settings);
+            let alert = Alert {
+                ts: 0,
+                provider: "claude".into(),
+                kind: "done".into(),
+                title: "Done".into(),
+                body: "Example".into(),
+                session_key: None,
+                queued: false,
+            };
+            host.alert(alert.clone());
+            match events.try_recv().unwrap() {
+                UiEvent::Alert(_) => assert_eq!(edge, "top"),
+                UiEvent::OverlayAlert(_) => assert_ne!(edge, "top"),
+                _ => panic!("wrong ordinary alert event"),
+            }
+            assert!(events.try_recv().is_err());
+            with(&host, |state| {
+                assert_eq!(state.alerts.len(), 1);
+                state.dnd_manual = true;
+            });
+            host.alert(alert);
+            assert!(events.try_recv().is_err());
+            with(&host, |state| {
+                assert!(state.alerts.iter().any(|alert| alert.queued))
+            });
+        }
     }
 }

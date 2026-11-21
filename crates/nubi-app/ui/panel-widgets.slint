@@ -1,0 +1,33 @@
+import { Theme } from "theme.slint";
+import { PanelData } from "panel-data.slint";
+import { CssShadow, Toggle, Tile, Action } from "parity-widgets.slint";
+import { DatePickerPopup } from "std-widgets.slint";
+export component PanelInk inherits Text {
+    font-family: Theme.font; font-size: 13px; color: Theme.t1; vertical-alignment: center;
+}
+export component PanelCard inherits Rectangle {
+    CssShadow { width: 100%; height: 100%; }
+    Rectangle { width: 100%; height: 100%; background: Theme.card; border-radius: 18px; border-width: Theme.high-contrast ? 1px : 0px; border-color: Theme.line; }
+    @children
+}
+export component PanelToggle inherits Rectangle {
+    out property <bool> has-focus: toggle.has-focus;
+    in property <string> label;
+    in-out property <bool> checked;
+    callback toggled();
+    width: 40px; height: 24px;
+    toggle := Toggle { checked <=> root.checked; accessible-label: root.label; toggled => { root.toggled(); } }
+}
+export component PanelTile inherits Rectangle {
+    in property <string> provider;
+    width: 28px; height: 28px;
+    Tile { provider: root.provider; }
+}
+export component PanelDate inherits Rectangle {
+    out property <bool> has-focus: action.has-focus;
+    in property <string> field;
+    in property <string> label;
+    height: 32px;
+    action := Action { text: "Add a date"; accessible-label: "Add a date: " + root.label; clicked => { picker.show(); } }
+    picker := DatePickerPopup { title: root.label; accepted(date) => { PanelData.picked-date(root.field,date.year,date.month,date.day); } }
+}

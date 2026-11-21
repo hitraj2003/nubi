@@ -25,7 +25,9 @@ fn run(cmd: &str) -> String {
 fn enc(t: &str) -> String {
     t.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -93,7 +95,10 @@ fn draft(agent: &str, text: &str, context: &Value) -> Result<Value, String> {
     let cmd = if agent == "claude" {
         "claude -p --tools \"\" --no-session-persistence".to_string()
     } else {
-        format!("codex exec --ephemeral --skip-git-repo-check -o \"{}\" -", out_file.display())
+        format!(
+            "codex exec --ephemeral --skip-git-repo-check -o \"{}\" -",
+            out_file.display()
+        )
     };
     let mut child = Command::new("cmd")
         .args(["/C", &cmd])
@@ -106,13 +111,23 @@ fn draft(agent: &str, text: &str, context: &Value) -> Result<Value, String> {
         .map_err(|e| format!("could not start {agent}: {e}"))?;
     {
         let mut stdin = child.stdin.take().ok_or("no stdin")?;
-        stdin.write_all(prompt.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(prompt.as_bytes())
+            .map_err(|e| e.to_string())?;
     } // stdin closes here so the CLI starts.
-    // Read output on threads so a full pipe never blocks the child; wait at most 2 minutes.
+      // Read output on threads so a full pipe never blocks the child; wait at most 2 minutes.
     let mut so = child.stdout.take().ok_or("no stdout")?;
     let mut se = child.stderr.take().ok_or("no stderr")?;
-    let t_out = std::thread::spawn(move || { let mut b = Vec::new(); let _ = std::io::Read::read_to_end(&mut so, &mut b); b });
-    let t_err = std::thread::spawn(move || { let mut b = Vec::new(); let _ = std::io::Read::read_to_end(&mut se, &mut b); b });
+    let t_out = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut so, &mut b);
+        b
+    });
+    let t_err = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut se, &mut b);
+        b
+    });
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -136,15 +151,29 @@ fn draft(agent: &str, text: &str, context: &Value) -> Result<Value, String> {
     let _ = std::fs::remove_dir_all(&dir);
     if !status.success() && text.trim().is_empty() {
         let err = String::from_utf8_lossy(&stderr);
-        return Err(format!("{agent} failed: {}", err.lines().last().unwrap_or("no output")));
+        return Err(format!(
+            "{agent} failed: {}",
+            err.lines().last().unwrap_or("no output")
+        ));
     }
     let (Some(a), Some(b)) = (text.find('{'), text.rfind('}')) else {
         return Err(format!("{agent} did not return the form"));
     };
-    let v: Value = serde_json::from_str(&text[a..=b]).map_err(|_| format!("{agent} did not return the form"))?;
+    let v: Value = serde_json::from_str(&text[a..=b])
+        .map_err(|_| format!("{agent} did not return the form"))?;
     let mut m = Map::new();
-    for k in ["what-happened", "expected", "steps", "area", "provider", "frequency"] {
-        m.insert(k.into(), Value::String(v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()));
+    for k in [
+        "what-happened",
+        "expected",
+        "steps",
+        "area",
+        "provider",
+        "frequency",
+    ] {
+        m.insert(
+            k.into(),
+            Value::String(v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()),
+        );
     }
     Ok(Value::Object(m))
 }
@@ -153,9 +182,22 @@ fn draft(agent: &str, text: &str, context: &Value) -> Result<Value, String> {
 pub fn open_report(fields: Map<String, Value>) {
     let mut url = format!("https://github.com/{REPO}/issues/new?template=bug_report.yml");
     // Short fields first so cutting never drops them.
-    let order = ["nubi-version", "windows", "agent-versions", "area", "provider", "frequency", "what-happened", "expected", "steps", "setup"];
+    let order = [
+        "nubi-version",
+        "windows",
+        "agent-versions",
+        "area",
+        "provider",
+        "frequency",
+        "what-happened",
+        "expected",
+        "steps",
+        "setup",
+    ];
     for k in order {
-        let Some(v) = fields.get(k).and_then(|v| v.as_str()) else { continue };
+        let Some(v) = fields.get(k).and_then(|v| v.as_str()) else {
+            continue;
+        };
         if v.trim().is_empty() {
             continue;
         }
@@ -184,21 +226,31 @@ pub fn open_report(fields: Map<String, Value>) {
 pub async fn list_releases(app: impl Host) -> Result<Value, String> {
     let current = app.version();
     tokio::task::spawn_blocking(move || {
-        let r = ureq::get(&format!("https://api.github.com/repos/{REPO}/releases?per_page=50"))
-            .set("User-Agent", "Nubi")
-            .set("Accept", "application/vnd.github+json")
-            .timeout(Duration::from_secs(15))
-            .call()
-            .map_err(|e| format!("could not load releases: {e}"))?;
+        let r = ureq::get(&format!(
+            "https://api.github.com/repos/{REPO}/releases?per_page=50"
+        ))
+        .set("User-Agent", "Nubi")
+        .set("Accept", "application/vnd.github+json")
+        .timeout(Duration::from_secs(15))
+        .call()
+        .map_err(|e| format!("could not load releases: {e}"))?;
         let list: Vec<Value> = r.into_json().map_err(|e| e.to_string())?;
         let out: Vec<Value> = list
             .iter()
             .filter(|r| !r["draft"].as_bool().unwrap_or(false))
             .map(|r| {
-                let ver = r["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
-                let asset = r["assets"]
-                    .as_array()
-                    .and_then(|a| a.iter().find(|x| x["name"].as_str().is_some_and(|n| n.ends_with("-setup.exe"))));
+                let ver = r["tag_name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .trim_start_matches('v')
+                    .to_string();
+                let asset = r["assets"].as_array().and_then(|a| {
+                    a.iter().find(|x| {
+                        x["name"]
+                            .as_str()
+                            .is_some_and(|n| n.ends_with("-setup.exe"))
+                    })
+                });
                 json!({
                     "version": ver,
                     "date": r["published_at"].as_str().unwrap_or("").get(..10).unwrap_or(""),
@@ -220,5 +272,9 @@ pub fn open_release_link(url: String) -> Result<(), String> {
     if !url.starts_with(&format!("https://github.com/{REPO}/releases/")) {
         return Err("not a Nubi release link".into());
     }
-    Command::new("explorer").arg(url).spawn().map(|_| ()).map_err(|e| e.to_string())
+    Command::new("explorer")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }

@@ -14,3 +14,9 @@ secrets/
 /docs/plans/
 /docs/concepts/
 /docs/references/
+
+/target/native-package/
+/target/native-size/
+/target/
+
+/old-nubi/

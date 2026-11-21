@@ -6,23 +6,24 @@ export component NotchButton inherits Rectangle {
     in property <string> text;
     in property <bool> primary;
     in property <bool> quiet;
+    in property <bool> subtitle;
     in property <bool> enabled: true;
     in property <string> hint;
     in property <string> hold-id;
     out property <bool> has-focus: keys.has-focus;
     callback clicked();
-    width: label.preferred-width + 32px; height: 28px; border-radius: 14px;
-    background: root.primary ? (touch.has-hover ? Theme.notch-action-hover : Theme.notch-action) : touch.has-hover ? Theme.row-hover : root.quiet ? transparent : Theme.notch-ink-12;
-    border-width: keys.has-focus ? Theme.pixel * 2 : 0px; border-color: Theme.ink-3;
+    width: label.preferred-width + (root.subtitle ? 0px : 32px); height: 28px; border-radius: 14px;
+    background: root.subtitle ? transparent : root.primary ? (touch.has-hover ? Theme.notch-action-hover : Theme.notch-action) : touch.has-hover ? Theme.row-hover : root.quiet ? transparent : Theme.notch-ink-12;
+    border-width: keys.has-focus ? Theme.pixel * 2 : Theme.high-contrast && !root.subtitle ? Theme.pixel : 0px; border-color: Theme.ink-3;
     accessible-role: button; accessible-label: root.hint == "" ? root.text : root.hint; accessible-description: root.hint;
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     opacity: root.enabled ? 1 : 0.5;
-    label := Text { x: 0px; y: 0px; width: 100%; height: 100%; text: root.text;
-        color: root.primary ? Theme.notch-action-ink : Theme.ink; font-family: Theme.semibold;
-        font-size: 12px; font-weight: 500; vertical-alignment: center; horizontal-alignment: center; }
+    label := Text { x: root.subtitle ? Theme.align(0px, parent.absolute-position.x) : 0px; y: root.subtitle ? Theme.align(0px, parent.absolute-position.y) : 0px; width: 100%; height: 100%; text: root.text;
+        color: root.subtitle ? (touch.has-hover ? Theme.ink : Theme.ink-3) : root.primary ? Theme.notch-action-ink : Theme.ink; font-family: root.subtitle ? Theme.font : Theme.semibold;
+        font-size: Theme.snap(12px); font-weight: root.subtitle ? Theme.notch-body-weight : 600; letter-spacing: root.subtitle ? Theme.notch-body-spacing : 0px; overflow: elide; vertical-alignment: root.subtitle ? top : center; horizontal-alignment: root.subtitle ? left : center; }
     touch := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { NotchData.focus-input(); keys.focus(); root.clicked(); } }
-    keys := FocusScope { enabled: root.enabled; key-pressed(event) => {
+    keys := FocusScope { width: 0px; height: 0px; enabled: root.enabled; key-pressed(event) => {
         if event.text == " " || event.text == "\n" { root.clicked(); return accept; } return reject;
     }
         focus-gained => { NotchData.focus-y = root.absolute-position.y; if root.hold-id != "" { NotchData.focused-request = root.hold-id; } }
@@ -38,7 +39,7 @@ export component Equalizer inherits Rectangle {
     width: 10px; height: 12px;
     for i in [0,1,2] : Rectangle {
         x: Theme.snap(i * 4px); width: Theme.snap(2px);
-        height: Theme.reduced ? 8px : Theme.snap((7.5 - 4.5 * cos(root.phase * 360deg - i * 120deg)) * 1px);
+        height: Theme.reduced ? 8px : NotchData.equalizer-height(root.phase, i) * 1px;
         y: 12px - self.height; border-radius: 1px;
         background: root.provider == "claude" ? Theme.claude : Theme.codex;
     }
@@ -54,30 +55,40 @@ export component LiveSessionRow inherits Rectangle {
     border-width: keys.has-focus ? Theme.pixel * 2 : 0px; border-color: Theme.ink-3;
     border-radius: 12px; background: touch.has-hover ? Theme.row : transparent;
     ProviderMark { x: 10px; y: 12px; provider: root.session.provider; }
-    Text { x: 38px; y: 0px; width: max(50px, root.width - status.width - (root.side ? 132px : 194px)); height: 40px;
-        text: root.session.name; color: Theme.ink; font-size: 13px; font-family: Theme.semibold; font-weight: 500;
+
+
+    Text { x: Theme.align(root.side ? 36px : 38px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y) + Theme.notch-session-y; width: max(0px, root.width - status.width - (root.side ? 142px : 202px)); height: Theme.snap(40px);
+        letter-spacing: Theme.notch-name-spacing; text: root.session.name; color: Theme.ink; font-size: Theme.snap(13px); font-family: Theme.semibold; font-weight: Theme.notch-title-weight;
         overflow: elide; vertical-alignment: center; }
-    status := Rectangle { x: root.width - self.width - (root.side ? 90px : 142px); y: 0px; height: 40px;
-        width: min(status-label.preferred-width + 18px, root.side ? 126px : 240px);
+    status := Rectangle { x: root.width - self.width - (root.side ? 96px : 152px); y: 0px; height: 40px;
+        width: min(status-measure.preferred-width + (root.session.working ? 16px : 12px), max(0px, root.width - (root.side ? 142px : 202px)));
         if root.session.working : Equalizer { x: 0px; y: 14px; provider: root.session.provider; phase: root.phase; }
-        if !root.session.working : Rectangle { x: 2px; y: 17px; width: 6px; height: 6px; border-radius: 3px;
+        if !root.session.working : Rectangle { x: 0px; y: 17px; width: 6px; height: 6px; border-radius: 3px;
             background: root.session.attention ? Theme.warn : root.session.state == "Done" ? Theme.ok : Theme.ink-3; }
-        status-label := Text { x: 16px; y: 0px; width: parent.width - 16px; height: 40px; text: root.session.state;
-            overflow: elide; color: Theme.ink-2; font-size: root.side ? 11px : 12px; vertical-alignment: center; }
+        status-measure := Text { visible: false; text: root.session.state; font-size: root.side ? 11px : 12px; }
+        status-ink-measure := Text { visible: false; text: root.session.state;
+            font-size: Theme.snap(root.side ? 11px : 12px); font-weight: Theme.notch-state-weight + (root.side ? 200 : 0);
+            letter-spacing: Theme.notch-state-spacing; }
+
+
+        status-label := Text { letter-spacing: Theme.notch-state-spacing; x: Theme.align(root.session.working ? 16px : 12px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y) + Theme.notch-state-y; width: (parent.width - (root.session.working ? 16px : 12px)) *
+                (status-measure.preferred-width + (root.session.working ? 16px : 12px) > parent.width ? min(1, status-ink-measure.preferred-width / max(1px, status-measure.preferred-width)) : 1);
+            height: Theme.snap(40px); text: root.session.state;
+            wrap: word-wrap; color: Theme.ink-2; font-size: Theme.snap(root.side ? 11px : 12px); font-weight: Theme.notch-state-weight + (root.side ? 200 : 0); vertical-alignment: center; }
     }
-    if !root.side : Text { x: root.width - 140px; y: 0px; width: 40px; height: 40px; text: root.session.context;
-        color: Theme.ink-3; font-family: Theme.num; font-size: 11px; vertical-alignment: center; horizontal-alignment: right; }
-    Text { x: root.width - 88px; y: 0px; width: 52px; height: 40px; text: root.session.ago;
-        color: Theme.ink-3; font-family: Theme.num; font-size: 11px; vertical-alignment: center; horizontal-alignment: right; }
-    Text { x: root.width - 24px; y: 0px; width: 14px; height: 40px; text: "›"; font-size: 16px;
+    if !root.side : Text { x: Theme.align(root.width - 140px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); width: 40px; height: Theme.snap(40px); text: root.session.context;
+        color: Theme.ink-3; font-family: Theme.num; font-size: Theme.snap(11px); font-weight: Theme.notch-small-number-weight; vertical-alignment: center; horizontal-alignment: right; }
+    Text { x: Theme.align(root.width - (root.side ? 86px : 88px), parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); width: 52px; height: Theme.snap(40px); text: root.session.ago;
+        color: Theme.ink-3; font-family: Theme.num; font-size: Theme.snap(11px); font-weight: Theme.notch-small-number-weight; vertical-alignment: center; horizontal-alignment: right; }
+    Text { x: Theme.align(root.width - 24px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); width: 14px; height: Theme.snap(40px); text: "›"; font-size: 16px;
         color: Theme.ink-3; vertical-alignment: center; opacity: touch.has-hover ? 1 : 0; }
-    if root.session.error != "" : Text { x: 8px; y: 40px; width: parent.width - 16px; height: 32px;
+    if root.session.error != "" : Text { x: Theme.align(8px, parent.absolute-position.x); y: Theme.align(40px, parent.absolute-position.y); width: parent.width - 16px; height: Theme.snap(32px);
         text: root.session.error; color: Theme.bad; font-size: 12px; wrap: word-wrap; }
     touch := TouchArea { mouse-cursor: pointer;
         clicked => { keys.focus(); NotchData.terminal(root.session.key); }
         pointer-event(event) => { if event.kind == down && event.button == right { keys.focus(); NotchData.session-menu(root.session.key); } }
     }
-    keys := FocusScope { focus-gained => { NotchData.focus-y = root.absolute-position.y; }
+    keys := FocusScope { width: 0px; height: 0px; focus-gained => { NotchData.focus-y = root.absolute-position.y; }
         key-pressed(event) => {
         if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) { NotchData.session-menu(root.session.key); return accept; }
         if event.text == "\n" || event.text == " " { NotchData.terminal(root.session.key); return accept; } return reject;
@@ -90,9 +101,18 @@ export component LiveSessionRow inherits Rectangle {
 
 export component QuestionBody inherits Rectangle {
     in property <NotchRequest> request;
+    private property <int> step: root.request.question-index;
+    // Wait until the previous option delegates have released their focus.
+    changed step => { if root.step > 0 && root.request.options.length == 0 { focus-next.start(); } }
+    focus-next := Timer { interval: 0ms; running: false;
+        triggered => { self.stop(); if root.request.question && root.step > 0 && root.request.options.length == 0 { other.focus(); } }
+    }
     height: question-layout.preferred-height;
             question-layout := VerticalLayout { width: parent.width; spacing: 8px;
-                Text { min-height: 40px; text: root.request.step + root.request.prompt; wrap: word-wrap; color: Theme.ink; font-size: 13px; }
+                VerticalLayout { spacing: 4px; height: self.preferred-height;
+                    if root.request.step != "" : Text { text: root.request.step; color: Theme.ink-3; font-size: 11px; vertical-stretch: 0; wrap: word-wrap; }
+                    Text { text: root.request.prompt; wrap: word-wrap; color: Theme.ink; font-size: 13px; vertical-stretch: 0; }
+                }
                 for option[index] in root.request.options : Rectangle {
                     private property <int> step: root.request.question-index;
                     changed step => { if self.step > 0 && index == 0 { option-key.focus(); } }
@@ -102,12 +122,12 @@ export component QuestionBody inherits Rectangle {
                     border-color: option-key.has-focus ? Theme.ink-3 : root.request.provider == "claude" ? Theme.claude : Theme.codex;
                     Text { x: 12px; y: 0px; width: 14px; height: parent.height; text: index + 1; color: Theme.ink-3;
                         font-family: Theme.num; font-size: 11px; vertical-alignment: center; }
-                    option-labels := VerticalLayout { x: 36px; y: 8px; width: parent.width - 48px; spacing: 2px;
-                        Text { text: option.label; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; font-size: 12px; wrap: word-wrap; }
+                    option-labels := VerticalLayout { x: 36px; y: (parent.height - self.height) / 2; width: parent.width - 48px; height: self.preferred-height; spacing: 2px;
+                        Text { text: option.label; color: Theme.ink; font-family: Theme.semibold; font-weight: 600; font-size: 12px; wrap: word-wrap; }
                         if option.description != "" : Text { text: option.description; color: Theme.ink-3; font-size: 11px; wrap: word-wrap; }
                     }
-                    option-touch := TouchArea { mouse-cursor: pointer; clicked => { option-key.focus(); NotchData.choose(root.request.id, index); } }
-                    option-key := FocusScope { key-pressed(event) => {
+                    option-touch := TouchArea { mouse-cursor: pointer; clicked => { NotchData.focus-input(); option-key.focus(); NotchData.choose(root.request.id, index); } }
+                    option-key := FocusScope { width: 0px; height: 0px; key-pressed(event) => {
                         if event.text == " " || event.text == "\n" { NotchData.choose(root.request.id, index); return accept; } return reject;
                     }
                         focus-gained => { NotchData.focus-y = option-touch.absolute-position.y; NotchData.focused-request = root.request.id; }
@@ -119,19 +139,19 @@ export component QuestionBody inherits Rectangle {
                 }
                 Rectangle { height: 32px; border-radius: 10px; background: Theme.notch-ink-5;
                     border-width: other.has-focus ? Theme.pixel : 0px; border-color: Theme.ink-3;
-                    Text { x: 12px; y: 0px; height: 32px; text: "Other answer"; visible: other.text == ""; color: Theme.ink-3; font-size: 12px; vertical-alignment: center; }
+                    Text { x: 12px; y: 0px; height: 32px; text: "Other answer"; visible: other.text == "" && other.preedit-text == ""; color: Theme.ink-3; font-size: 12px; vertical-alignment: center; }
                     other := TextInput { x: 12px; y: 0px; width: parent.width - 24px; height: 32px;
                         text: root.request.custom; color: Theme.ink; font-size: 12px; vertical-alignment: center;
                         accessible-label: "Your answer: " + root.request.prompt;
                         edited => { NotchData.custom(root.request.id, self.text); }
-                        accepted => { if self.text != "" { NotchData.submit(root.request.id); } }
+                        accepted => { if self.preedit-text == "" { NotchData.submit-custom(root.request.id, self.text); } }
                         changed has-focus => { NotchData.input-focused = self.has-focus;
                             if self.has-focus { NotchData.focus-y = self.absolute-position.y; NotchData.focused-request = root.request.id; NotchData.focus-input(); }
                             else if NotchData.focused-request == root.request.id { NotchData.focused-request = ""; }
                         }
                     }
                 }
-                HorizontalLayout { height: 28px; spacing: 6px;
+                if root.request.multi || root.request.full : HorizontalLayout { height: 28px; spacing: 6px;
                     if root.request.multi : NotchButton { hold-id: root.request.id; text: "Done"; enabled: root.request.can-submit; clicked => { NotchData.submit(root.request.id); } }
                     if root.request.full : NotchButton { hold-id: root.request.id; text: "Answer in terminal"; quiet: true; clicked => { NotchData.answer(root.request.id, "skip"); } }
                     Rectangle { horizontal-stretch: 1; }
@@ -166,14 +186,81 @@ export component NotchTip inherits Rectangle {
         color: Theme.ink; font-family: Theme.font; font-size: 12px; }
 }
 
+// Shared two-line permission/update row. Explicit geometry keeps the visible
+// controls, scroll extent and native hit-test shape identical in every phase.
+component CompactNoticeRow inherits Rectangle {
+    in property <image> icon;
+    in property <color> icon-color: transparent;
+    in property <bool> colorize-icon;
+    in property <string> title;
+    in property <string> title-tip;
+    // Commands stay monospace; plain notices use the UI title face.
+    in property <bool> title-mono: true;
+    in property <string> meta;
+    in property <string> subtitle;
+    in property <bool> subtitle-link;
+    in property <bool> subtitle-error;
+    in property <string> primary-text;
+    in property <string> secondary-text;
+    in property <bool> primary-visible: true;
+    in property <bool> secondary-visible: true;
+    in property <bool> enabled: true;
+    in property <string> hold-id;
+    out property <bool> held: hover.has-hover || (root.hold-id != "" && NotchData.focused-request == root.hold-id);
+    callback primary-clicked();
+    callback secondary-clicked();
+    callback subtitle-clicked();
+    height: Theme.notice-height; border-radius: Theme.radius * 2; background: Theme.row;
+    hover := TouchArea {
+        Image { x: Theme.space * 2; y: copy.y + 2px; width: Theme.space * 2; height: Theme.space * 2;
+            source: root.icon; colorize: root.colorize-icon ? root.icon-color : transparent; }
+        copy := Rectangle {
+            x: Theme.notice-copy-inset;
+            y: (root.height - self.height) / 2;
+            width: max(0px, (actions.width > 0px ? actions.x - Theme.notice-copy-gap : root.width - Theme.notice-inset) - self.x);
+            height: Theme.notice-title-height + Theme.notice-copy-gap + Theme.notice-body-height;
+            HorizontalLayout { x: 0px; y: 0px; width: parent.width; height: Theme.notice-title-height; spacing: Theme.notice-action-gap;
+                Rectangle { horizontal-stretch: 1; min-width: 0px;
+                    Text { x: Theme.align(0px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); width: parent.width; height: parent.height; text: root.title;
+                        color: Theme.ink; font-family: root.title-mono ? Theme.mono : Theme.semibold;
+                        font-weight: root.title-mono ? 400 : Theme.notch-title-weight; font-size: Theme.snap(root.title-mono ? 12px : Theme.body-size); overflow: elide; }
+                    SummaryHover { text: root.title-tip; }
+                }
+                Text { text: root.meta; color: Theme.ink-3; font-family: Theme.num; font-size: 11px;
+                    horizontal-alignment: right; }
+            }
+            Rectangle { x: 0px; y: Theme.notice-title-height + Theme.notice-copy-gap; width: parent.width; height: Theme.notice-body-height;
+                if !root.subtitle-link : Text { x: Theme.align(0px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); width: parent.width; height: parent.height; text: root.subtitle;
+                    color: root.subtitle-error ? Theme.notch-bad : Theme.ink-3; font-size: Theme.snap(12px); font-weight: root.title-mono ? 400 : Theme.notch-body-weight; letter-spacing: root.title-mono ? 0px : Theme.notch-body-spacing; vertical-alignment: top; overflow: elide;
+                    accessible-live-region: polite; }
+                if root.subtitle-link : NotchButton { width: parent.width; height: parent.height; text: root.subtitle; subtitle: true;
+                    hold-id: root.hold-id; clicked => { root.subtitle-clicked(); } }
+            }
+        }
+        actions := HorizontalLayout {
+            x: root.width - Theme.notice-inset - self.width;
+            y: (root.height - self.height) / 2;
+            width: self.preferred-width; height: Theme.notice-action-height;
+            spacing: Theme.notice-action-gap;
+            if root.primary-visible : NotchButton { text: root.primary-text; primary: true; enabled: root.enabled;
+                hold-id: root.hold-id; clicked => { root.primary-clicked(); } }
+            if root.secondary-visible : NotchButton { text: root.secondary-text;
+                hold-id: root.hold-id; clicked => { root.secondary-clicked(); } }
+        }
+    }
+}
+
 export component RequestCard inherits Rectangle {
     in property <NotchRequest> request;
-    height: root.request.question ? max(root.request.height, question-body.height + 68px) : root.request.height; border-radius: 16px; background: Theme.row;
-    clip: true;
+    height: root.request.question ? question-body.height + 58px : root.request.height; border-radius: 16px;
+    background: root.request.side && (root.request.slim || root.request.missed) ? transparent : Theme.row;
+    // An inner clip makes Slint skip offscreen question controls during Tab
+    // navigation before the outer Flickable can reveal them.
+    clip: !root.request.question;
     private property <bool> held: hover.has-hover || NotchData.focused-request == root.request.id;
     changed held => { if !root.request.missed { NotchData.hold(root.request.id, root.held); } }
     hover := TouchArea {
-    ProviderMark { x: 16px; y: 14px; provider: root.request.provider; }
+    ProviderMark { x: 16px; y: 14px; provider: root.request.provider; visible: !(root.request.side && (root.request.slim || root.request.missed)); }
     if root.request.slim || root.request.missed : Rectangle {
         x: 42px; y: 8px; width: root.width - 50px; height: root.height - 16px;
         if !root.request.side : HorizontalLayout { x: 0px; y: 0px; width: parent.width; height: parent.height; spacing: 6px;
@@ -189,27 +276,24 @@ export component RequestCard inherits Rectangle {
             NotchButton { hold-id: root.request.id; text: root.request.missed ? "Dismiss" : "Deny";
                 clicked => { if root.request.missed { NotchData.dismiss(root.request.id); } else { NotchData.answer(root.request.id, "deny"); } } }
         }
-        if root.request.side : Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.height;
-            Rectangle { x: 0px; y: 0px; width: parent.width - 40px; height: 20px;
-                Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: root.request.missed ? root.request.title : "Allow: " + root.request.summary + "?";
-                    color: Theme.ink; font-family: Theme.mono; font-size: 12px; overflow: elide; }
-                SummaryHover { text: root.request.missed ? root.request.title : root.request.summary; }
-            }
-            Text { x: parent.width - 40px; y: 0px; width: 40px; height: 20px; text: root.request.missed ? "" : root.request.countdown;
-                color: Theme.ink-3; font-family: Theme.num; font-size: 11px; horizontal-alignment: right; }
-            HorizontalLayout { x: 0px; y: 28px; width: parent.width; height: 28px; spacing: 6px;
-                Text { text: root.request.name; color: Theme.ink-3; font-size: 12px; overflow: elide; horizontal-stretch: 1; }
-                NotchButton { hold-id: root.request.id; text: root.request.missed ? "Open terminal" : "Allow"; primary: true;
-                    clicked => { if root.request.missed { NotchData.terminal(root.request.session-key); } else { NotchData.answer(root.request.id, "allow"); } } }
-                NotchButton { hold-id: root.request.id; text: root.request.missed ? "Dismiss" : "Deny";
-                    clicked => { if root.request.missed { NotchData.dismiss(root.request.id); } else { NotchData.answer(root.request.id, "deny"); } } }
-            }
-        }
+
+    }
+    if root.request.side && (root.request.slim || root.request.missed) : CompactNoticeRow {
+        width: root.width; height: root.height;
+        icon: root.request.provider == "claude" ? @image-url("../assets/claude.svg") : @image-url("../assets/codex.svg");
+        colorize-icon: true; icon-color: root.request.provider == "claude" ? Theme.claude : Theme.codex;
+        title: root.request.missed ? root.request.title : "Allow: " + root.request.summary + "?";
+        title-tip: root.request.missed ? root.request.title : root.request.summary;
+        meta: root.request.missed ? "" : root.request.countdown; subtitle: root.request.name;
+        primary-text: root.request.missed ? "Open terminal" : "Allow";
+        secondary-text: root.request.missed ? "Dismiss" : "Deny"; hold-id: root.request.id;
+        primary-clicked => { if root.request.missed { NotchData.terminal(root.request.session-key); } else { NotchData.answer(root.request.id, "allow"); } }
+        secondary-clicked => { if root.request.missed { NotchData.dismiss(root.request.id); } else { NotchData.answer(root.request.id, "deny"); } }
     }
     if !root.request.slim && !root.request.missed : Rectangle {
         x: 16px; y: 12px; width: root.width - 32px; height: root.height - 24px;
         HorizontalLayout { x: 24px; y: 0px; width: parent.width - 24px; height: 20px; spacing: 8px;
-            Text { text: root.request.title; color: Theme.ink; font-family: Theme.semibold; font-weight: 500; }
+            Text { text: root.request.title; color: Theme.ink; font-family: Theme.semibold; font-weight: 600; }
             Text { text: root.request.name; color: Theme.ink-3; font-size: 12px; overflow: elide; horizontal-stretch: 1; }
             Text { text: root.request.countdown; color: Theme.ink-3; font-family: Theme.num; font-size: 11px; }
         }
@@ -232,9 +316,39 @@ export component RequestCard inherits Rectangle {
     }
     question-body := QuestionBody { x: 16px; y: 42px; width: root.width - 32px;
         visible: root.request.question; request: root.request; }
-    if !root.request.missed : Rectangle { x: 0px; y: root.height - 2px; width: root.width; height: 2px; background: Theme.notch-ink-5;
-        Rectangle { x: 0px; y: 0px; width: parent.width * root.request.remaining; height: parent.height;
-            background: root.request.provider == "claude" ? Theme.claude : Theme.codex; }
+    // Keep the countdown inside the same rounded card, without clipping controls.
+    Rectangle { width: root.width; height: root.height; border-radius: 16px; clip: true;
+        if !root.request.missed : Rectangle { x: 0px; y: root.height - 2px; width: root.width; height: 2px; background: Theme.notch-ink-5;
+            Rectangle { x: 0px; y: 0px; width: parent.width * root.request.remaining; height: parent.height;
+                background: root.request.provider == "claude" ? Theme.claude : Theme.codex; }
+        }
     }
     }
+}
+
+export component UpdateCard inherits CompactNoticeRow {
+    private property <bool> busy: NotchData.update-submitting || NotchData.update.phase == "downloading" || NotchData.update.phase == "installing";
+    icon: @image-url("../assets/nubi-logo.png");
+    title: (NotchData.update.automatic ? "Nubi update ready" : "Nubi update available") + " · v" + NotchData.update.version;
+    title-tip: self.title;
+    title-mono: false;
+    meta: NotchData.update.countdown == "" ? "" : root.held ? "Paused" : NotchData.update.countdown;
+    subtitle: NotchData.update.phase == "downloading" ? "Downloading…" : NotchData.update.phase == "installing" ? "Installing…"
+        : NotchData.update.phase == "error" ? NotchData.update.message : "Click here to see what's new";
+    subtitle-error: NotchData.update.phase == "error";
+    subtitle-link: !root.busy && NotchData.update.phase != "error";
+    primary-text: NotchData.update.phase == "error" ? "Retry" : NotchData.update.phase == "ready" ? "Install now" : "Update now";
+    secondary-text: NotchData.update.phase == "downloading" ? "Cancel" : "Later";
+    primary-visible: NotchData.update.phase != "downloading" && NotchData.update.phase != "installing";
+    secondary-visible: NotchData.update.phase != "installing";
+    enabled: !root.busy;
+    hold-id: "update:" + NotchData.update.id;
+    primary-clicked => {
+        if !root.busy {
+            NotchData.update-submitting = true;
+            NotchData.update-install(NotchData.update.id);
+        }
+    }
+    secondary-clicked => { NotchData.update-dismiss(NotchData.update.id); }
+    subtitle-clicked => { NotchData.update-release(NotchData.update.id); }
 }

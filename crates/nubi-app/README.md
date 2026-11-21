@@ -1,4 +1,4 @@
-# Nubi native executable (stage 2)
+# Nubi native executable (stage 3)
 
 This is an internal migration build. It runs the existing Tauri-free core with a
 Slint software-rendered notch, native tray menu, configured global shortcuts,
@@ -8,9 +8,9 @@ in the workspace.
 Build and run the native executable in a separate target directory:
 
 ```powershell
-cargo build --release --offline -p nubi-app --target-dir src-tauri/target/native
-$env:NUBI_DEV_DATA_DIR = "$PWD/src-tauri/target/native-dev"
-./src-tauri/target/native/release/nubi.exe --dev
+cargo build --release --offline -p nubi-app --target-dir target/native
+$env:NUBI_DEV_DATA_DIR = "$PWD/target/native-dev"
+./target/native/release/nubi.exe --dev
 ```
 
 Both application packages intentionally retain the binary name `nubi`. Cargo
@@ -49,6 +49,28 @@ a bounded runtime for local measurements.
 - The notch uses the spike's fonts, tokens, geometry, spring integration, curved
   hit testing and 40/140 ms hover dwell. Session rows and usage percentages come
   from core state rather than fixtures. Session activation focuses its terminal.
+- Animation advances on native redraws at the current monitor's refresh rate.
+  One deadline timer wakes the next frame; the 16 ms service poll does not step
+  springs. Shape rendering and curved hit testing retain the same subpixel
+  geometry. The tab highlight uses the existing `ui/motion.js` snappy spring.
+- Keyboard scopes behind pointer controls have zero-size bounds, so they cannot
+  consume the first mouse press. Pointer clicks still explicitly focus controls;
+  keyboard navigation and request countdown holds retain their existing behavior.
+- Fonts keep the source theme's roles: installed Segoe UI Variable Text for the
+  interface, bundled Geist for figures, and JetBrains Mono for paths and commands.
+  The notch requests Segoe Text at weight 600 for source CSS 500 labels: Chrome's
+  Windows font selection resolves that CSS request to the named Text Semibold
+  instance (wght 600, opsz 10.5), not the variable font's interpolated weight 500.
+  `assets/prepare-tabular.py` derives Nubi Figures from the bundled static Geist
+  faces by mapping digits to their existing `tnum` glyphs. It preserves outlines
+  and the Geist OFL license; no Windows font is copied. Small-text rasterization
+  still differs from Chrome and requires desktop visual acceptance.
+  Closed width comes from content layout rather than fixed provider slots or
+  character counts. Magnified invisible text measurements retain fractional
+  advances despite Slint rounding preferred text widths to whole pixels; the
+  shell rounds only the final width, as DOM offsetWidth does.
+  The workspace's small Slint software-renderer patch enables outline hinting;
+  its source and original licenses live in `vendor/i-slint-renderer-software`.
 - Settings opens lazily. A hidden settings surface is released after 60 seconds;
   editable General values and navigation survive release. Launcher surfaces are
   released after cancellation. The panel is still the partial spike port.
@@ -57,24 +79,34 @@ a bounded runtime for local measurements.
   and dynamic manifests and verifies the artifact and authenticated version
   comment. Responses are bounded, truncated downloads fail, and installer bytes
   are verified again while held against writes. NSIS retains passive update and
-  restart arguments. Startup-only automatic installation, session gating,
-  displayed-note acknowledgment, hover/focus holds, cancellation and error policy
-  preserve the existing updater state machine. Development never runs an installer.
+  restart arguments. Automatic updates download silently, then show a persistent
+  ready card; installation requires Install now. Later retains verified bytes and
+  shows the card again at the next check. With automatic updates off, the offer
+  dismisses after ten displayed seconds, paused while hidden, hovered or focused.
+  Update now downloads and installs without a second prompt; Cancel stops the
+  pending installation, and failures expose Retry and Later. The Waiting-pane card
+  follows permission and question prompts. The development-only
+  `NUBI_DEV_UPDATE_NOTICE=on` previews the ready card; `off` or `1` previews the
+  available card. Samples never use the network and report release-only updates
+  when installation is requested.
 
 ## Acceptance limits
 
-The spike's [PARITY.md](../../spikes/notch-slint/PARITY.md) remains applicable.
-This executable does not establish visual or interaction parity for later stages.
+The spike's [PARITY.md](../../spikes/notch-slint/PARITY.md) is a historical visual
+comparison. Its old font-weight limitation is not reproduced by the current
+typography tests. This executable does not establish visual or interaction parity
+for later stages.
 
-- Full notch request/alert presentation, all tabs and dynamic states, edge and
-  monitor placement, dragging and complete keyboard behavior remain stage 3.
-- The native Host preserves pending requests, but approval/question UI and backend
-  reconciliation remain stage 4. Unanswered requests still fall back to terminals.
+- The live notch renders requests, alerts, all tabs and dynamic states. Stage 3
+  still requires owner acceptance of smoothness and typography, physical pointer
+  checks, monitor transitions, dragging, and complete keyboard behavior.
+- Pending decisions are connected to the notch. Separate approval/question
+  overlay reconciliation remains stage 4. Unanswered requests fall back to terminals.
 - The tray stores ring/taskbar selections, but their native surfaces remain
   stage 5. The current minimal notch remains the display surface.
-- Launcher and update windows provide functional callbacks and keyboard actions;
-  their exact source styling, motion, focus restoration and monitor placement
-  still require the stage 5 parity pass.
+- The launcher window provides functional callbacks and keyboard actions; its
+  exact source styling, motion, focus restoration and monitor placement still
+  require the stage 5 parity pass. Update notices use the notch card described above.
 - The partial settings panel implements General persistence. Other settings panes,
   Inbox requests, complete session actions, report/release browsing, accessibility
   and responsive behavior remain stage 6. Some inherited prototype controls have
@@ -93,6 +125,12 @@ This executable does not establish visual or interaction parity for later stages
   and size optimization remain open.
 
 ## Verification
+
+For an isolated animation trace, set `NUBI_TRACE_FRAMES=1` before launching with
+`--dev` and a dedicated `NUBI_DEV_DATA_DIR`. This logs monitor refresh, mouse input
+events, selected tabs, and bounded animation-update gap samples. The samples are
+event-loop measurements, not compositor presentation times or visual acceptance.
+Keep the development notch separate from the installed notch during comparison.
 
 Run `scripts/measure-native.ps1` after the dedicated release build. It launches
 only its own development process, waits 60 seconds, then records ten private-byte,

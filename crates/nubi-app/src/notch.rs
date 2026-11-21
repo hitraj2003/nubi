@@ -1,6 +1,8 @@
 //! Live island state and ordered core decisions. UI drafts survive snapshots.
-mod actions;
-mod models;
+pub(crate) mod actions;
+pub(crate) mod models;
+mod update;
+pub(crate) use update::connect_update;
 #[cfg(test)]
 mod tests;
 use crate::{
@@ -28,6 +30,8 @@ pub struct Notch {
     requests: Rc<VecModel<NotchRequest>>,
     desk: Rc<VecModel<DeskSection>>,
     drafts: BTreeMap<u64, Draft>,
+    panel_holds: Rc<RefCell<BTreeSet<u64>>>,
+    notch_holds: Rc<RefCell<BTreeSet<u64>>>,
     seen: BTreeSet<u64>,
     pub hovering: bool,
     pub clicked: bool,
@@ -41,10 +45,14 @@ pub struct Notch {
     refresh: Option<(Instant, u64)>,
     refresh_error: String,
     pub drag_requested: bool,
+    update_id: Option<u64>,
+    update_shown: Option<Instant>,
 }
 
 impl Notch {
     pub fn connect(ui: &NotchWindow, host: NativeHost) -> Rc<RefCell<Self>> {
+        ui.global::<crate::Fixture>()
+            .on_usage_color(|percent, soft| crate::usage_color::color(f64::from(percent), soft));
         let this = Rc::new(RefCell::new(Self {
             host,
             sessions: Rc::default(),
@@ -52,6 +60,8 @@ impl Notch {
             requests: Rc::default(),
             desk: Rc::default(),
             drafts: BTreeMap::new(),
+            panel_holds: Rc::default(),
+            notch_holds: Rc::default(),
             seen: BTreeSet::new(),
             hovering: false,
             clicked: false,
@@ -65,8 +75,11 @@ impl Notch {
             refresh: None,
             refresh_error: String::new(),
             drag_requested: false,
+            update_id: None,
+            update_shown: None,
         }));
         let data = ui.global::<NotchData>();
+        data.on_equalizer_height(crate::equalizer_motion::height);
         data.set_sessions(this.borrow().sessions.clone().into());
         data.set_providers(this.borrow().providers.clone().into());
         data.set_requests(this.borrow().requests.clone().into());
@@ -92,8 +105,10 @@ impl Notch {
                     };
                     let draft = this.drafts.entry(id).or_default();
                     let question = draft.question(pending);
-                    let Some(label) = question["options"][index.max(0) as usize]["label"].as_str()
-                    else {
+                    let Ok(index) = usize::try_from(index) else {
+                        return false;
+                    };
+                    let Some(label) = question["options"][index]["label"].as_str() else {
                         return false;
                     };
                     let multi = question["multiSelect"].as_bool().unwrap_or(false);
@@ -120,34 +135,24 @@ impl Notch {
         data.on_custom(move |id, text| {
             if let Ok(id) = id.parse::<u64>() {
                 let mut this = owner.borrow_mut();
-                let host = this.host.clone();
-                with(&host, |state| {
-                    if let Some(pending) = state.pending.get(&id) {
-                        let draft = this.drafts.entry(id).or_default();
-                        let question = draft.question(pending);
-                        let key = question["question"].as_str().unwrap_or("").to_owned();
-                        let multi = question["multiSelect"].as_bool().unwrap_or(false);
-                        let options = question["options"].as_array();
-                        let selected = draft.answers.entry(key).or_default();
-                        selected.retain(|label| {
-                            options.is_some_and(|items| {
-                                items
-                                    .iter()
-                                    .any(|option| option["label"].as_str() == Some(label))
-                            })
-                        });
-                        if !text.trim().is_empty() {
-                            if !multi {
-                                selected.clear();
-                            }
-                            selected.push(text.trim().into());
-                        }
-                        draft.custom = text.into();
-                    }
-                });
+                this.edit_custom(id, &text);
                 if let Some(ui) = weak.upgrade() {
                     this.update(&ui);
                 }
+            }
+        });
+        let owner = this.clone();
+        let weak = ui.as_weak();
+        data.on_submit_custom(move |id, text| {
+            if let (Ok(id), Some(ui)) = (id.parse(), weak.upgrade()) {
+                if text.trim().is_empty() {
+                    return;
+                }
+                let mut this = owner.borrow_mut();
+                // Enter reapplies the visible text, just like updateTyped in the source.
+                this.edit_custom(id, &text);
+                this.advance(id, &ui);
+                this.update(&ui);
             }
         });
         let owner = this.clone();
@@ -159,15 +164,12 @@ impl Notch {
                 this.update(&ui);
             }
         });
+        let panel_holds = this.borrow().panel_holds.clone();
+        let notch_holds = this.borrow().notch_holds.clone();
         let host = this.borrow().host.clone();
         data.on_hold(move |id, held| {
             if let Ok(id) = id.parse::<u64>() {
-                with(&host, |state| {
-                    if let Some(pending) = state.pending.get_mut(&id) {
-                        pending.held = held;
-                    }
-                });
-                host.emit_state();
+                set_hold(&host, &notch_holds, &panel_holds, id, held);
             }
         });
         let host = this.borrow().host.clone();
@@ -296,6 +298,11 @@ impl Notch {
         let weak = ui.as_weak();
         ui.on_tab_selected(move |_| {
             if let Some(ui) = weak.upgrade() {
+                if nubi_core::isolation::development()
+                    && std::env::var_os("NUBI_TRACE_FRAMES").is_some()
+                {
+                    eprintln!("[nubi dev] selected tab: {}", ui.get_tab());
+                }
                 owner.borrow_mut().release_holds();
                 ui.global::<NotchData>().set_focused_request("".into());
                 ui.global::<NotchData>().set_input_focused(false);
@@ -342,6 +349,38 @@ impl Notch {
         }
         self.host.emit_state();
     }
+    fn edit_custom(&mut self, id: u64, text: &str) {
+        let host = self.host.clone();
+        with(&host, |state| {
+            let Some(pending) = state.pending.get(&id) else {
+                return;
+            };
+            let draft = self.drafts.entry(id).or_default();
+            let question = draft.question(pending);
+            let key = question["question"].as_str().unwrap_or("").to_owned();
+            let multi = question["multiSelect"].as_bool().unwrap_or(false);
+            let options = question["options"].as_array();
+            let selected = draft.answers.entry(key).or_default();
+            selected.retain(|label| {
+                options.is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|option| option["label"].as_str() == Some(label))
+                })
+            });
+            let text_answer = text.trim();
+            if !text_answer.is_empty() {
+                if !multi {
+                    selected.clear();
+                }
+                // The original uses a Set: a typed option label must not be duplicated.
+                if !selected.iter().any(|label| label == text_answer) {
+                    selected.push(text_answer.into());
+                }
+            }
+            draft.custom = text.into();
+        });
+    }
     fn advance(&mut self, id: u64, ui: &NotchWindow) {
         let host = self.host.clone();
         let answers = with(&host, |state| {
@@ -371,17 +410,42 @@ impl Notch {
         }
     }
     pub fn release_holds(&self) {
+        release_holds(&self.host, &self.notch_holds, &self.panel_holds);
+    }
+    pub(crate) fn panel_hold(&mut self, id: u64, held: bool) {
+        set_hold(&self.host, &self.panel_holds, &self.notch_holds, id, held);
+    }
+    pub(crate) fn release_panel_holds(&mut self) {
+        release_holds(&self.host, &self.panel_holds, &self.notch_holds);
+    }
+    pub(crate) fn panel_requests(&mut self) -> Vec<NotchRequest> {
         with(&self.host, |state| {
-            for pending in state.pending.values_mut() {
-                pending.held = false;
-            }
+            self.panel_holds
+                .borrow_mut()
+                .retain(|id| state.pending.contains_key(id));
+            self.notch_holds
+                .borrow_mut()
+                .retain(|id| state.pending.contains_key(id));
         });
-        self.host.emit_state();
+        let host = self.host.clone();
+        with(&host, |state| {
+            let mut pending: Vec<_> = state
+                .pending
+                .values()
+                .filter(|p| state.settings.wants(&p.provider))
+                .collect();
+            pending.sort_by_key(|p| (p.created_ms, p.id));
+            pending
+                .into_iter()
+                .map(|p| request_row(p, self.drafts.entry(p.id).or_default(), false, now_ms()))
+                .collect()
+        })
     }
     pub fn pointer(&mut self, inside: bool, ui: &NotchWindow) {
         self.hovering = inside;
         if inside {
-            self.popup = None;
+            // The original keeps requestsUp until pointerleave. Entering an
+            // automatic popup must not collapse it before a click lands.
             if with(&self.host, |state| {
                 state
                     .pending
@@ -437,5 +501,59 @@ impl Notch {
             self.refresh_error.clear();
             nubi_core::poller::force(&self.host);
         }
+    }
+}
+
+// Holds belong to each surface. Only a change to the combined hold dirties state.
+fn set_hold(
+    host: &NativeHost,
+    own: &RefCell<BTreeSet<u64>>,
+    other: &RefCell<BTreeSet<u64>>,
+    id: u64,
+    held: bool,
+) {
+    let changed = with(host, |state| {
+        own.borrow_mut().retain(|id| state.pending.contains_key(id));
+        other
+            .borrow_mut()
+            .retain(|id| state.pending.contains_key(id));
+        let Some(pending) = state.pending.get_mut(&id) else {
+            return false;
+        };
+        if held {
+            own.borrow_mut().insert(id);
+        } else {
+            own.borrow_mut().remove(&id);
+        }
+        let combined = held || other.borrow().contains(&id);
+        let changed = pending.held != combined;
+        pending.held = combined;
+        changed
+    });
+    if changed {
+        host.emit_state();
+    }
+}
+fn release_holds(host: &NativeHost, own: &RefCell<BTreeSet<u64>>, other: &RefCell<BTreeSet<u64>>) {
+    let held = std::mem::take(&mut *own.borrow_mut());
+    if held.is_empty() {
+        return;
+    }
+    let changed = with(host, |state| {
+        other
+            .borrow_mut()
+            .retain(|id| state.pending.contains_key(id));
+        let mut changed = false;
+        for id in held {
+            if let Some(pending) = state.pending.get_mut(&id) {
+                let combined = other.borrow().contains(&id);
+                changed |= pending.held != combined;
+                pending.held = combined;
+            }
+        }
+        changed
+    });
+    if changed {
+        host.emit_state();
     }
 }

@@ -1,5 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod alert_content;
+mod alert_content_motion;
+mod alert_popup;
+mod alert_text;
+mod alerts;
+mod equalizer_motion;
 mod host;
 mod launcher;
 mod motion;
@@ -7,13 +13,17 @@ mod native;
 mod notch;
 mod notifications;
 mod panel_logic;
+mod panel_services;
+mod panel_settings;
 mod shape;
 mod singleton;
+mod sounds;
 mod spring;
 mod tray;
 mod ui;
 mod update_transport;
 mod updater;
+mod usage_color;
 
 slint::include_modules!();
 

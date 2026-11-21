@@ -4,7 +4,10 @@ fn main() {
         let manifest = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
             .join("nubi.manifest");
         println!("cargo:rustc-link-arg-bin=nubi=/MANIFEST:EMBED");
-        println!("cargo:rustc-link-arg-bin=nubi=/MANIFESTINPUT:{}", manifest.display());
+        println!(
+            "cargo:rustc-link-arg-bin=nubi=/MANIFESTINPUT:{}",
+            manifest.display()
+        );
     }
     let built = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

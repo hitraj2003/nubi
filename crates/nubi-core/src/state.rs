@@ -39,6 +39,8 @@ pub struct Session {
     #[serde(skip)]
     pub pids: Vec<u32>,
     #[serde(skip)]
+    pub window: u64,
+    #[serde(skip)]
     pub action_target: Option<crate::session_actions::Target>,
     pub compact_queued: bool,
     pub action_error: Option<String>,
@@ -129,23 +131,39 @@ pub struct Inner {
 /// transcript, else the last `ai-title`. Codex: last `thread_name` for the id in
 /// `~/.codex/session_index.jsonl`.
 fn session_name(provider: &str, session_id: &str, transcript: Option<&str>) -> Option<String> {
-    let pick = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::trim).filter(|x| !x.is_empty()).map(String::from);
+    let pick = |v: &Value, k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|x| !x.is_empty())
+            .map(String::from)
+    };
     if provider == "codex" {
         let path = dirs::home_dir()?.join(".codex").join("session_index.jsonl");
         let text = std::fs::read_to_string(path).ok()?;
-        return text.lines().rev().filter(|l| l.contains(session_id)).find_map(|l| {
-            let v: Value = serde_json::from_str(l).ok()?;
-            if v.get("id")?.as_str()? != session_id { return None; }
-            pick(&v, "thread_name")
-        });
+        return text
+            .lines()
+            .rev()
+            .filter(|l| l.contains(session_id))
+            .find_map(|l| {
+                let v: Value = serde_json::from_str(l).ok()?;
+                if v.get("id")?.as_str()? != session_id {
+                    return None;
+                }
+                pick(&v, "thread_name")
+            });
     }
     let text = std::fs::read_to_string(transcript?).ok()?;
     let (mut custom, mut ai) = (None, None);
     for l in text.lines() {
         if l.contains("\"type\":\"custom-title\"") {
-            if let Ok(v) = serde_json::from_str::<Value>(l) { custom = pick(&v, "customTitle").or(custom); }
+            if let Ok(v) = serde_json::from_str::<Value>(l) {
+                custom = pick(&v, "customTitle").or(custom);
+            }
         } else if l.contains("\"type\":\"ai-title\"") {
-            if let Ok(v) = serde_json::from_str::<Value>(l) { ai = pick(&v, "aiTitle").or(ai); }
+            if let Ok(v) = serde_json::from_str::<Value>(l) {
+                ai = pick(&v, "aiTitle").or(ai);
+            }
         }
     }
     custom.or(ai)
@@ -166,8 +184,18 @@ impl Inner {
         let key = format!("{}:{}", m.provider, m.session_id);
         // Clear requests on session progress, not unrelated subagent activity or
         // a permission notification that means the terminal is still waiting.
-        if matches!(m.event.as_str(), "SessionStart" | "SessionEnd" | "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PreModelRequest" | "Stop" | "Interrupt")
-            || (m.event == "Notification" && m.notification_type.as_deref() == Some("idle_prompt")) {
+        if matches!(
+            m.event.as_str(),
+            "SessionStart"
+                | "SessionEnd"
+                | "UserPromptSubmit"
+                | "PreToolUse"
+                | "PostToolUse"
+                | "PreModelRequest"
+                | "Stop"
+                | "Interrupt"
+        ) || (m.event == "Notification" && m.notification_type.as_deref() == Some("idle_prompt"))
+        {
             self.missed.retain(|x| x.session_key != key);
             self.pending.retain(|_, p| p.session_key != key);
         }
@@ -191,6 +219,7 @@ impl Inner {
             subagents: 0,
             context_tokens: None,
             pids: vec![],
+            window: 0,
             action_target: None,
             compact_queued: false,
             action_error: None,
@@ -200,6 +229,9 @@ impl Inner {
             s.cwd = m.cwd.clone();
         }
         s.folder = folder_of(&s.cwd);
+        if m.window != 0 {
+            s.window = m.window;
+        }
         if !m.pids.is_empty() {
             s.pids = m.pids.clone();
             if s.action_target.is_none() {
@@ -214,11 +246,16 @@ impl Inner {
         // Re-read the title at most every 20 s (titles appear after the first prompt and can be renamed).
         if now.saturating_sub(s.name_checked_ms) > 20_000 {
             s.name_checked_ms = now;
-            if let Some(n) = session_name(&s.provider, &s.session_id, s.transcript_path.as_deref()) {
+            if let Some(n) = session_name(&s.provider, &s.session_id, s.transcript_path.as_deref())
+            {
                 s.name = n;
             }
         }
-        let label = if s.name.is_empty() { s.folder.clone() } else { s.name.clone() };
+        let label = if s.name.is_empty() {
+            s.folder.clone()
+        } else {
+            s.name.clone()
+        };
         let mk = |kind: &str, title: &str, body: String| Alert {
             ts: now,
             provider: m.provider.clone(),
@@ -234,10 +271,14 @@ impl Inner {
                 s.attention = false;
                 None
             }
-            "PreToolUse" if crate::protocol::is_question(&m.provider, &m.event, m.tool_name.as_deref()) => {
+            "PreToolUse"
+                if crate::protocol::is_question(&m.provider, &m.event, m.tool_name.as_deref()) =>
+            {
                 s.state = "waiting".into();
                 s.attention = true;
-                let q = m.tool_input.as_ref()
+                let q = m
+                    .tool_input
+                    .as_ref()
                     .and_then(|t| t["questions"][0]["question"].as_str())
                     .unwrap_or("Claude has a question")
                     .to_string();
@@ -261,8 +302,16 @@ impl Inner {
                 s.state = "waiting".into();
                 s.attention = true;
                 let tool = m.tool_name.clone().unwrap_or_else(|| "tool".into());
-                let note = if m.tool_input_oversize { " (too large: answer in terminal)" } else { "" };
-                Some(mk("permission", "Permission needed", format!("{label} · {tool}{note}")))
+                let note = if m.tool_input_oversize {
+                    " (too large: answer in terminal)"
+                } else {
+                    ""
+                };
+                Some(mk(
+                    "permission",
+                    "Permission needed",
+                    format!("{label} · {tool}{note}"),
+                ))
             }
             "Interrupt" => {
                 s.state = "idle".into();
@@ -305,14 +354,26 @@ impl Inner {
         self.next_id += 1;
         let id = self.next_id;
         let key = format!("{}:{}", m.provider, m.session_id);
-        let folder = self.sessions.get(&key).map(|s| s.folder.clone()).unwrap_or_default();
-        let name = self.sessions.get(&key).map(|s| s.name.clone()).unwrap_or_default();
+        let folder = self
+            .sessions
+            .get(&key)
+            .map(|s| s.folder.clone())
+            .unwrap_or_default();
+        let name = self
+            .sessions
+            .get(&key)
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
         let now = now_ms();
         self.pending.insert(
             id,
             Pending {
                 id,
-                kind: if m.event == "PermissionRequest" { "permission".into() } else { "question".into() },
+                kind: if m.event == "PermissionRequest" {
+                    "permission".into()
+                } else {
+                    "question".into()
+                },
                 provider: m.provider.clone(),
                 session_key: key,
                 folder,
@@ -330,20 +391,30 @@ impl Inner {
 
     /// Send a decision. Err when the request already expired or was answered.
     pub fn answer(&mut self, id: u64, reply: Reply) -> Result<(), String> {
-        let p = self.pending.remove(&id).ok_or("request expired or already answered")?;
+        let p = self
+            .pending
+            .remove(&id)
+            .ok_or("request expired or already answered")?;
         if now_ms() > p.expires_ms {
             return Err("request expired".into());
         }
         if let Some(s) = self.sessions.get_mut(&p.session_key) {
-            s.state = if reply.decision == "deny" { "idle".into() } else { "working".into() };
+            s.state = if reply.decision == "deny" {
+                "idle".into()
+            } else {
+                "working".into()
+            };
             s.attention = false;
         }
-        p.tx.ok_or("no waiter")?.send(reply).map_err(|_| "hook already gone".to_string())
+        p.tx.ok_or("no waiter")?
+            .send(reply)
+            .map_err(|_| "hook already gone".to_string())
     }
 
     pub fn sweep(&mut self) {
         let now = now_ms();
-        self.sessions.retain(|_, s| now.saturating_sub(s.last_event_ms) < DROP_MS);
+        self.sessions
+            .retain(|_, s| now.saturating_sub(s.last_event_ms) < DROP_MS);
         for s in self.sessions.values_mut() {
             if now.saturating_sub(s.last_event_ms) > STALE_MS && s.state != "waiting" {
                 s.state = "stale".into();
@@ -395,7 +466,9 @@ pub fn context_tokens(provider: &str, path: &str) -> Option<u64> {
     let mut buf = String::new();
     f.take(256 * 1024).read_to_string(&mut buf).ok()?;
     for line in buf.lines().rev() {
-        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
         if provider == "codex" {
             let p = &v["payload"];
             if p["type"] == "token_count" {
@@ -404,10 +477,14 @@ pub fn context_tokens(provider: &str, path: &str) -> Option<u64> {
                 }
             }
         } else if let Some(u) = v["message"].get("usage") {
-            let n = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
-                .iter()
-                .filter_map(|k| u[*k].as_u64())
-                .sum::<u64>();
+            let n = [
+                "input_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+            ]
+            .iter()
+            .filter_map(|k| u[*k].as_u64())
+            .sum::<u64>();
             if n > 0 {
                 return Some(n);
             }
@@ -450,9 +527,26 @@ mod tests {
         st.on_event(&m);
         let (tx, mut rx) = oneshot::channel();
         let id = st.add_pending(&m, tx, 60_000);
-        st.answer(id, Reply { decision: "allow".into(), message: None, answers: None }).unwrap();
+        st.answer(
+            id,
+            Reply {
+                decision: "allow".into(),
+                message: None,
+                answers: None,
+            },
+        )
+        .unwrap();
         assert_eq!(rx.try_recv().unwrap().decision, "allow");
-        assert!(st.answer(id, Reply { decision: "deny".into(), message: None, answers: None }).is_err());
+        assert!(st
+            .answer(
+                id,
+                Reply {
+                    decision: "deny".into(),
+                    message: None,
+                    answers: None
+                }
+            )
+            .is_err());
     }
 
     #[test]
@@ -473,7 +567,15 @@ mod tests {
     #[test]
     fn terminal_answers_clear_waiting_for_both_providers() {
         for provider in ["claude", "codex"] {
-            for event in ["PostToolUse", "PreToolUse", "PreModelRequest", "UserPromptSubmit", "Stop", "Interrupt", "SessionEnd"] {
+            for event in [
+                "PostToolUse",
+                "PreToolUse",
+                "PreModelRequest",
+                "UserPromptSubmit",
+                "Stop",
+                "Interrupt",
+                "SessionEnd",
+            ] {
                 let mut st = Inner::default();
                 let mut m = msg("PermissionRequest");
                 m.provider = provider.into();
@@ -481,8 +583,15 @@ mod tests {
                 let (tx, mut rx) = oneshot::channel();
                 let id = st.add_pending(&m, tx, 60_000);
                 let key = format!("{provider}:s1");
-                st.missed.push(Missed { id: id + 1, kind: "permission".into(), provider: provider.into(),
-                    session_key: key.clone(), folder: "proj".into(), name: String::new(), created_ms: now_ms() });
+                st.missed.push(Missed {
+                    id: id + 1,
+                    kind: "permission".into(),
+                    provider: provider.into(),
+                    session_key: key.clone(),
+                    folder: "proj".into(),
+                    name: String::new(),
+                    created_ms: now_ms(),
+                });
                 let mut other = m.clone();
                 other.session_id = "other".into();
                 let (other_tx, _other_rx) = oneshot::channel();
@@ -492,8 +601,13 @@ mod tests {
                 assert!(!st.pending.contains_key(&id), "{provider}: {event}");
                 assert!(st.pending.contains_key(&other_id));
                 assert!(st.missed.is_empty(), "{provider}: {event}");
-                assert!(matches!(rx.try_recv(), Err(oneshot::error::TryRecvError::Closed)));
-                if event == "Interrupt" { assert_eq!(st.sessions[&key].state, "idle"); }
+                assert!(matches!(
+                    rx.try_recv(),
+                    Err(oneshot::error::TryRecvError::Closed)
+                ));
+                if event == "Interrupt" {
+                    assert_eq!(st.sessions[&key].state, "idle");
+                }
             }
         }
     }
@@ -505,8 +619,15 @@ mod tests {
         st.on_event(&m);
         let (tx, _rx) = oneshot::channel();
         let id = st.add_pending(&m, tx, 60_000);
-        st.missed.push(Missed { id: id + 1, kind: "permission".into(), provider: "claude".into(),
-            session_key: "claude:s1".into(), folder: "proj".into(), name: String::new(), created_ms: now_ms() });
+        st.missed.push(Missed {
+            id: id + 1,
+            kind: "permission".into(),
+            provider: "claude".into(),
+            session_key: "claude:s1".into(),
+            folder: "proj".into(),
+            name: String::new(),
+            created_ms: now_ms(),
+        });
         for event in ["SubagentStart", "SubagentStop", "Notification"] {
             m.event = event.into();
             m.notification_type = Some("permission_prompt".into());
@@ -536,6 +657,15 @@ mod tests {
         let (tx, _rx) = oneshot::channel();
         let id = st.add_pending(&m, tx, 0);
         std::thread::sleep(std::time::Duration::from_millis(5));
-        assert!(st.answer(id, Reply { decision: "allow".into(), message: None, answers: None }).is_err());
+        assert!(st
+            .answer(
+                id,
+                Reply {
+                    decision: "allow".into(),
+                    message: None,
+                    answers: None
+                }
+            )
+            .is_err());
     }
 }

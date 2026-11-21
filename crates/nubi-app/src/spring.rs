@@ -21,6 +21,12 @@ pub const CONTENT: Preset = Preset {
     damping: 0.7,
 };
 
+// Existing tab-highlight preset from ui/motion.js.
+pub const SNAPPY: Preset = Preset {
+    response: 0.3,
+    damping: 0.8,
+};
+
 #[derive(Clone, Copy, Debug)]
 pub struct Spring {
     pub x: f64,

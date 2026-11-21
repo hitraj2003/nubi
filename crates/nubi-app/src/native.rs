@@ -73,6 +73,7 @@ unsafe extern "system" {
 }
 
 thread_local! {
+    static EXPANSION_OFFSET: Cell<f64> = const { Cell::new(0.) };
     static SHAPE: Cell<Shape> = const { Cell::new(Shape(crate::shape::CLOSED)) };
     static PLACE_DIRTY: Cell<bool> = const { Cell::new(true) };
     static SCENE: Cell<crate::shape::Scene> = const { Cell::new(crate::shape::Scene { edge: 0, offset: 0., width: WINDOW_WIDTH, height: WINDOW_HEIGHT }) };
@@ -93,8 +94,49 @@ pub fn system_reduced_motion() -> bool {
     success != 0 && enabled == 0
 }
 
+/// Ordinary panel windows need the same button-coordinate ordering as the notch,
+/// without the notch's hit testing or non-activation styles.
+pub fn repair_panel_pointer(handle: isize) -> io::Result<()> {
+    if unsafe {
+        SetWindowSubclass(
+            handle as Hwnd,
+            Some(panel_pointer_procedure),
+            SUBCLASS_ID + 1,
+            0,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+unsafe extern "system" fn panel_pointer_procedure(
+    window: Hwnd,
+    message: u32,
+    wparam: usize,
+    lparam: isize,
+    _: usize,
+    _: usize,
+) -> isize {
+    if matches!(message,0x0201..=0x0209 | 0x020b..=0x020d) {
+        unsafe {
+            DefSubclassProc(window, 0x0200, wparam & 0xffff, lparam);
+        }
+    }
+    if message == 0x0082 {
+        unsafe {
+            RemoveWindowSubclass(window, Some(panel_pointer_procedure), SUBCLASS_ID + 1);
+        }
+    }
+    unsafe { DefSubclassProc(window, message, wparam, lparam) }
+}
+
 pub fn set_shape(shape: Shape) {
     SHAPE.with(|value| value.set(shape));
+}
+
+pub fn set_expansion_offset(offset: f64) {
+    EXPANSION_OFFSET.with(|value| value.set(offset));
 }
 
 fn contains_screen(window: Hwnd, x: i32, y: i32) -> bool {
@@ -105,7 +147,9 @@ fn contains_screen(window: Hwnd, x: i32, y: i32) -> bool {
     let scale = f64::from(unsafe { GetDpiForWindow(window) }.max(96)) / 96.0;
     SHAPE.with(|shape| {
         SCENE.with(|scene| {
-            scene.get().contains(
+            let mut geometry = scene.get();
+            geometry.offset += EXPANSION_OFFSET.with(Cell::get);
+            geometry.contains(
                 shape.get(),
                 f64::from(x - rect.left) / scale,
                 f64::from(y - rect.top) / scale,
@@ -123,6 +167,15 @@ unsafe extern "system" fn procedure(
     _: usize,
 ) -> isize {
     match message {
+        0x0201..=0x0209 | 0x020b..=0x020d => {
+            // Windows can deliver a button message before its coalesced WM_MOUSEMOVE.
+            // winit's MouseInput has no coordinates, so refresh its cached position
+            // from this button's client coordinates before forwarding the button.
+            // DefSubclassProc keeps normal Slint capture, focus and click handling.
+            unsafe {
+                DefSubclassProc(window, 0x0200, wparam & 0xffff, lparam);
+            }
+        }
         0x0021 => return 3, // WM_MOUSEACTIVATE: MA_NOACTIVATE; retain the click.
         0x0084 => {
             // WM_NCHITTEST. Signed coordinates support negative-origin monitors.
@@ -364,7 +417,12 @@ impl NativeWindow {
             (WINDOW_WIDTH, WINDOW_HEIGHT)
         };
         let width = ((logical_width * scale).round() as i32).min((area.right - area.left).max(1));
-        let height = ((logical_height * scale).round() as i32).min((area.bottom - area.top).max(1));
+        let height = if self.edge >= 2 {
+            // Let downward-first expansion use the complete monitor work area.
+            (area.bottom - area.top).max(1)
+        } else {
+            ((logical_height * scale).round() as i32).min((area.bottom - area.top).max(1))
+        };
         let logical_width = f64::from(width) / scale;
         let logical_height = f64::from(height) / scale;
         let along = |span: i32, size: i32| {
@@ -454,6 +512,84 @@ mod tests {
     }
 
     #[test]
+    fn win32_button_coordinates_precede_input_without_a_mouse_move() {
+        use std::cell::RefCell;
+        type Messages = RefCell<Vec<(u32, usize, isize)>>;
+        unsafe extern "system" fn record(
+            window: Hwnd,
+            message: u32,
+            wparam: usize,
+            lparam: isize,
+            _: usize,
+            data: usize,
+        ) -> isize {
+            if (0x0200..=0x020d).contains(&message) {
+                unsafe { &*(data as *const Messages) }
+                    .borrow_mut()
+                    .push((message, wparam, lparam));
+            }
+            unsafe { DefSubclassProc(window, message, wparam, lparam) }
+        }
+        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+        let handle = unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                class.as_ptr(),
+                0x8000_0000,
+                0,
+                0,
+                720,
+                700,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        assert!(!handle.is_null(), "{}", io::Error::last_os_error());
+        let messages: Messages = RefCell::default();
+        assert_ne!(
+            unsafe {
+                SetWindowSubclass(
+                    handle,
+                    Some(record),
+                    99,
+                    &messages as *const Messages as usize,
+                )
+            },
+            0
+        );
+        {
+            let _native = NativeWindow::new(handle as isize).unwrap();
+            for message in [
+                0x0201, 0x0202, 0x0203, 0x0204, 0x0205, 0x0206, 0x0207, 0x0208, 0x0209, 0x020b,
+                0x020c, 0x020d,
+            ] {
+                messages.borrow_mut().clear();
+                // Signed captured coordinates and X-button metadata must survive.
+                let coordinates = (-17_i16 as u16 as isize) | (102_isize << 16);
+                let flags = 0x0001_0001;
+                unsafe {
+                    SendMessageW(handle, message, flags, coordinates);
+                }
+                assert_eq!(
+                    *messages.borrow(),
+                    [
+                        (0x0200, flags & 0xffff, coordinates),
+                        (message, flags, coordinates),
+                    ],
+                    "move must reach the backend before button {message:#x}"
+                );
+            }
+        }
+        unsafe {
+            RemoveWindowSubclass(handle, Some(record), 99);
+        }
+        assert_ne!(unsafe { DestroyWindow(handle) }, 0);
+    }
+
+    #[test]
     fn win32_styles_noactivate_and_curved_hit_test() {
         enable_dpi_awareness();
         let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
@@ -462,7 +598,9 @@ mod tests {
                 0,
                 class.as_ptr(),
                 class.as_ptr(),
-                0x8000_0000,
+                // WS_POPUP | WS_VISIBLE. Windows can drop HWND_TOPMOST from a hidden window,
+                // which made this test depend on the desktop; the real notch is visible.
+                0x9000_0000,
                 0,
                 0,
                 720,

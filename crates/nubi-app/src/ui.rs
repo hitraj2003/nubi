@@ -1,31 +1,95 @@
 //! UI-thread ownership of Slint surfaces and native tray/keyboard resources.
 use crate::{
+    Fixture, NativeLauncher, NotchWindow, ParityPanel, Session, Theme,
     host::{NativeHost, UiEvent},
     motion::Motion,
     native,
     notch::Notch,
     singleton::Action,
     tray::{Shortcuts, Tray},
-    updater, Fixture, NativeLauncher, NativeUpdate, NotchWindow, ParityPanel, Session, Theme,
 };
 use nubi_core::host::with;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+use slint::winit_030::{EventResult, WinitWindowAccessor, winit::event::WindowEvent};
 use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::mpsc::Receiver,
     time::{Duration, Instant},
 };
 
-fn hwnd(window: &slint::Window) -> Option<isize> {
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod runtime_tests;
+#[cfg(test)]
+use crate::updater;
+
+pub(crate) fn hwnd(window: &slint::Window) -> Option<isize> {
     let owner = window.window_handle();
     let handle = owner.window_handle().ok()?;
     if let RawWindowHandle::Win32(handle) = handle.as_raw() {
         Some(handle.hwnd.get())
     } else {
         None
+    }
+}
+
+// Show requests can precede Winit's HWND creation. Once it exists, request a
+// native redraw as well: Slint's coalesced request can retain the pre-show frame.
+fn present_settings(weak: slint::Weak<ParityPanel>, retries: u8) {
+    Timer::single_shot(Duration::from_millis(16), move || {
+        let Some(panel) = weak.upgrade() else {
+            return;
+        };
+        if !panel.window().is_visible() {
+            return;
+        }
+        if hwnd(panel.window()).is_none() {
+            if retries > 0 {
+                present_settings(weak, retries - 1);
+            }
+            return;
+        }
+        foreground(panel.window());
+        if let Some(handle) = hwnd(panel.window()) {
+            if let Err(error) = native::repair_panel_pointer(handle) {
+                eprintln!("[nubi] panel pointer: {error}");
+            }
+        }
+        panel.window().request_redraw();
+        panel
+            .window()
+            .with_winit_window(|window| window.request_redraw());
+    });
+}
+
+/// Bounded, development-only animation-update measurements. These are event gaps,
+/// not compositor presentation times or a claim of visual parity.
+#[derive(Default)]
+struct FrameTrace {
+    last: Option<Instant>,
+    gaps: Vec<f64>,
+}
+impl FrameTrace {
+    fn frame(&mut self, now: Instant, active: bool) {
+        if let Some(last) = self.last {
+            self.gaps
+                .push(now.duration_since(last).as_secs_f64() * 1000.);
+        }
+        self.last = active.then_some(now);
+        if (!active || self.gaps.len() == 240) && !self.gaps.is_empty() {
+            self.gaps.sort_by(f64::total_cmp);
+            let count = self.gaps.len();
+            eprintln!(
+                "[nubi dev] animation update gaps: n={count}, median={:.2}ms, p95={:.2}ms, max={:.2}ms",
+                self.gaps[count / 2],
+                self.gaps[(count - 1) * 95 / 100],
+                self.gaps[count - 1]
+            );
+            self.gaps.clear();
+        }
     }
 }
 
@@ -42,11 +106,105 @@ fn foreground(window: &slint::Window) {
     }
 }
 
+// HWND creation may follow show(). Position and activate once native creation finishes.
+// Keep this separate from panel foreground(), which deliberately clears topmost.
+fn present_runtime<T: ComponentHandle + 'static>(weak: slint::Weak<T>, retries: u8) {
+    Timer::single_shot(Duration::from_millis(16), move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let window = ui.window();
+        if !window.is_visible() {
+            return;
+        }
+        if hwnd(window).is_none() {
+            if retries > 0 {
+                present_runtime(weak, retries - 1);
+            }
+            return;
+        }
+        window.with_winit_window(|native| {
+            use slint::winit_030::winit::{dpi, window::WindowLevel};
+            let monitor = native
+                .current_monitor()
+                .or_else(|| native.primary_monitor());
+            if let Some(monitor) = monitor {
+                let scale = monitor.scale_factor();
+                let origin = monitor.position();
+                let size = monitor.size();
+                let (width, height) = (340., 176.);
+                let _ = native.request_inner_size(dpi::LogicalSize::new(width, height));
+                let width = (width * scale).round() as i32;
+                let height = (height * scale).round() as i32;
+                let (x, y) = (
+                    (size.width as i32 - width) / 2,
+                    (size.height as i32 - height) / 2,
+                );
+                native.set_outer_position(dpi::PhysicalPosition::new(origin.x + x, origin.y + y));
+            }
+            native.set_window_level(WindowLevel::AlwaysOnTop);
+            native.focus_window();
+            native.request_redraw();
+        });
+        if let Some(handle) = hwnd(window) {
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(handle as _);
+            }
+        }
+        window.request_redraw();
+    });
+}
+
 pub(crate) fn focus_notch(ui: &NotchWindow) {
     if let Some(handle) = hwnd(ui.window()) {
         unsafe {
             windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(handle as _);
         }
+    }
+}
+
+pub(crate) fn apply_theme(theme: Theme<'_>, preference: &str) {
+    // Offscreen fixtures select their own palette independently of the desktop.
+    if cfg!(test) {
+        theme.set_dark(dark(preference));
+        return;
+    }
+
+    use windows_sys::Win32::Graphics::Gdi::{
+        COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, GetSysColor,
+    };
+    use windows_sys::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETHIGHCONTRAST, SystemParametersInfoW};
+
+    let size = std::mem::size_of::<HIGHCONTRASTW>() as u32;
+    let mut settings = HIGHCONTRASTW {
+        cbSize: size,
+        dwFlags: 0,
+        lpszDefaultScheme: std::ptr::null_mut(),
+    };
+    let high_contrast = unsafe {
+        SystemParametersInfoW(
+            SPI_GETHIGHCONTRAST,
+            size,
+            (&mut settings as *mut HIGHCONTRASTW).cast(),
+            0,
+        ) != 0
+    } && settings.dwFlags & HCF_HIGHCONTRASTON != 0;
+    theme.set_high_contrast(high_contrast);
+    if high_contrast {
+        let system_color = |index| {
+            let rgb = unsafe { GetSysColor(index) };
+            slint::Color::from_rgb_u8(rgb as u8, (rgb >> 8) as u8, (rgb >> 16) as u8)
+        };
+        let background = system_color(COLOR_WINDOW);
+        theme.set_contrast_bg(background);
+        theme.set_contrast_fg(system_color(COLOR_WINDOWTEXT));
+        theme.set_contrast_accent(system_color(COLOR_HIGHLIGHT));
+        theme.set_contrast_accent_ink(system_color(COLOR_HIGHLIGHTTEXT));
+        let brightness = 299 * u32::from(background.red())
+            + 587 * u32::from(background.green())
+            + 114 * u32::from(background.blue());
+        theme.set_dark(brightness < 128_000);
+    } else {
+        theme.set_dark(dark(preference));
     }
 }
 
@@ -179,6 +337,7 @@ where
         (rows, percent, week, usage_text, resets, times, lines)
     });
     let fixture = component.global::<Fixture>();
+    fixture.on_usage_color(|percent, soft| crate::usage_color::color(f64::from(percent), soft));
     fixture.set_sessions(Rc::new(VecModel::from(sessions)).into());
     fixture.set_session_percent(Rc::new(VecModel::from(percent)).into());
     fixture.set_week_percent(Rc::new(VecModel::from(week)).into());
@@ -194,23 +353,11 @@ struct Surfaces {
     shortcuts: Rc<RefCell<Shortcuts>>,
     panel: Option<ParityPanel>,
     launcher: Option<NativeLauncher>,
-    update: Option<NativeUpdate>,
-    update_id: Option<u64>,
-    update_shown: Option<Instant>,
     panel_hidden: Option<Instant>,
-    draft: Option<PanelDraft>,
-}
-
-// Preserve editable values and navigation while releasing the hidden native surface.
-struct PanelDraft {
-    start: bool,
-    update: bool,
-    launcher: bool,
-    providers: i32,
-    hotkey: slint::SharedString,
-    dirty: bool,
-    page: i32,
-    pane: i32,
+    panel_state: Option<Rc<RefCell<crate::panel_logic::Panel>>>,
+    panel_notch: Rc<RefCell<Notch>>,
+    panel_notch_ui: slint::Weak<NotchWindow>,
+    alerts: crate::alerts::Alerts,
 }
 
 impl Surfaces {
@@ -231,127 +378,50 @@ impl Surfaces {
     fn settings(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.panel.is_none() {
             let panel = ParityPanel::new()?;
-            crate::panel_logic::connect(&panel);
-            let settings = with(&self.host, |state| state.settings.clone());
-            panel.global::<Theme>().set_dark(dark(&settings.theme));
-            panel
-                .global::<Theme>()
-                .set_reduced(settings.reduce_motion || native::system_reduced_motion());
-            panel.set_auto_start(settings.auto_start);
-            panel.set_saved_start(settings.auto_start);
-            panel.set_auto_update(settings.auto_update);
-            panel.set_saved_update(settings.auto_update);
-            panel.set_launcher(settings.launcher_enabled);
-            panel.set_saved_launcher(settings.launcher_enabled);
-            let providers = match settings.providers.as_str() {
-                "claude" => 1,
-                "codex" => 2,
-                _ => 0,
-            };
-            panel.set_providers(providers);
-            panel.set_saved_providers(providers);
-            panel.set_hotkey(settings.launch_hotkey.as_str().into());
-            panel.set_saved_hotkey(settings.launch_hotkey.into());
-            panel.set_page(4);
-            panel.set_app_version(env!("CARGO_PKG_VERSION").into());
-            models(&panel, &self.host);
-            if let Some(draft) = self.draft.take() {
-                panel.set_auto_start(draft.start);
-                panel.set_auto_update(draft.update);
-                panel.set_launcher(draft.launcher);
-                panel.set_providers(draft.providers);
-                panel.set_hotkey(draft.hotkey);
-                panel.set_dirty(draft.dirty);
-                panel.set_page(draft.page);
-                panel.set_pane(draft.pane);
-            }
-            let weak = panel.as_weak();
-            let host = self.host.clone();
-            let shortcuts = self.shortcuts.clone();
-            panel.on_persist(move || {
-                let Some(panel) = weak.upgrade() else {
-                    return;
-                };
-                let previous = with(&host, |state| state.settings.clone());
-                let mut settings = previous.clone();
-                let previous_start = settings.auto_start;
-                settings.auto_start = panel.get_auto_start();
-                settings.auto_update = panel.get_auto_update();
-                settings.launcher_enabled = panel.get_launcher();
-                settings.launch_hotkey = panel.get_hotkey().to_string();
-                settings.providers = match panel.get_providers() {
-                    1 => "claude",
-                    2 => "codex",
-                    _ => "both",
-                }
-                .into();
-                let result = shortcuts
-                    .borrow_mut()
-                    .apply(&settings)
-                    .and_then(|_| {
-                        if previous_start != settings.auto_start {
-                            nubi_core::settings::apply_auto_start(settings.auto_start)
-                        } else {
-                            Ok(())
-                        }
-                    })
-                    .and_then(|_| host.save_settings(settings.clone()));
-                if result.is_err() {
-                    let _ = shortcuts.borrow_mut().apply(&previous);
-                    if previous_start != settings.auto_start {
-                        let _ = nubi_core::settings::apply_auto_start(previous_start);
-                    }
-                }
-                panel.set_status(result.err().unwrap_or_else(|| "Saved".into()).into());
-            });
-            let host = self.host.clone();
-            panel.on_refresh(move || nubi_core::poller::force(&host));
-            let host = self.host.clone();
-            panel.on_toggle_dnd(move || host.toggle_dnd());
-            let host = self.host.clone();
-            panel.on_test_alert(move || {
-                host.alert(nubi_core::state::Alert {
-                    ts: nubi_core::state::now_ms(),
-                    provider: "claude".into(),
-                    kind: "done".into(),
-                    title: "Task complete".into(),
-                    body: "test notification".into(),
-                    session_key: None,
-                    queued: false,
+            let state = self
+                .panel_state
+                .get_or_insert_with(|| {
+                    crate::panel_logic::Panel::new(&with(&self.host, |s| s.settings.clone()))
                 })
-            });
-            let host = self.host.clone();
-            let runtime = self.runtime.clone();
-            let weak = panel.as_weak();
-            panel.on_check_update(move || {
-                let host = host.clone();
-                let weak = weak.clone();
-                runtime.spawn(async move {
-                    let message = updater::check_update(host)
-                        .await
-                        .unwrap_or_else(|error| error);
-                    let _ =
-                        weak.upgrade_in_event_loop(move |panel| panel.set_status(message.into()));
-                });
-            });
-            panel.on_release_notes(|| {
-                let _ = std::process::Command::new("explorer")
-                    .arg(format!(
-                        "https://github.com/hitraj2003/nubi/releases/tag/v{}",
-                        env!("CARGO_PKG_VERSION")
-                    ))
-                    .spawn();
-            });
-            let host = self.host.clone();
-            panel.on_terminal(move |key| jump(&host, &key));
-            panel
-                .window()
-                .on_close_requested(|| slint::CloseRequestResponse::HideWindow);
+                .clone();
+            let services = crate::panel_services::Services {
+                host: self.host.clone(),
+                runtime: self.runtime.clone(),
+                register: {
+                    let shortcuts = self.shortcuts.clone();
+                    Rc::new(move |settings| shortcuts.borrow_mut().apply(settings))
+                },
+                notch: self.panel_notch.clone(),
+                notch_ui: self.panel_notch_ui.clone(),
+            };
+            crate::panel_logic::Panel::bind(&panel, state, services);
             self.panel = Some(panel);
         }
         let panel = self.panel.as_ref().unwrap();
         panel.show()?;
+        panel.invoke_take_focus();
+        if let Some(state) = &self.panel_state {
+            let names = Rc::new(RefCell::new(Vec::new()));
+            let collected = names.clone();
+            panel.window().with_winit_window(move |window| {
+                let friendly = nubi_core::winutil::monitor_names();
+                *collected.borrow_mut() = window
+                    .available_monitors()
+                    .enumerate()
+                    .map(|(i, monitor)| {
+                        let name = monitor
+                            .name()
+                            .unwrap_or_else(|| format!("Display {}", i + 1));
+                        friendly.get(&name).cloned().unwrap_or(name)
+                    })
+                    .collect();
+            });
+            state
+                .borrow_mut()
+                .set_monitors(panel, names.borrow().clone());
+        }
         foreground(panel.window());
+        present_settings(panel.as_weak(), 60);
         Ok(())
     }
 
@@ -362,16 +432,10 @@ impl Surfaces {
             } else {
                 let since = self.panel_hidden.get_or_insert_with(Instant::now);
                 if since.elapsed() >= Duration::from_secs(60) {
-                    self.draft = Some(PanelDraft {
-                        start: panel.get_auto_start(),
-                        update: panel.get_auto_update(),
-                        launcher: panel.get_launcher(),
-                        providers: panel.get_providers(),
-                        hotkey: panel.get_hotkey(),
-                        dirty: panel.get_dirty(),
-                        page: panel.get_page(),
-                        pane: panel.get_pane(),
-                    });
+                    if let Some(state) = &self.panel_state {
+                        state.borrow_mut().retain(panel);
+                    }
+                    self.panel_notch.borrow_mut().release_panel_holds();
                     self.panel = None;
                     self.panel_hidden = None;
                 }
@@ -392,7 +456,11 @@ impl Surfaces {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let ui = NativeLauncher::new()?;
         let settings = with(&self.host, |state| state.settings.clone());
-        ui.global::<Theme>().set_dark(dark(&settings.notch_theme));
+        apply_theme(ui.global::<Theme>(), &settings.notch_theme);
+        ui.global::<Theme>()
+            .set_notch_accent(settings.notch_accent.into());
+        ui.global::<Theme>()
+            .set_reduced(settings.reduce_motion || native::system_reduced_motion());
         let previous =
             std::fs::read_to_string(nubi_core::settings::data_dir().join("launcher-cli"))
                 .unwrap_or_default();
@@ -413,121 +481,47 @@ impl Surfaces {
                 if !matches!(cli.as_str(), "claude" | "codex") || ui.get_dir().is_empty() {
                     return;
                 }
+                // The web launcher remembers an attempted choice even if opening fails.
+                let _ = std::fs::create_dir_all(nubi_core::settings::data_dir());
+                let _ = std::fs::write(
+                    nubi_core::settings::data_dir().join("launcher-cli"),
+                    cli.as_bytes(),
+                );
                 match nubi_core::session_actions::open_terminal(&ui.get_dir(), Some(&cli)) {
                     Ok(()) => {
-                        let _ = std::fs::create_dir_all(nubi_core::settings::data_dir());
-                        let _ = std::fs::write(
-                            nubi_core::settings::data_dir().join("launcher-cli"),
-                            cli.as_bytes(),
-                        );
                         let _ = ui.hide();
                     }
-                    Err(error) => ui.set_error(error.into()),
+                    Err(error) => {
+                        ui.set_dir("".into());
+                        ui.set_error(error.into());
+                        ui.invoke_take_focus();
+                    }
                 }
             }
         });
+        let weak = ui.as_weak();
+        let mut activated = false;
+        ui.window().on_winit_window_event(move |_, event| {
+            match event {
+                WindowEvent::Focused(true) => activated = true,
+                WindowEvent::Focused(false) if activated => {
+                    if let Some(ui) = weak.upgrade() {
+                        let _ = ui.hide();
+                    }
+                }
+                _ => {}
+            }
+            EventResult::Propagate
+        });
+        // Shown Slint windows retain an internal reference until explicitly hidden.
+        if let Some(previous) = self.launcher.take() {
+            previous.hide()?;
+        }
         ui.show()?;
-        foreground(ui.window());
         ui.invoke_take_focus();
+        present_runtime(ui.as_weak(), 8);
         self.launcher = Some(ui);
         Ok(())
-    }
-
-    fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let Some(notice) = updater::get_update_notice(self.host.clone()) else {
-            self.update = None;
-            self.update_id = None;
-            self.update_shown = None;
-            return Ok(());
-        };
-        if self.update_id != Some(notice.id) {
-            let ui = NativeUpdate::new()?;
-            ui.global::<Theme>()
-                .set_dark(dark(&with(&self.host, |state| {
-                    state.settings.notch_theme.clone()
-                })));
-            let id = notice.id;
-            let host = self.host.clone();
-            ui.on_cancel(move || updater::dismiss_update(host.clone(), id));
-            let host = self.host.clone();
-            ui.on_hold(move |on| updater::hold_update(host.clone(), id, on));
-            let host = self.host.clone();
-            let runtime = self.runtime.clone();
-            ui.on_install(move || {
-                let host = host.clone();
-                runtime.spawn(async move {
-                    if let Err(error) = updater::install_update(host, id).await {
-                        eprintln!("[nubi] update: {error}");
-                    }
-                });
-            });
-            let version = notice.version.clone();
-            ui.on_release_notes(move || {
-                let _ = std::process::Command::new("explorer")
-                    .arg(format!(
-                        "https://github.com/hitraj2003/nubi/releases/tag/v{version}"
-                    ))
-                    .spawn();
-            });
-            let host = self.host.clone();
-            ui.window().on_close_requested(move || {
-                updater::dismiss_update(host.clone(), id);
-                slint::CloseRequestResponse::KeepWindowShown
-            });
-            self.update = Some(ui);
-            self.update_id = Some(id);
-            self.update_shown = Some(Instant::now());
-        }
-        let ui = self.update.as_ref().unwrap();
-        ui.set_version(notice.version.into());
-        ui.set_notes(if notice.notes.trim().is_empty() {
-            "Release notes are available on the release page.".into()
-        } else {
-            notice.notes.into()
-        });
-        ui.set_phase(notice.phase.into());
-        ui.set_message(notice.message.into());
-        let seconds = notice
-            .expires_ms
-            .saturating_sub(nubi_core::state::now_ms())
-            .div_ceil(1000);
-        ui.set_countdown(if notice.expires_ms == 0 {
-            "".into()
-        } else if notice.held {
-            "Paused while you read".into()
-        } else {
-            format!(
-                "{} in {seconds}s",
-                if notice.automatic {
-                    "Updates"
-                } else {
-                    "Dismisses"
-                }
-            )
-            .into()
-        });
-        ui.show()?;
-        ui.set_focused(hwnd(ui.window()).is_some_and(|handle| unsafe {
-            windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() as isize == handle
-        }));
-        if self
-            .update_shown
-            .is_some_and(|shown| shown.elapsed() >= Duration::from_millis(250))
-            && hwnd(ui.window()).is_some()
-        {
-            self.update_shown = None;
-            updater::update_notice_ready(self.host.clone(), notice.id);
-        }
-        Ok(())
-    }
-}
-
-fn jump(host: &NativeHost, key: &str) {
-    let pids = with(host, |state| {
-        state.sessions.get(key).map(|session| session.pids.clone())
-    });
-    if let Some(pids) = pids {
-        nubi_core::winutil::focus_pids(&pids);
     }
 }
 
@@ -551,7 +545,7 @@ pub fn run(
                     .with_skip_taskbar(true)
                     .with_undecorated_shadow(false)
                     .with_drag_and_drop(false)
-            } else if attributes.title == "Nubi update" {
+            } else if attributes.title == "Nubi alert" {
                 attributes
                     .with_active(false)
                     .with_transparent(true)
@@ -566,7 +560,7 @@ pub fn run(
         .select()?;
     let ui = NotchWindow::new()?;
     let settings = with(&host, |state| state.settings.clone());
-    ui.global::<Theme>().set_dark(dark(&settings.notch_theme));
+    apply_theme(ui.global::<Theme>(), &settings.notch_theme);
     let reduced = settings.reduce_motion || native::system_reduced_motion();
     ui.global::<Theme>().set_reduced(reduced);
     models(&ui, &host);
@@ -577,8 +571,102 @@ pub fn run(
             focus_notch(&ui);
         }
     });
+    crate::notch::connect_update(&ui, host.clone(), runtime.clone());
     let motion = Rc::new(RefCell::new(Motion::new()));
     motion.borrow().draw(&ui);
+    let frame_motion = motion.clone();
+    let weak = ui.as_weak();
+    ui.on_tab_geometry(move |x, width| {
+        if let Some(ui) = weak.upgrade() {
+            frame_motion.borrow_mut().tab_target(
+                x.into(),
+                width.into(),
+                ui.global::<Theme>().get_reduced(),
+            );
+            ui.window().request_redraw();
+        }
+    });
+    let animated = Rc::new(Cell::new(false));
+    let frame_animated = animated.clone();
+    let frame_motion = motion.clone();
+    let weak = ui.as_weak();
+    let animation_start = Instant::now();
+    let trace =
+        nubi_core::isolation::development() && std::env::var_os("NUBI_TRACE_FRAMES").is_some();
+    let mut frame_trace = FrameTrace::default();
+    let frame_timer = Timer::default();
+    let mut next_frame = Instant::now();
+    let mut traced_monitor = false;
+    ui.window().on_winit_window_event(move |_, event| {
+        if trace && matches!(event, WindowEvent::MouseInput { .. }) {
+            eprintln!("[nubi dev] pointer: {event:?}");
+        }
+        if matches!(event, WindowEvent::RedrawRequested) {
+            let Some(ui) = weak.upgrade() else {
+                return EventResult::Propagate;
+            };
+            let now = Instant::now();
+            let refresh = ui
+                .window()
+                .with_winit_window(|window| {
+                    window
+                        .current_monitor()
+                        .and_then(|monitor| monitor.refresh_rate_millihertz())
+                })
+                .flatten()
+                .filter(|rate| *rate > 0)
+                .unwrap_or(60_000);
+            let interval = Duration::from_secs_f64(1000. / f64::from(refresh));
+            if trace && !traced_monitor {
+                eprintln!("[nubi dev] monitor refresh: {refresh}mHz");
+                traced_monitor = true;
+            }
+            let due = now >= next_frame;
+            let mut motion = frame_motion.borrow_mut();
+            let loops = frame_animated.get() && !ui.global::<Theme>().get_reduced();
+            if due {
+                let following = next_frame + interval;
+                next_frame = if following > now {
+                    following
+                } else {
+                    now + interval
+                };
+                if motion.tick(now) {
+                    motion.draw(&ui);
+                }
+                if loops {
+                    let elapsed = animation_start.elapsed().as_secs_f64();
+                    ui.set_phase((elapsed % 1.1 / 1.1) as f32);
+                    ui.set_pulse_phase((elapsed % 1.4 / 1.4) as f32);
+                    ui.set_refresh_phase((elapsed % 0.7 / 0.7) as f32);
+                    ui.set_equalizer_phase((elapsed % 1.) as f32);
+                }
+            }
+            let active = motion.active() || loops;
+            if trace && (due || !active) {
+                frame_trace.frame(now, active);
+            }
+            if active && !frame_timer.running() {
+                // Software presentation can generate extra redraw events.
+                // Limit spring updates to the monitor rate and schedule one
+                // wakeup, without adding Slint's second redraw throttle.
+                let weak = weak.clone();
+                // Round up for Slint's millisecond timer clock. Retaining the
+                // absolute deadline avoids accumulating a 17 ms / 9 ms drift.
+                let delay = next_frame.saturating_duration_since(now);
+                let delay = Duration::from_millis(delay.as_micros().div_ceil(1000).max(1) as u64);
+                frame_timer.start(TimerMode::SingleShot, delay, move || {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.window()
+                            .with_winit_window(|window| window.request_redraw());
+                    }
+                });
+            } else if !active {
+                frame_timer.stop();
+            }
+        }
+        EventResult::Propagate
+    });
     let shortcuts = Rc::new(RefCell::new(Shortcuts::new()?));
     if let Err(error) = shortcuts.borrow_mut().apply(&settings) {
         eprintln!("[nubi] shortcuts: {error}");
@@ -589,11 +677,11 @@ pub fn run(
         shortcuts: shortcuts.clone(),
         panel: None,
         launcher: None,
-        update: None,
-        update_id: None,
-        update_shown: None,
         panel_hidden: None,
-        draft: None,
+        panel_state: None,
+        panel_notch: notch.clone(),
+        panel_notch_ui: ui.as_weak(),
+        alerts: crate::alerts::Alerts::new(host.clone()),
     }));
     let surfaces_callback = surfaces.clone();
     ui.on_open_panel(move || {
@@ -602,7 +690,7 @@ pub fn run(
             eprintln!("[nubi] settings: {error}");
         }
         if let Some(panel) = &surfaces.panel {
-            panel.set_page(0);
+            panel.invoke_navigate(0);
         }
     });
     let callback_host = host.clone();
@@ -648,12 +736,22 @@ pub fn run(
                 UiEvent::LauncherReady(found) => surfaces.borrow_mut().launcher(found),
                 UiEvent::Alert(alert) => {
                     if with(&host, |state| state.settings.sounds) {
-                        nubi_core::winutil::beep(&alert.kind);
+                        crate::sounds::chime(&alert.kind);
                     }
                     notch.borrow_mut().alert(alert);
                     Ok(())
                 }
-                UiEvent::Update => surfaces.borrow_mut().update(),
+                UiEvent::OverlayAlert(alert) => {
+                    if with(&host, |state| state.settings.sounds) {
+                        crate::sounds::overlay_chime(&alert.kind);
+                    }
+                    surfaces.borrow_mut().alerts.push(alert);
+                    Ok(())
+                }
+                UiEvent::Update => {
+                    notch.borrow_mut().update_notice(&ui);
+                    Ok(())
+                }
             };
             if let Err(error) = result {
                 eprintln!("[nubi] UI: {error}");
@@ -715,7 +813,7 @@ pub fn run(
             let settings = with(&host, |state| state.settings.clone());
             if let Ok(place) = native.configure(&settings) {
                 if place.preferences_changed {
-                    ui.global::<Theme>().set_dark(dark(&settings.notch_theme));
+                    apply_theme(ui.global::<Theme>(), &settings.notch_theme);
                     ui.global::<Theme>()
                         .set_reduced(settings.reduce_motion || native::system_reduced_motion());
                 }
@@ -757,33 +855,41 @@ pub fn run(
             }
         }
         let (view, target) = notch.borrow_mut().view(&ui);
+        let was_active = motion.active();
         motion.target(view, target, ui.global::<Theme>().get_reduced());
-        if motion.tick(now) {
-            motion.draw(&ui);
+        if motion.active() && !was_active {
+            ui.window().request_redraw();
         }
-        let animated = ui
+        drop(motion);
+        let loops = ui
             .global::<crate::NotchData>()
             .get_providers()
             .iter()
             .any(|provider| !provider.activity.is_empty())
             || ui.global::<crate::NotchData>().get_refreshing()
             || ui.global::<crate::NotchData>().get_desk_loading();
-        if animated && !ui.global::<Theme>().get_reduced() {
-            let elapsed = start.elapsed().as_secs_f64();
-            ui.set_phase((elapsed % 1.1 / 1.1) as f32);
-            ui.set_pulse_phase((elapsed % 1.4 / 1.4) as f32);
-            ui.set_refresh_phase((elapsed % 0.7 / 0.7) as f32);
-            ui.set_equalizer_phase((elapsed % 1.) as f32);
+        let was_animated = animated.replace(loops && !ui.global::<Theme>().get_reduced());
+        if animated.get() && !was_animated {
+            ui.window().request_redraw();
         }
         let dirty = host.take_dirty();
-        if dirty || (ui.get_opened() && last_refresh.elapsed() >= Duration::from_secs(1)) {
+        if dirty
+            || ((ui.get_opened()
+                || surfaces
+                    .borrow()
+                    .panel
+                    .as_ref()
+                    .is_some_and(|p| p.window().is_visible()))
+                && last_refresh.elapsed() >= Duration::from_secs(1))
+        {
             last_refresh = now;
             models(&ui, &host);
             notch.borrow_mut().update(&ui);
             let view = surfaces.borrow();
             if let Some(panel) = &view.panel {
-                models(panel, &host);
-                panel.set_dnd(with(&host, |state| crate::host::dnd_active(state)));
+                if let Some(state) = &view.panel_state {
+                    state.borrow_mut().tick(panel, &host, &notch);
+                }
             }
             tray.refresh(&host);
             let settings = with(&host, |state| state.settings.clone());
@@ -791,12 +897,11 @@ pub fn run(
                 eprintln!("[nubi] shortcuts: {error}");
             }
             drop(view);
-            // Update notifications are replaceable state. Recover even if their wakeup
-            // was coalesced while ordered activation events filled the channel.
-            let _ = surfaces.borrow_mut().update();
         }
-        if surfaces.borrow().update.is_some() {
-            let _ = surfaces.borrow_mut().update();
+        // Notices are replaceable state: recover coalesced wakeups and track card visibility.
+        notch.borrow_mut().update_notice(&ui);
+        if let Err(error) = surfaces.borrow_mut().alerts.tick() {
+            eprintln!("[nubi] alert overlay: {error}");
         }
         surfaces.borrow_mut().release_hidden();
         if exit_after.is_some_and(|duration| start.elapsed() >= duration) {

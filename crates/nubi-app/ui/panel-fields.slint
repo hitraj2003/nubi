@@ -1,0 +1,101 @@
+import { Theme } from "theme.slint";
+import { PanelData, PanelField } from "panel-data.slint";
+import { Action } from "parity-widgets.slint";
+import { PanelInk, PanelToggle, PanelDate } from "panel-widgets.slint";
+import { ComboBox, SpinBox, LineEdit, TextEdit, CheckBox, DatePickerPopup } from "std-widgets.slint";
+export component Caption inherits PanelInk { color: Theme.t2; font-size: 12px; wrap: word-wrap; }
+export component Heading inherits PanelInk { font-family: Theme.num; font-size: 24px; font-weight: 500; height: 32px; }
+component Shortcut inherits Rectangle {
+    in property <PanelField> field;
+    height: 32px; width: 168px; border-radius: 10px; background: Theme.card-2;
+    border-width: keys.has-focus ? 2px : 1px; border-color: keys.has-focus ? Theme.acc : Theme.line;
+    opacity: field.enabled ? 1 : 0.5;
+    PanelInk { x: 8px; width: parent.width - 16px; text: root.field.value == "" ? "Off" : root.field.value; font-size: 12px; font-family: Theme.mono; overflow: elide; }
+    TouchArea { enabled: root.field.enabled; clicked => { keys.focus(); } }
+    keys := FocusScope { focus-gained => { PanelData.focus-y = root.absolute-position.y; } enabled: root.field.enabled; width: 0px; height: 0px;
+        key-pressed(event) => {
+            if event.text == Key.Tab || event.text == Key.Backtab { return reject; }
+            PanelData.capture(root.field.key,event.text,event.modifiers.control,event.modifiers.alt,event.modifiers.shift,event.modifiers.meta); return accept;
+        }
+    }
+    forward-focus: keys;
+    accessible-role: button; accessible-label: field.label; accessible-value: field.value;
+}
+export component FieldRow inherits Rectangle {
+    in property <PanelField> field;
+    height: body.preferred-height + (field.section == "" ? 0px : 40px);
+    if field.section != "" : PanelInk { x: 0px; y: 0px; height: 32px; text: root.field.section; color: Theme.t2; font-weight: 500; }
+    Rectangle { y: root.field.section == "" ? 0px : 40px; width: root.width; height: body.height; background: Theme.card; border-radius: 18px;
+        if !root.field.first : Rectangle { x: 0px; y: 0px; height: 18px; width: parent.width; background: Theme.card; }
+        if !root.field.last : Rectangle { y: parent.height - 18px; height: 18px; width: parent.width; background: Theme.card; }
+        if !root.field.first : Rectangle { x: 20px; y: 0px; width: parent.width - 40px; height: 1px; background: Theme.line; }
+    }
+    body := VerticalLayout { y: root.field.section == "" ? 0px : 40px; width: root.width; height: self.preferred-height; padding-top: 12px; padding-bottom: 12px; padding-left: 20px; padding-right: 20px; spacing: 8px;
+        HorizontalLayout { spacing: 20px; height: max(32px, labels.preferred-height);
+            labels := VerticalLayout { spacing: 2px; horizontal-stretch: 1;
+                PanelInk { text: root.field.label; font-weight: 500; height: 18px; }
+                if root.field.description != "" : Caption { text: root.field.description; min-height: 18px; }
+            }
+            if root.field.kind == "bool" : PanelToggle { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } checked: root.field.checked; label: root.field.label;
+                toggled => { PanelData.edit(root.field.key,self.checked ? "true" : "false"); } }
+            if root.field.kind == "shortcut" : Shortcut { field: root.field; }
+            if root.field.kind == "select" || root.field.kind == "monitor" || root.field.kind == "hour" : ComboBox { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } }
+                width: 180px; model: root.field.options; current-index: root.field.selected; enabled: root.field.enabled;
+                accessible-label: root.field.label; selected(value) => { PanelData.edit(root.field.key,"@" + self.current-index); }
+            }
+            if root.field.kind == "number" : HorizontalLayout { width: 142px; spacing: 8px;
+                SpinBox { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } minimum: root.field.minimum; maximum: root.field.maximum; value: root.field.number;
+                    accessible-label: root.field.label; edited(value) => { PanelData.edit(root.field.key,value); } }
+                Caption { width: 12px; text: "s"; }
+            }
+            if root.field.kind == "readonly" : PanelInk { width: 168px; text: "Notch"; horizontal-alignment: right; }
+            if root.field.kind == "time" : HorizontalLayout { width: 240px; spacing: 4px;
+                ComboBox { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } min-width: 60px; max-width: 60px; model: root.field.hours; current-index: root.field.hour; accessible-label: root.field.label + " hour";
+                    selected(value) => { PanelData.edit(root.field.key,"h:" + self.current-index); } }
+                PanelInk { width: 8px; text: ":"; }
+                ComboBox { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } min-width: 60px; max-width: 60px; model: root.field.minutes; current-index: root.field.minute-index; accessible-label: root.field.label + " minute";
+                    selected(value) => { PanelData.edit(root.field.key,"m:" + value); } }
+                if root.field.key == "start_of_day" : Action { text: "Clear"; quiet: true; clicked => { PanelData.edit(root.field.key,""); } }
+            }
+        }
+        if root.field.kind == "theme" : HorizontalLayout { spacing: 12px; height: 120px;
+            for label[index] in root.field.options : Rectangle {
+                border-radius: 12px; background: index == 0 ? #f4f2ee : index == 1 ? #121110 : Theme.canvas;
+                border-width: root.field.selected == index || focus.has-focus ? 2px : 1px; border-color: root.field.selected == index || focus.has-focus ? Theme.acc : Theme.line-2;
+                PanelInk { x: 14px; y: 12px; height: 18px; text: label; color: index == 0 ? #1d1b17 : index == 1 ? #f3efe7 : Theme.t1; font-weight: 500; }
+                for row in [0,1,2] : Rectangle { x: 14px; y: 44px + row * 14px; width: parent.width - 28px - row * 15px; height: 8px; border-radius: 3px; background: index == 0 ? #e3dfd6 : index == 1 ? #3a3834 : Theme.card-3; }
+                TouchArea { clicked => { focus.focus(); PanelData.edit(root.field.key,"@" + index); } }
+                focus := FocusScope { focus-gained => { PanelData.focus-y = root.absolute-position.y; } width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { PanelData.edit(root.field.key,"@" + index); return accept; } return reject; } }
+                accessible-role: button; accessible-label: root.field.label + ": " + label; accessible-checkable: true; accessible-checked: root.field.selected == index;
+                accessible-action-default => { PanelData.edit(root.field.key,"@" + index); }
+            }
+        }
+        if root.field.kind == "accent" : HorizontalLayout { height: 32px; spacing: 8px;
+            for label[index] in root.field.options : Rectangle {
+                width: 40px; height: 32px; border-radius: 10px; border-width: root.field.selected == index || accent-focus.has-focus ? 2px : 0px; border-color: Theme.acc;
+                Rectangle { x: 8px; y: 4px; width: 24px; height: 24px; border-radius: 12px; background: index == 0 ? #f5c842 : index == 1 ? #d97757 : index == 2 ? #5b8def : index == 3 ? #3fb37a : index == 4 ? #9b7bf3 : Theme.t1; }
+                TouchArea { clicked => { accent-focus.focus(); PanelData.edit(root.field.key,"@" + index); } }
+                accent-focus := FocusScope { focus-gained => { PanelData.focus-y = root.absolute-position.y; } width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { PanelData.edit(root.field.key,"@" + index); return accept; } return reject; } }
+                accessible-role: button; accessible-label: root.field.label + ": " + label; accessible-checkable: true; accessible-checked: root.field.selected == index;
+                accessible-action-default => { PanelData.edit(root.field.key,"@" + index); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if root.field.kind == "multi" : VerticalLayout { spacing: 4px;
+            for choice in root.field.choices : CheckBox { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } text: choice.label; checked: choice.selected;
+                accessible-label: root.field.label + ": " + choice.label; toggled => { PanelData.choice(root.field.key,choice.value); } }
+        }
+        if root.field.kind == "dates" : VerticalLayout { spacing: 6px;
+            PanelDate { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } field: root.field.key; label: root.field.label; }
+            if root.field.choices.length == 0 : Caption { text: "None"; height: 18px; }
+            for choice in root.field.choices : HorizontalLayout { height: 32px;
+                PanelInk { text: choice.label; }
+                Action { text: "Remove " + choice.label; quiet: true; clicked => { PanelData.remove-date(root.field.key,choice.value); } }
+            }
+        }
+        if root.field.kind == "time" && root.field.value == "" : Caption { text: "Not set"; height: 18px; }
+        if root.field.kind == "text" : LineEdit { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } text: root.field.value; accessible-label: root.field.label; edited => { PanelData.edit(root.field.key,self.text); } }
+        if root.field.kind == "textarea" : TextEdit { changed has-focus => { if self.has-focus { PanelData.focus-y = self.absolute-position.y; } } text: root.field.value; height: 74px; accessible-label: root.field.label; edited => { PanelData.edit(root.field.key,self.text); } }
+        if root.field.error != "" : PanelInk { text: root.field.error; color: Theme.bad; wrap: word-wrap; min-height: 18px; }
+    }
+}

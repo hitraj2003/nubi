@@ -1,3 +1,2 @@
 [build]
-# Preserve the existing Tauri bundle and development output paths.
-target-dir = "src-tauri/target"
+target-dir = "target"

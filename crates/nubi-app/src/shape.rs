@@ -156,3 +156,28 @@ mod tests {
         }
     }
 }
+
+/// Keep the preferred top edge fixed; consume downward space before moving up.
+pub fn bottom_first_offset(top: f64, along: f64, ear: f64, span: f64, placement: f64) -> f64 {
+    let margin = ear.min((span - along).max(0.) / 2.);
+    let top = top.clamp(margin, (span - along - margin).max(margin));
+    top + along / 2. - span / 2. - placement
+}
+
+#[cfg(test)]
+mod anchored_expansion_tests {
+    use super::*;
+    #[test]
+    fn bottom_first_growth_and_shrink_preserve_top_until_bottom_boundary() {
+        for span in [700., 860., 1080.] {
+            let top = 100.;
+            for along in [188., 300., 500., 188.] {
+                let offset = bottom_first_offset(top, along, 20., span, 0.);
+                assert!((span / 2. + offset - along / 2. - top).abs() < 1e-9);
+            }
+            let along = span - 80.;
+            let offset = bottom_first_offset(top, along, 20., span, 0.);
+            assert!((span / 2. + offset + along / 2. - (span - 20.)).abs() < 1e-9);
+        }
+    }
+}

@@ -6,11 +6,11 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::time::Duration;
 
 // Read the canonical production configuration at compile time to prevent key drift.
-const CONFIG: &str = include_str!("../../../src-tauri/tauri.conf.json");
+const CONFIG: &str = include_str!("../updater.json");
 const MAX_MANIFEST: u64 = 1024 * 1024;
 const MAX_ARTIFACT: u64 = 64 * 1024 * 1024;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Update {
     pub version: String,
     pub notes: String,
@@ -226,6 +226,52 @@ mod tests {
         assert!(release.verify(b"tampered or incomplete").is_err());
     }
 
+    #[test]
+    #[ignore = "reads the published production updater endpoint without installing"]
+    fn published_production_update_validates() {
+        let update = check().unwrap().expect("published update");
+        let bytes = update.download().unwrap();
+        assert!(bytes.starts_with(b"MZ"));
+        println!(
+            "Verified production update v{} ({} bytes)",
+            update.version,
+            bytes.len()
+        );
+    }
+
+    #[test]
+    #[ignore = "requires signed installer and latest.json in NUBI_NATIVE_UPDATE_CANDIDATE"]
+    fn signed_native_candidate() {
+        let path = std::path::PathBuf::from(
+            std::env::var_os("NUBI_NATIVE_UPDATE_CANDIDATE").expect("NUBI_NATIVE_UPDATE_CANDIDATE"),
+        );
+        let path = if path.is_absolute() {
+            path
+        } else {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(path)
+        };
+        let update = parse(&std::fs::read(path.join("latest.json")).unwrap()).unwrap();
+        assert_eq!(update.version, env!("CARGO_PKG_VERSION"));
+        let name = format!("nubi-{}-setup.exe", update.version);
+        assert!(update
+            .url
+            .ends_with(&format!("/v{}/{name}", update.version)));
+        let bytes = std::fs::read(path.join(name)).unwrap();
+        update.verify(&bytes).unwrap();
+        assert!(bytes.starts_with(b"MZ"));
+        let encoded = base64::engine::general_purpose::STANDARD
+            .decode(&update.signature)
+            .unwrap();
+        let statement = String::from_utf8(encoded).unwrap();
+        let signature = minisign_verify::Signature::decode(&statement).unwrap();
+        let comment = signature.trusted_comment();
+        assert!(comment
+            .split('\t')
+            .any(|field| field.strip_prefix("version:") == Some(update.version.as_str())));
+        assert!(update.verify(&bytes[..bytes.len() - 1]).is_err());
+    }
     #[test]
     fn artifacts_require_valid_signature_bytes_key_and_trusted_comment() {
         // Public verification vector from minisign-verify, also exercising Tauri's

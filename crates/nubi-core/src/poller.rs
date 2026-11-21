@@ -49,7 +49,10 @@ pub fn start(app: impl Host) {
                 // only a fallback when none has reported for 30 minutes.
                 if p == "claude" && !forced {
                     let st = app.shared();
-                    let live = st.0.lock().unwrap_or_else(|e| e.into_inner()).claude_live_ms;
+                    let live =
+                        st.0.lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .claude_live_ms;
                     if live > 0 && crate::state::now_ms().saturating_sub(live) < 30 * 60 * 1000 {
                         continue;
                     }
@@ -60,7 +63,11 @@ pub fn start(app: impl Host) {
                 let (u, n): (Usage, i64) = crate::usage::apply(p, out, g.usage.get(p));
                 g.usage.insert(p.to_string(), u);
                 // Claude's API is only a fallback now: ask it at most every 30 minutes.
-                let n = if p == "claude" { n.max(now + 30 * 60) } else { n };
+                let n = if p == "claude" {
+                    n.max(now + 30 * 60)
+                } else {
+                    n
+                };
                 next.insert(p.to_string(), n);
                 let mut persisted = next.clone();
                 persisted.retain(|k, _| g.usage.get(k).is_some_and(|x| x.status == "backoff"));
