@@ -1,18 +1,21 @@
 import { Theme } from "theme.slint";
 import { Fixture } from "fixture.slint";
 import { NotchData, NotchSession, NotchProvider } from "notch-data.slint";
-import { PanelData, PanelField, FieldChoice, PanelAlert, PanelRelease, CalendarDay } from "panel-data.slint";
+import { PageMotion, PanelData, PanelField, FieldChoice, PanelAlert, PanelRelease, CalendarDay } from "panel-data.slint";
 export { PanelData, PanelField, FieldChoice, PanelAlert, PanelRelease, CalendarDay }
-import { FieldRow, Caption, Heading } from "panel-fields.slint";
+import { FieldRow, Caption, Heading, TextField } from "panel-fields.slint";
 import { RequestCard } from "notch-cards.slint";
 import { Arc, SourceIcon, Action, Segmented, CssShadow, Hint } from "parity-widgets.slint";
 import { PanelInk, PanelCard, PanelTile, PanelToggle } from "panel-widgets.slint";
-import { Palette, TextEdit } from "std-widgets.slint";
 component Meter inherits PanelCard {
     in property <NotchProvider> provider;
     height: max(174px,80px + provider.windows.length * 46px);
     if provider.windows.length > 0 : Arc { x: 20px; y: 27px; width: 120px; height: 120px; radius: 12.916667; stroke: 10.666667; percent: root.provider.windows[0].percent; track: Theme.card-2; ink: root.provider.windows[0].percent >= 70 ? Theme.bad : root.provider.windows[0].percent >= 50 ? Theme.warn : root.provider.provider == "claude" ? Theme.claude : Theme.codex; }
-    if provider.windows.length > 0 : PanelInk { x: 20px; y: 61px; width: 120px; height: 32px; text: round(root.provider.windows[0].percent) + "%"; horizontal-alignment: center; font-family: Theme.num; font-size: 28px; font-weight: 500; }
+    if provider.windows.length > 0 : HorizontalLayout {
+        x: 20px; y: 61px; width: 120px; height: 32px; alignment: center;
+        amount := PanelInk { text: round(root.provider.windows[0].percent); font-family: Theme.num; font-size: 28px; font-weight: 500; }
+        PanelInk { text: "%"; font-family: Theme.num; font-size: amount.font-size; font-weight: amount.font-weight + 100; }
+    }
     if provider.windows.length > 0 : Caption { x: 20px; y: 93px; width: 120px; height: 18px; text: root.provider.windows[0].label == "Last 5 hours" ? "5-hour limit" : root.provider.windows[0].label == "This week" ? "weekly limit" : "used"; horizontal-alignment: center; }
     VerticalLayout { x: root.provider.windows.length > 0 ? 164px : 20px; y: 20px; width: root.width - self.x - 20px; spacing: 10px;
         HorizontalLayout { height: 28px; spacing: 10px; PanelTile { provider: root.provider.provider; } PanelInk { text: root.provider.name; font-weight: 500; } }
@@ -25,11 +28,33 @@ component Meter inherits PanelCard {
         }
     }
 }
+component ModalBox inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    height: 20px + box.preferred-height; border-radius: 18px; background: Theme.card;
+    border-width: 1px; border-color: Theme.dark ? Theme.line-2 : Theme.line;
+    drop-shadow-blur: Theme.high-contrast ? 0px : 32px; drop-shadow-offset-y: 18px; drop-shadow-color: Theme.dark ? #000000cc : #281e0a47;
+    private property <bool> shown;
+    init => { self.shown = true; }
+    opacity: self.shown ? 1 : 0;
+    transform-scale: self.shown ? 1 : 0.95;
+    animate opacity, transform-scale { duration: Theme.reduced ? 0ms : 200ms; easing: cubic-bezier(0.2,0.9,0.25,1); }
+    box := VerticalLayout { x: 20px; y: 20px; width: root.width - 40px; height: self.preferred-height; padding-bottom: 20px; spacing: 0px;
+        PanelInk { text: root.title; height: 24px; font-family: Theme.num; font-size: 16px; font-weight: 500; }
+        Rectangle { height: 4px; }
+        Caption { text: root.body; color: Theme.t2; font-size: 13px; min-height: 18px; }
+        Rectangle { height: 20px; }
+        @children
+    }
+}
 export component ParityPanel inherits Window {
-    title: "Nubi"; preferred-width: 1100px; preferred-height: 760px; min-width: 900px; min-height: 580px;
+    title: "Nubi"; icon: @image-url("../assets/32x32.png"); preferred-width: 1100px; preferred-height: 760px; min-width: 900px; min-height: 580px;
     background: Theme.canvas; default-font-family: Theme.font; default-font-size: 13px;
     in-out property <int> page: 4;
     in-out property <int> pane;
+    private property <[string]> settings-names: ["General", "Appearance", "Notifications", "Connections", "About"];
+    private property <[int]> settings-panes: [0, 1, 4, 6, 7];
+    private property <int> settings-index: pane == 0 ? 0 : pane == 1 ? 1 : pane == 4 ? 2 : pane == 7 ? 4 : 3;
     in-out property <bool> dirty;
     in-out property <bool> dnd;
     in-out property <int> provider-filter;
@@ -48,12 +73,9 @@ export component ParityPanel inherits Window {
     callback hide-panel();
     callback navigate(int);
     navigate(next) => { if root.dirty && next != 4 { root.leaving-to = next; root.leave-open = true; modal-popup.show(); } else { root.page = next; } }
-    changed pane => { PanelData.settings-y = 0px; root.pane-changed(root.pane); }
-    changed page => { PanelData.feed-y = 0px; }
+    changed pane => { root.entry-dir = root.pane >= root.last-pane ? 1 : -1; root.last-pane = root.pane; PanelData.settings-y = 0px; root.pane-changed(root.pane); root.enter-page(); }
+    changed page => { PanelData.feed-y = 0px; root.enter-page(); }
     changed provider-filter => { root.filter-changed(root.provider-filter); }
-    private property <bool> theme-dark: Theme.dark;
-    changed theme-dark => { Palette.color-scheme = root.theme-dark ? dark : light; }
-    init => { Palette.color-scheme = Theme.dark ? dark : light; }
     public function request-close() { if root.dirty { root.leaving-to = -1; root.leave-open = true; modal-popup.show(); } else { root.hide-panel(); } }
     public function leave(save: bool) { if save { if !root.persist() { return; } } else { root.discard(); } root.leave-open = false; modal-popup.close(); if root.leaving-to < 0 { root.hide-panel(); } else { root.page = root.leaving-to; } shell.focus(); }
     public function cancel-modal() { root.leave-open = false; root.confirmation-key = ""; PanelData.report-open = false; modal-popup.close(); }
@@ -64,30 +86,54 @@ export component ParityPanel inherits Window {
     shell := FocusScope {
         focus-on-tab-navigation: false;
         key-pressed(event) => { if event.text == Key.Escape { root.request-close(); return accept; } return reject; }
-        Rectangle { x: 12px; y: 12px; width: 64px; height: root.height - 24px; border-radius: 18px;
+        Rectangle { x: 12px; y: 12px; width: 64px; height: root.height - 24px; border-radius: 18px; z: 10;
             CssShadow { width: 100%; height: 100%; }
             Rectangle { width: 100%; height: 100%; border-radius: 18px; background: Theme.rail; }
             Image { x: 16px; y: 16px; width: 32px; height: 32px; source: @image-url("../assets/nubi-logo.png"); }
-            Rectangle { x: 12px; y: root.page == 4 ? parent.height - 56px : 72px + root.page * 44px; width: 40px; height: 40px; border-radius: 12px; background: Theme.acc; }
+            Rectangle { x: 12px; y: root.page == 4 ? parent.height - 56px : 72px + root.page * 44px; width: 40px; height: 40px; border-radius: 12px; background: Theme.acc;
+                animate y { duration: Theme.reduced ? 0ms : 380ms; easing: cubic-bezier(0.34,1.32,0.64,1); } }
             for icon[index] in ["inbox","sessions","usage","alerts","settings"] : Rectangle {
                 x: 12px; y: index == 4 ? parent.height - 56px : 72px + index * 44px; width: 40px; height: 40px; border-radius: 12px;
-                border-width: keys.has-focus ? 2px : 0px; border-color: Theme.t1;
-                SourceIcon { x: 11px; y: 11px; name: icon; colorize: root.page == index ? Theme.acc-ink : Theme.t2; }
-                accessible-role: button; accessible-label: icon; accessible-action-default => { root.navigate(index); }
-                TouchArea { mouse-cursor: pointer; clicked => { keys.focus(); root.navigate(index); } }
-                keys := FocusScope { width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { root.navigate(index); return accept; } return reject; } }
+                border-width: keys.has-focus && keys.kbd ? 2px : 0px; border-color: Theme.t1;
+                background: touch.pressed ? (root.page == index ? Theme.acc-ink.transparentize(0.85) : Theme.line) : root.page != index && touch.has-hover ? Theme.card-2 : Theme.card-2.transparentize(1);
+                animate background { duration: Theme.reduced ? 0ms : 200ms; easing: ease-out; }
+                transform-scale: touch.pressed && !Theme.reduced ? 0.95 : 1;
+                animate transform-scale { duration: Theme.reduced ? 0ms : 300ms; easing: cubic-bezier(0.34,1.56,0.64,1); }
+                rail-icon := SourceIcon { x: 11px; y: 11px; name: icon; hot: touch.has-hover; colorize: root.page == index ? Theme.acc-ink : touch.has-hover ? Theme.t1 : Theme.t2; animate colorize { duration: Theme.reduced ? 0ms : 200ms; easing: ease-out; } }
+                accessible-role: button; accessible-label: icon; accessible-action-default => { rail-icon.activate(); root.navigate(index); }
+                touch := TouchArea { mouse-cursor: pointer; clicked => { keys.focus(); rail-icon.activate(); root.navigate(index); } }
+                keys := FocusScope { width: 0px; height: 0px; in-out property <bool> kbd; focus-changed-event(reason) => { self.kbd = reason == FocusReason.tab-navigation; } key-pressed(event) => { if event.text == " " || event.text == "\n" { rail-icon.activate(); root.navigate(index); return accept; } return reject; } }
                 if index == 0 && NotchData.pending-count > 0 : Rectangle { x: 24px; y: 0px; width: 20px; height: 16px; border-radius: 8px; background: Theme.bad; PanelInk { text: NotchData.pending-count; font-size: 10px; horizontal-alignment: center; color: white; } }
-                Hint { x: 46px; y: 6px; text: icon; active: keys.has-focus; }
+                Hint { x: 46px; y: 6px; text: index == 0 ? "Inbox" : index == 1 ? "Sessions" : index == 2 ? "Usage" : index == 3 ? "Alerts" : "Settings"; active: touch.has-hover || (keys.has-focus && keys.kbd); }
             }
-            PanelToggle { x: 12px; y: parent.height - 98px; label: root.dnd ? "Do not disturb is on" : "Do not disturb"; checked: root.dnd; toggled => { PanelData.action("dnd",""); } }
+            Rectangle { x: 12px; y: parent.height - 104px; width: 40px; height: 40px; border-radius: 12px;
+                background: dnd-touch.pressed ? Theme.line : root.dnd ? Theme.t1 : dnd-touch.has-hover ? Theme.card-2 : Theme.card-2.transparentize(1);
+                border-width: dnd-keys.has-focus && dnd-keys.kbd ? 2px : 0px; border-color: Theme.acc;
+                animate background { duration: Theme.reduced ? 0ms : 200ms; }
+                transform-scale: dnd-touch.pressed && !Theme.reduced ? 0.95 : 1;
+                animate transform-scale { duration: Theme.reduced ? 0ms : 300ms; easing: cubic-bezier(0.34,1.56,0.64,1); }
+                SourceIcon { x: 11px; y: 11px; width: 18px; height: 18px; name: "dnd";
+                    colorize: root.dnd ? Theme.canvas : dnd-touch.has-hover ? Theme.t1 : Theme.t2; animate colorize { duration: Theme.reduced ? 0ms : 200ms; } }
+                accessible-role: checkbox; accessible-label: "Do not disturb"; accessible-checkable: true; accessible-checked: root.dnd;
+                accessible-action-default => { PanelData.action("dnd",""); }
+                dnd-touch := TouchArea { mouse-cursor: pointer; clicked => { dnd-keys.focus(); PanelData.action("dnd",""); } }
+                dnd-keys := FocusScope { width: 0px; height: 0px; in-out property <bool> kbd; focus-changed-event(reason) => { self.kbd = reason == FocusReason.tab-navigation; } key-pressed(event) => { if event.text == " " || event.text == "\n" { PanelData.action("dnd",""); return accept; } return reject; } }
+                Hint { x: 46px; y: 6px; text: root.dnd ? "Do not disturb is on" : "Do not disturb"; active: dnd-touch.has-hover || (dnd-keys.has-focus && dnd-keys.kbd); }
+            }
         }
         if root.page != 4 : Rectangle { x: 100px; y: 24px; width: min(root.width - 128px,1040px); height: root.height - 48px;
-            Heading { x: 0px; y: 0px; text: root.page == 0 ? "Inbox" : root.page == 1 ? "Sessions" : root.page == 2 ? "Usage" : "Alerts"; }
-            Caption { x: 110px; y: 0px; height: 32px; width: parent.width - 320px; text: root.page == 0 ? (NotchData.pending-count > 0 ? NotchData.pending-count + " waiting" : "") : root.page == 1 ? root.session-count + " sessions" : root.page == 2 ? PanelData.usage-age : PanelData.alerts.length >= 50 ? "Latest 50" : PanelData.alerts.length + " alerts"; }
-            if root.page == 1 : Segmented { x: parent.width - 180px; width: 180px; labels: ["All","Claude","Codex"]; selected <=> root.provider-filter; }
-            if root.page == 2 || root.page == 3 : Action { x: parent.width - self.width; text: root.page == 2 ? NotchData.refreshing ? "Refreshing…" : "Refresh" : "Show a test alert"; enabled: root.page != 2 || !NotchData.refreshing; clicked => { PanelData.action(root.page == 2 ? "refresh" : "test",""); } }
-            feed := Flickable { content-y <=> PanelData.feed-y; y: 48px; width: parent.width; height: parent.height - 48px; content-height: feed-items.preferred-height; content-width: self.width;
-                feed-items := VerticalLayout { width: feed.width - 10px; spacing: 10px;
+            if root.page != 3 : Heading { x: 0px; y: 0px; text: root.page == 0 ? "Inbox" : root.page == 1 ? "Sessions" : "Usage"; }
+            if root.page != 3 : Caption { x: 110px; y: 0px; height: 32px; width: parent.width - 320px; text: root.page == 0 ? (NotchData.pending-count > 0 ? NotchData.pending-count + " waiting" : "") : root.page == 1 ? root.session-count + " sessions" : PanelData.usage-age; }
+            if root.page == 1 : Segmented { x: parent.width - 180px; y: 0px; width: 180px; labels: ["All","Claude","Codex"]; selected <=> root.provider-filter; }
+            if root.page == 2 : Action { x: parent.width - self.width; y: 0px; chip: true; text: NotchData.refreshing ? "Refreshing…" : "Refresh"; enabled: !NotchData.refreshing; clicked => { PanelData.action("refresh",""); } }
+            if root.page == 3 : HorizontalLayout {
+                x: 0px; y: 0px; width: parent.width; height: 32px; spacing: 12px;
+                Heading { text: "Alerts"; horizontal-stretch: 0; }
+                Caption { text: PanelData.alerts.length >= 50 ? "Latest 50" : PanelData.alerts.length + " alerts"; height: 32px; horizontal-stretch: 1; overflow: elide; }
+                Action { chip: true; text: "Show a test alert"; clicked => { PanelData.action("test",""); } }
+            }
+            feed := Flickable { content-y <=> PanelData.feed-y; y: 48px; opacity: 1 - root.entry-offset; width: parent.width; height: parent.height - 48px; content-height: feed-items.preferred-height; content-width: self.width;
+                feed-items := VerticalLayout { width: root.page == 3 ? feed.width : feed.width - 10px; spacing: 10px;
                     if PanelData.pipe-error != "" : PanelInk { text: PanelData.pipe-error; color: Theme.bad; wrap: word-wrap; min-height: 24px; }
                     if NotchData.request-error != "" : PanelInk { text: NotchData.request-error; color: Theme.bad; wrap: word-wrap; min-height: 24px; }
                     if root.page == 0 || root.page == 1 : VerticalLayout { spacing: 10px; for request in NotchData.requests : RequestCard { request: request; } }
@@ -128,87 +174,167 @@ export component ParityPanel inherits Window {
             changed focus-y => { if root.page <= 1 { if self.focus-y < feed.absolute-position.y { feed.content-y = min(0px,feed.content-y + feed.absolute-position.y - self.focus-y); } else if self.focus-y + 48px > feed.absolute-position.y + feed.height { feed.content-y = max(feed.height - feed.content-height,feed.content-y - self.focus-y - 48px + feed.absolute-position.y + feed.height); } } }
         }
         if root.page == 4 : Rectangle { x: 76px; width: root.width - 76px; height: root.height;
-            Caption { x: 28px; y: 28px; width: 168px; height: 18px; text: "Settings"; }
-            for name[index] in ["General","Appearance","Display","Questions & approvals","Notifications","DeskTime","Connections","About"] : Rectangle {
-                visible: index != 5 || (root.show-desktime && PanelData.desktime-tab);
-                x: 16px; y: 56px + index * 38px + (index >= 6 ? 19px : 0px) - (index >= 6 && !(root.show-desktime && PanelData.desktime-tab) ? 38px : 0px); width: 192px; height: 36px;
-                border-radius: 10px; background: root.pane == index ? Theme.high-contrast ? Theme.acc : Theme.dark ? Theme.card : Theme.card-3 : transparent;
-                border-width: side-keys.has-focus ? 2px : 0px; border-color: Theme.acc;
-                SourceIcon { x: 12px; y: 10px; width: 16px; height: 16px; name: index == 0 ? "general" : index == 1 ? "appearance" : index == 2 ? "display" : index == 3 ? "requests" : index == 4 ? "notify" : index == 6 ? "hooks" : "about"; colorize: Theme.high-contrast && root.pane == index ? Theme.acc-ink : Theme.t2; }
-                PanelInk { x: 38px; height: 36px; text: name; color: Theme.high-contrast && root.pane == index ? Theme.acc-ink : Theme.t1; font-weight: root.pane == index ? 500 : 400; }
-                TouchArea { clicked => { side-keys.focus(); root.pane = index; } }
-                side-keys := FocusScope { width: 0px; height: 0px; key-pressed(event) => { if event.text == " " || event.text == "\n" { root.pane = index; return accept; } return reject; } }
-                accessible-role: button; accessible-label: name; accessible-action-default => { root.pane = index; }
+            // Settings sidebar is a raised strip; the selected item is cut out of it in the page
+            // color and joins the page like a tab, with inverse corners (owner, 2026-11-28).
+            Rectangle { x: 12px; y: 12px; width: 204px; height: parent.height - 24px; border-radius: 18px; background: root.side-bg; }
+            Caption { x: 40px; y: 28px; width: 160px; height: 18px; text: "Settings"; }
+            Rectangle { x: 24px; width: 192px; height: 36px;
+                y: root.tab-y;
+                border-top-left-radius: 10px; border-bottom-left-radius: 10px;
+                background: Theme.high-contrast ? Theme.acc : Theme.canvas;
+                Rectangle { x: parent.width - 10px; y: -10px; width: 10px; height: 10px; background: parent.background;
+                    Rectangle { width: 100%; height: 100%; background: root.side-bg; border-bottom-right-radius: 10px; } }
+                Rectangle { x: parent.width - 10px; y: parent.height; width: 10px; height: 10px; background: parent.background;
+                    Rectangle { width: 100%; height: 100%; background: root.side-bg; border-top-right-radius: 10px; } }
             }
-            Rectangle { x: 224px; y: 24px; width: min(752px,parent.width - 252px); height: parent.height - 48px;
-                Heading { x: 0px; y: 0px; text: root.pane == 0 ? "General" : root.pane == 1 ? "Appearance" : root.pane == 2 ? "Display" : root.pane == 3 ? "Questions & approvals" : root.pane == 4 ? "Notifications" : root.pane == 5 ? "DeskTime" : root.pane == 6 ? "Connections" : "About"; }
-                content := Flickable { content-y <=> PanelData.settings-y; y: 48px; width: parent.width; height: parent.height - (root.dirty ? 132px : 72px); content-width: self.width; content-height: settings-items.preferred-height;
-                    settings-items := VerticalLayout { width: content.width - 10px; spacing: 8px;
-                        if root.pane == 5 : PanelCard { height: 310px;
-                            VerticalLayout { x: 20px; y: 16px; width: parent.width - 40px; spacing: 8px;
-                                PanelInk { text: "Status · Not connected"; height: 18px; font-weight: 500; }
-                                Caption { text: "DeskTime connection is unavailable in this build. Configuration below is saved now."; min-height: 36px; }
-                                HorizontalLayout { spacing: 8px; Action { text: "Log in with email"; enabled: false; } Action { text: "Use browser"; enabled: false; } Action { text: "Read now"; enabled: false; } }
-                                Caption { text: "Last read: Never · Browser session: Not received · Last error: Integration unavailable"; min-height: 36px; }
-                                PanelInk { text: "Browser extension"; height: 18px; font-weight: 500; }
-                                Caption { text: "Open chrome://extensions (edge://extensions in Edge), enable Developer mode, choose Load unpacked, then select the unzipped extension folder."; min-height: 36px; }
-                                HorizontalLayout { spacing: 8px; Action { text: "Download"; clicked => { PanelData.action("extension-download",""); } } Action { text: "Open folder"; clicked => { PanelData.action("extension-folder",""); } } }
-                            }
-                        }
-                        VerticalLayout { spacing: 0px; for field in PanelData.fields : FieldRow { field: field; } }
-                        if root.pane == 6 : VerticalLayout { spacing: 12px;
-                            for provider[index] in ["Claude","Codex"] : PanelCard { height: 96px;
-                                PanelTile { x: 20px; y: 20px; provider: index == 0 ? "claude" : "codex"; }
-                                PanelInk { x: 60px; y: 16px; width: parent.width - 220px; height: 18px; text: provider; font-weight: 500; }
-                                Caption { x: 60px; y: 38px; width: parent.width - 220px; height: 42px; text: index == 0 ? "~/.claude/settings.json" : PanelData.codex-hooks ? "In Codex, run /hooks once and allow Nubi" : "$CODEX_HOME/hooks.json"; }
-                                Action { x: parent.width - self.width - 108px; y: 24px; text: "Copy"; quiet: true; clicked => { PanelData.action("copy",index == 0 ? "~/.claude/settings.json" : PanelData.codex-hooks ? "/hooks" : "$CODEX_HOME/hooks.json"); } }
-                                Action { x: parent.width - self.width - 20px; y: 24px; text: (index == 0 ? PanelData.claude-hooks : PanelData.codex-hooks) ? "Turn off" : "Turn on"; clicked => { PanelData.action("hooks",index == 0 ? "claude" : "codex"); } }
-                            }
-                            if root.show-desktime : PanelCard { height: 104px;
-                                PanelInk { x: 20px; y: 16px; height: 18px; text: "DeskTime"; font-weight: 500; }
-                                Caption { x: 20px; y: 38px; height: 18px; text: "Your DeskTime hours in the notch"; }
-                                HorizontalLayout { x: 20px; y: 64px; spacing: 8px;
-                                    Action { text: PanelData.desktime-tab ? "Turn off" : "Turn on"; clicked => { PanelData.action("desktime-tab",""); } }
-                                    if PanelData.desktime-tab : Action { text: "Settings"; quiet: true; clicked => { root.pane = 5; } }
+            for name[index] in root.settings-names : Rectangle {
+                x: 24px; y: 56px + index * 38px; width: 192px; height: 36px;
+                // Hover previews the tab: same shape, page color at partial strength.
+                border-top-left-radius: 10px; border-bottom-left-radius: 10px;
+                background: root.settings-index == index ? Theme.canvas.transparentize(1) : side-touch.pressed ? Theme.canvas.transparentize(0.3) : side-touch.has-hover ? Theme.canvas.transparentize(0.55) : Theme.canvas.transparentize(1);
+                animate background { duration: Theme.reduced ? 0ms : 150ms; }
+                border-width: side-keys.has-focus && side-keys.kbd ? 2px : 0px; border-color: Theme.acc;
+                section-icon := SourceIcon { x: 12px; y: 10px; width: 16px; height: 16px; name: index == 0 ? "general" : index == 1 ? "appearance" : index == 2 ? "notify" : index == 3 ? "hooks" : "about"; hot: side-touch.has-hover; colorize: Theme.high-contrast && root.settings-index == index ? Theme.acc-ink : side-touch.has-hover ? Theme.t1 : Theme.t2; animate colorize { duration: Theme.reduced ? 0ms : 150ms; easing: ease-out; } }
+                PanelInk { x: 38px; height: 36px; text: name; color: Theme.high-contrast && root.settings-index == index ? Theme.acc-ink : Theme.t1; font-weight: root.settings-index == index ? 500 : 400; }
+                side-touch := TouchArea { mouse-cursor: pointer; clicked => { side-keys.focus(); section-icon.activate(); root.pane = root.settings-panes[index]; } }
+                side-keys := FocusScope { width: 0px; height: 0px; in-out property <bool> kbd; focus-changed-event(reason) => { self.kbd = reason == FocusReason.tab-navigation; } key-pressed(event) => { if event.text == " " || event.text == "\n" { section-icon.activate(); root.pane = root.settings-panes[index]; return accept; } return reject; } }
+                accessible-role: button; accessible-label: name; accessible-action-default => { section-icon.activate(); root.pane = root.settings-panes[index]; }
+            }
+            // Page flows out of the selected tab: the visible area starts as the tab row and
+            // opens rightward first, then up and down (height trails 40 ms).
+            reveal := Rectangle { clip: true; x: 216px;
+                private property <float> wx: PageMotion.reveal(0px, 0, 300);
+                private property <float> hy: PageMotion.reveal(0px, 40, 380);
+                y: root.tab-y * (1 - hy);
+                width: (parent.width - 216px) * wx;
+                height: 36px + (parent.height - 36px) * hy;
+                Rectangle { x: 32px; y: 24px - reveal.y; width: min(752px, root.width - 76px - 216px - 60px); height: root.height - 48px;
+                    // Heading reveals upward out of a mask, ahead of the content cascade.
+                    Rectangle { x: 0px; y: 0px; width: parent.width; height: 34px; clip: true;
+                        Heading { x: 0px; y: 30px * (1 - PageMotion.reveal(0px, 140, 360)); text: root.pane == 5 ? "DeskTime" : root.settings-names[root.settings-index]; }
+                    }
+                    content := Flickable { content-y <=> PanelData.settings-y; y: 48px; opacity: 1 - root.entry-offset;
+                        width: parent.width; height: parent.height - (root.dirty ? 132px : 72px); content-width: self.width; content-height: settings-items.preferred-height;
+                        settings-items := VerticalLayout { width: root.pane == 7 ? content.width : content.width - 10px; spacing: 8px;
+                            if root.pane == 5 : PanelCard { height: 310px;
+                                VerticalLayout { x: 20px; y: 16px; width: parent.width - 40px; spacing: 8px;
+                                    PanelInk { text: "Status · Not connected"; height: 18px; font-weight: 500; }
+                                    Caption { text: "DeskTime connection is unavailable in this build. Configuration below is saved now."; min-height: 36px; }
+                                    HorizontalLayout { spacing: 8px; Action { text: "Log in with email"; enabled: false; } Action { text: "Use browser"; enabled: false; } Action { text: "Read now"; enabled: false; } }
+                                    Caption { text: "Last read: Never · Browser session: Not received · Last error: Integration unavailable"; min-height: 36px; }
+                                    PanelInk { text: "Browser extension"; height: 18px; font-weight: 500; }
+                                    Caption { text: "Open chrome://extensions (edge://extensions in Edge), enable Developer mode, choose Load unpacked, then select the unzipped extension folder."; min-height: 36px; }
+                                    HorizontalLayout { spacing: 8px; Action { text: "Download"; clicked => { PanelData.action("extension-download",""); } } Action { text: "Open folder"; clicked => { PanelData.action("extension-folder",""); } } }
                                 }
                             }
-                            if PanelData.development : Caption { text: "Development mode: hook registration is disabled."; min-height: 32px; }
-                        }
-                        if root.pane == 7 : VerticalLayout { spacing: 12px;
-                            PanelCard { height: 148px;
-                                PanelInk { x: 20px; y: 16px; height: 18px; text: "Nubi"; font-weight: 500; }
-                                Caption { x: 20px; y: 38px; height: 18px; text: "Version " + root.app-version; }
-                                HorizontalLayout { x: 20px; y: 72px; spacing: 8px;
-                                    Action { text: "What's new"; quiet: true; clicked => { PanelData.action("release-notes",""); } }
-                                    Action { text: PanelData.busy ? "Checking…" : "Check for updates"; enabled: !PanelData.busy; clicked => { PanelData.action("check-update",""); } }
-                                    Action { text: "Report an issue"; clicked => { PanelData.action("report",""); } }
+                            VerticalLayout { spacing: 0px; for field in PanelData.fields : FieldRow { field: field; } }
+                            if root.pane == 6 : VerticalLayout { spacing: 12px;
+                                for provider[index] in ["Claude","Codex"] : PanelCard { height: 96px;
+                                    PanelTile { x: 20px; y: 20px; provider: index == 0 ? "claude" : "codex"; }
+                                    PanelInk { x: 60px; y: 16px; width: parent.width - 220px; height: 18px; text: provider; font-weight: 500; }
+                                    Caption { x: 60px; y: 38px; width: parent.width - 220px; height: 42px; text: index == 0 ? "~/.claude/settings.json" : PanelData.codex-hooks ? "In Codex, run /hooks once and allow Nubi" : "$CODEX_HOME/hooks.json"; }
+                                    Action { x: parent.width - self.width - 108px; y: 24px; text: "Copy"; quiet: true; clicked => { PanelData.action("copy",index == 0 ? "~/.claude/settings.json" : PanelData.codex-hooks ? "/hooks" : "$CODEX_HOME/hooks.json"); } }
+                                    Action { x: parent.width - self.width - 20px; y: 24px; text: (index == 0 ? PanelData.claude-hooks : PanelData.codex-hooks) ? "Turn off" : "Turn on"; clicked => { PanelData.action("hooks",index == 0 ? "claude" : "codex"); } }
                                 }
+                                if root.show-desktime : PanelCard { height: 104px;
+                                    PanelInk { x: 20px; y: 16px; height: 18px; text: "DeskTime"; font-weight: 500; }
+                                    Caption { x: 20px; y: 38px; height: 18px; text: "Your DeskTime hours in the notch"; }
+                                    HorizontalLayout { x: 20px; y: 64px; spacing: 8px;
+                                        Action { text: PanelData.desktime-tab ? "Turn off" : "Turn on"; clicked => { PanelData.action("desktime-tab",""); } }
+                                        if PanelData.desktime-tab : Action { text: "Settings"; quiet: true; clicked => { root.pane = 5; } }
+                                    }
+                                }
+                                if PanelData.development : Caption { text: "Development mode: hook registration is disabled."; min-height: 32px; }
                             }
-                            PanelInk { text: "Version history"; height: 20px; font-weight: 500; }
-                            Caption { text: "Download any version and run its installer to switch to it"; height: 18px; }
-                            Caption { text: PanelData.release-status; min-height: 18px; }
-                            Action { text: "Refresh versions"; quiet: true; clicked => { PanelData.action("releases",""); } }
-                            for release in PanelData.releases : PanelCard { height: 76px;
-                                PanelInk { x: 20px; y: 12px; width: parent.width - 220px; height: 18px; text: release.title; font-weight: 500; }
-                                Caption { x: 20px; y: 36px; width: parent.width - 220px; height: 18px; text: release.date; }
-                                HorizontalLayout { x: parent.width - 190px; y: 20px; width: 170px; spacing: 8px;
-                                    Action { text: "Notes"; quiet: true; clicked => { PanelData.action("release-link",release.notes); } }
-                                    if !release.current : Action { text: "Download"; enabled: release.download != ""; clicked => { PanelData.action("release-link",release.download); } }
+                            if root.pane == 7 : VerticalLayout { spacing: 12px;
+                                PanelCard { height: about-rows.preferred-height;
+                                    about-rows := VerticalLayout { x: 20px; y: 0px; width: parent.width - 40px; padding-top: 4px; padding-bottom: 4px; spacing: 0px;
+                                        HorizontalLayout { height: 64px; spacing: 20px; alignment: stretch;
+                                            VerticalLayout { alignment: center; spacing: 2px; horizontal-stretch: 1;
+                                                PanelInk { text: "Nubi"; height: 18px; font-weight: 500; }
+                                                Caption { text: "Version " + root.app-version; height: 16px; }
+                                            }
+                                            HorizontalLayout { alignment: end; spacing: 12px; padding-top: 16px; padding-bottom: 16px;
+                                                Action { text: "What's new"; quiet: true; clicked => { PanelData.action("release-notes",""); } }
+                                                Action { text: PanelData.busy ? "Checking…" : "Check for updates"; enabled: !PanelData.busy; clicked => { PanelData.action("check-update",""); } }
+                                            }
+                                        }
+                                        Rectangle { height: 1px; background: Theme.line; }
+                                        HorizontalLayout { height: 64px; spacing: 20px;
+                                            VerticalLayout { alignment: center; spacing: 2px; horizontal-stretch: 1;
+                                                PanelInk { text: "Found a problem?"; height: 18px; font-weight: 500; }
+                                                Caption { text: "Describe it in a sentence; Claude or Codex can fill in the GitHub form for you"; height: 16px; overflow: elide; wrap: no-wrap; }
+                                            }
+                                            HorizontalLayout { padding-top: 16px; padding-bottom: 16px; Action { text: "Report an issue"; clicked => { PanelData.action("report",""); } } }
+                                        }
+                                    }
+                                }
+                                PanelCard { height: history.preferred-height;
+                                    history := VerticalLayout { x: 20px; y: 0px; width: parent.width - 40px; padding-top: 20px; padding-bottom: 8px; spacing: 0px;
+                                        HorizontalLayout { spacing: 12px;
+                                            VerticalLayout { horizontal-stretch: 1; spacing: 2px;
+                                                PanelInk { text: "Version history"; height: 20px; font-size: 14px; font-weight: 500; }
+                                                Caption { text: "Download any version and run its installer to switch to it"; height: 16px; }
+                                            }
+                                            VerticalLayout { alignment: start; Action { text: "Refresh"; quiet: true; clicked => { PanelData.action("releases",""); } } }
+                                        }
+                                        if PanelData.release-status != "" : Caption { text: PanelData.release-status; min-height: 20px; }
+                                        for release[i] in PanelData.releases : VerticalLayout {
+                                            if i > 0 : Rectangle { height: 1px; background: Theme.line; }
+                                            HorizontalLayout { padding-top: 10px; padding-bottom: 10px; spacing: 12px;
+                                                VerticalLayout { horizontal-stretch: 1; alignment: center; spacing: 2px;
+                                                    PanelInk { text: release.title; height: 18px; font-weight: 500; overflow: elide; }
+                                                    Caption { text: release.date; height: 16px; }
+                                                }
+                                                VerticalLayout { alignment: center; Action { text: "Notes"; quiet: true; clicked => { PanelData.action("release-link",release.notes); } } }
+                                                if !release.current : VerticalLayout { alignment: center; Action { text: "Download"; enabled: release.download != ""; clicked => { PanelData.action("release-link",release.download); } } }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    Rectangle { visible: self.opacity > 0.01; x: settings-items.x; y: parent.height - 76px + (root.dirty ? 0px : 16px); transform-scale: root.dirty ? 1 : 0.98;
+                        animate transform-scale { duration: Theme.reduced ? 0ms : 500ms; easing: cubic-bezier(0.34,1.3,0.5,1); } width: settings-items.width; height: 48px; border-radius: 14px; background: Theme.card;
+                        border-width: 1px; border-color: Theme.dark ? Theme.line-2 : Theme.line;
+                        drop-shadow-blur: Theme.high-contrast ? 0px : 28px; drop-shadow-offset-y: 16px; drop-shadow-color: Theme.dark ? #000000aa : #281e0a33;
+                        opacity: root.dirty ? 1 : 0;
+                        animate opacity { duration: Theme.reduced ? 0ms : 250ms; } animate y { duration: Theme.reduced ? 0ms : 500ms; easing: cubic-bezier(0.34,1.3,0.5,1); }
+                        HorizontalLayout { x: 20px; y: 8px; width: parent.width - 28px; height: 32px; spacing: 8px;
+                            PanelInk { text: "Unsaved changes"; font-weight: 500; horizontal-stretch: 1; }
+                            Action { text: "Discard"; quiet: true; clicked => { root.discard(); } }
+                            Action { text: "Save"; primary: true; clicked => { root.persist(); } }
+                        }
+                    }
+                    Caption { y: parent.height - 24px; width: parent.width; height: 24px; text: root.status; }
                 }
-                if root.dirty : PanelCard { y: parent.height - 76px; width: parent.width; height: 48px;
-                    PanelInk { x: 16px; width: parent.width - 190px; text: "Unsaved changes"; font-weight: 500; }
-                    Action { x: parent.width - 160px; y: 8px; text: "Discard"; quiet: true; clicked => { root.discard(); } }
-                    Action { x: parent.width - self.width - 8px; y: 8px; text: "Save"; primary: true; clicked => { root.persist(); } }
-                }
-                Caption { y: parent.height - 24px; width: parent.width; height: 24px; text: root.status; }
             }
-        }
+                }
     }
     private property <bool> show-desktime: false;
+    private property <bool> starting-entry;
+    private property <float> entry-offset: starting-entry && !Theme.reduced ? 1 : 0;
+    // Page switch (owner, 2026-11-28, third pass): surfaces fade in 140ms, the heading reveals
+    // from a mask and cards cascade by position (PageMotion in panel-data.slint).
+    private property <int> last-pane;
+    private property <color> side-bg: Theme.high-contrast ? Theme.canvas : Theme.dark ? Theme.card : Theme.card-3;
+    private property <length> tab-y: 56px + root.settings-index * 38px;
+    animate tab-y { duration: Theme.reduced ? 0ms : 380ms; easing: cubic-bezier(0.34,1.32,0.64,1); }
+    private property <float> entry-dir: 1;
+    animate entry-offset { duration: root.starting-entry || Theme.reduced ? 0ms : 140ms; easing: cubic-bezier(0.2,0,0,1); }
+    function enter-page() {
+        PageMotion.reduced = Theme.reduced;
+        PageMotion.started = animation-tick();
+        PageMotion.live = true;
+        page-motion-stop.running = false;
+        page-motion-stop.running = true;
+        root.starting-entry = !Theme.reduced;
+        entry-frame.running = false;
+        entry-frame.running = root.starting-entry;
+    }
+    page-motion-stop := Timer { interval: 900ms; running: false; triggered => { self.running = false; PageMotion.live = false; } }
+    entry-frame := Timer { interval: 16ms; running: false; triggered => { self.running = false; root.starting-entry = false; } }
     private property <length> control-focus-y: PanelData.focus-y;
     changed control-focus-y => { PanelData.action("reveal-focus", ""); }
     modal-popup := PopupWindow {
@@ -217,27 +343,24 @@ export component ParityPanel inherits Window {
         modal := FocusScope {
         focus-on-tab-navigation: false;
         capture-key-pressed(event) => { if event.text == Key.Escape { root.cancel-modal(); return accept; } return reject; }
-        Rectangle { width: root.width; height: root.height; background: #140f0559; TouchArea { clicked => { root.cancel-modal(); } } }
-        if root.leave-open : PanelCard { x: (root.width - 380px) / 2; y: (root.height - 160px) / 2; width: 380px; height: 160px;
-            VerticalLayout { padding: 20px; spacing: 12px;
-                PanelInk { text: "Save changes?"; height: 24px; font-size: 18px; font-weight: 500; }
-                Caption { text: "Your settings have unsaved changes."; height: 18px; }
-                HorizontalLayout { spacing: 8px; Action { text: "Cancel"; quiet: true; clicked => { root.cancel-modal(); } } Action { text: "Discard"; clicked => { root.leave(false); } } Action { text: "Save"; primary: true; clicked => { root.leave(true); } } }
-            }
+        Rectangle { width: root.width; height: root.height; background: #140f0559;
+            private property <bool> shown; init => { self.shown = true; } opacity: self.shown ? 1 : 0; animate opacity { duration: Theme.reduced ? 0ms : 150ms; }
+            TouchArea { clicked => { root.cancel-modal(); } } }
+        if root.leave-open : ModalBox { x: (root.width - 340px) / 2; y: (root.height - self.height) / 2; width: 340px;
+            title: "Save changes?"; body: "You changed settings and have not saved them.";
+            HorizontalLayout { height: 32px; spacing: 8px; alignment: end; Action { text: "Discard"; quiet: true; clicked => { root.leave(false); } } Action { text: "Save"; primary: true; clicked => { root.leave(true); } } }
         }
-        if root.confirmation-key != "" : PanelCard { x: (root.width - 420px) / 2; y: (root.height - 180px) / 2; width: 420px; height: 180px;
-            VerticalLayout { padding: 20px; spacing: 12px;
-                PanelInk { text: root.confirmation-action == "close" ? "Close session?" : "Compact session?"; height: 24px; font-size: 18px; }
-                Caption { text: root.confirmation-action == "close" ? "Closes this agent process and removes its pending requests." : "Queues /compact when the session is idle and has no pending requests."; min-height: 36px; }
-                HorizontalLayout { spacing: 8px; Action { text: "Cancel"; clicked => { root.cancel-modal(); } } Action { text: "Confirm"; primary: true; clicked => { PanelData.action(root.confirmation-action,root.confirmation-key); root.confirmation-key = ""; modal-popup.close(); } } }
-            }
+        if root.confirmation-key != "" : ModalBox { x: (root.width - 340px) / 2; y: (root.height - self.height) / 2; width: 340px;
+            title: root.confirmation-action == "close" ? "Close session?" : "Compact session?";
+            body: root.confirmation-action == "close" ? "Closes this agent process and removes its pending requests." : "Queues /compact when the session is idle and has no pending requests.";
+            HorizontalLayout { spacing: 8px; alignment: end; Action { text: "Cancel"; quiet: true; clicked => { root.cancel-modal(); } } Action { text: "Confirm"; primary: true; clicked => { PanelData.action(root.confirmation-action,root.confirmation-key); root.confirmation-key = ""; modal-popup.close(); } } }
         }
         if PanelData.report-open : PanelCard { x: (root.width - 680px) / 2; y: 24px; width: 680px; height: root.height - 48px;
             report-scroll := Flickable { content-y <=> PanelData.report-y; x: 20px; y: 20px; width: parent.width - 40px; height: parent.height - 80px; content-width: self.width; content-height: report-layout.preferred-height;
                 report-layout := VerticalLayout { width: parent.width - 10px; spacing: 10px;
                     Heading { text: "Report an issue"; }
                     Caption { text: "Nubi adds your versions and setup. It never sends tokens or code. Nothing is posted until you press Submit on GitHub."; min-height: 36px; }
-                    TextEdit { text <=> PanelData.report-text; height: 84px; accessible-label: "What went wrong?"; }
+                    TextField { multiline: true; text <=> PanelData.report-text; height: 84px; label: "What went wrong?"; }
                     HorizontalLayout { spacing: 8px;
                         Action { text: "Claude"; enabled: !PanelData.report-busy; clicked => { PanelData.action("draft-report","claude"); } }
                         Action { text: "Codex"; enabled: !PanelData.report-busy; clicked => { PanelData.action("draft-report","codex"); } }

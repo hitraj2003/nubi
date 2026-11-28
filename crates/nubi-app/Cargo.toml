@@ -32,3 +32,7 @@ windows-link = "0.2"
 
 [build-dependencies]
 slint-build = "=1.18.1"
+
+[features]
+# Dev only: with SLINT_LIVE_PREVIEW=1 at build time, the running app reloads .slint edits on save.
+live-preview = ["slint/live-preview"]

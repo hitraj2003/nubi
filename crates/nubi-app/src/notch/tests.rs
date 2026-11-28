@@ -252,6 +252,98 @@ fn question_message(questions: serde_json::Value) -> HookMsg {
 }
 
 #[test]
+fn inline_notifications_fit_every_edge_and_keep_requests_actionable() {
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    slint::platform::set_platform(Box::new(Offscreen(window.clone()))).unwrap();
+    for (edge, name) in ["top", "bottom", "left", "right"].into_iter().enumerate() {
+        let side = edge >= 2;
+        let (host, _) = NativeHost::from_settings(Settings {
+            edge: name.into(),
+            notifications_inside_notch: true,
+            follow_quiet_time: false,
+            ..Default::default()
+        });
+        let ui = NotchWindow::new().unwrap();
+        let notch = Notch::connect(&ui, host.clone());
+        let mut motion = crate::motion::Motion::new();
+        let size = if side { (420, 860) } else { (720, 700) };
+        window.set_size(slint::PhysicalSize::new(size.0, size.1));
+        ui.set_ready(true);
+        ui.global::<Theme>().set_dark(true);
+        ui.show().unwrap();
+        let draw = |motion: &mut crate::motion::Motion, (view, shape)| {
+            motion.target(view, shape, true);
+            motion.draw(&ui);
+        };
+        let mut toast = Alert {
+            ts: 0,
+            provider: "claude".into(),
+            kind: "done".into(),
+            title: "Done".into(),
+            body: "Build passed".into(),
+            session_key: None,
+            queued: false,
+        };
+        notch.borrow_mut().update(&ui);
+        assert!(!ui.global::<NotchData>().get_desk_visible());
+        ui.set_tab(3);
+        notch.borrow_mut().update(&ui);
+        assert_eq!(ui.get_tab(), 1);
+        ui.set_desk_available(true);
+        notch.borrow_mut().update(&ui);
+        notch.borrow_mut().alert(toast.clone());
+        let (view, shape) = notch.borrow_mut().view(&ui);
+        assert_eq!(view, 2);
+        let (width, height) = if side { (shape[1], shape[0]) } else { (shape[0], shape[1]) };
+        assert!((80. ..200.).contains(&width));
+        draw(&mut motion, (view, shape));
+        capture(&window, &ui, &format!("inline-short-{name}"), 1., side);
+
+        toast.body = "A long notification should wrap within the notch on any edge, with extra text elided after the second body line. ".repeat(2);
+        notch.borrow_mut().alert = None;
+        notch.borrow_mut().alert(toast);
+        let (view, shape) = notch.borrow_mut().view(&ui);
+        let (long_width, long_height) = if side { (shape[1], shape[0]) } else { (shape[0], shape[1]) };
+        assert_eq!(long_width, 320.);
+        assert!(long_height > height && long_height < 80.);
+        draw(&mut motion, (view, shape));
+        capture(&window, &ui, &format!("inline-long-{name}"), 1., side);
+
+        notch.borrow_mut().hovering = true;
+        notch.borrow_mut().clicked = true;
+        for tab in 0..4 {
+            ui.set_tab(tab);
+            let (view, shape) = notch.borrow_mut().view(&ui);
+            assert_eq!(view, 3);
+            assert!(ui.get_banner_space() > 0.);
+            draw(&mut motion, (view, shape));
+            capture(&window, &ui, &format!("inline-open-{tab}-{name}"), 1., side);
+        }
+        let message = question_message(serde_json::json!([
+            {"question":"Language?", "options":[{"label":"Rust"},{"label":"Other"}]}
+        ]));
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let id = host.add_pending(&message, tx, 60_000);
+        notch.borrow_mut().update(&ui);
+        assert_eq!(ui.get_tab(), 0);
+        let request = ui.global::<NotchData>().get_requests().row_data(0).unwrap();
+        assert!(request.question);
+        assert_eq!(request.options.row_count(), 2);
+        draw(&mut motion, notch.borrow_mut().view(&ui));
+        // Render the newly instantiated request layout before settling its measured height.
+        ui.window().take_snapshot().unwrap();
+        let (view, shape) = notch.borrow_mut().view(&ui);
+        assert_eq!(view, 3);
+        assert!(ui.get_open_height() > ui.get_banner_space() + 200.);
+        draw(&mut motion, (view, shape));
+        capture(&window, &ui, &format!("inline-question-{name}"), 1., side);
+        ui.global::<NotchData>().invoke_choose(id.to_string().into(), 0);
+        assert_eq!(rx.try_recv().unwrap().decision, "answer");
+        ui.hide().unwrap();
+    }
+}
+
+#[test]
 fn stage4_questions_advance_once_and_send_original_hook_payload_on_every_edge() {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     slint::platform::set_platform(Box::new(Offscreen(window))).unwrap();
@@ -1099,6 +1191,9 @@ fn tabs_and_toolbar_deliver_the_first_click() {
     let panels = Rc::new(Cell::new(0));
     let received = panels.clone();
     ui.on_open_panel(move || received.set(received.get() + 1));
+    let geometry = Rc::new(Cell::new((0f32, 0f32)));
+    let received = geometry.clone();
+    ui.on_tab_geometry(move |x, width| received.set((x, width)));
     let terminals = Rc::new(RefCell::new(Vec::new()));
     let received = terminals.clone();
     ui.global::<NotchData>()
@@ -1149,12 +1244,37 @@ fn tabs_and_toolbar_deliver_the_first_click() {
                 1 => 460.,
                 _ => 310.,
             };
+            // Icon tabs widen only while selected (the label shows), so measure each
+            // tab's strip position from the geometry the UI reports instead of fixed offsets.
+            let mut lefts = [0f32; 4];
+            let mut selected_widths = [0f32; 4];
+            for tab in 0..4 {
+                ui.set_tab(tab);
+                slint::platform::update_timers_and_animations();
+                let _ = ui.window().take_snapshot();
+                let (left, width) = geometry.get();
+                lefts[tab as usize] = left;
+                selected_widths[tab as usize] = width;
+            }
+            let unselected =
+                |tab: usize| lefts[tab + 1] - lefts[tab] - 6.;
+            let icon_x = |tab: i32, current: i32| {
+                let extra = if current < tab {
+                    selected_widths[current as usize] - unselected(current as usize)
+                } else {
+                    0.
+                };
+                lefts[tab as usize] + extra + 18.
+            };
             ui.set_tab(1);
-            for (tab, offset) in [(2, 175.), (0, 33.), (3, 248.), (1, 108.)] {
-                click(
-                    x + offset - if side { tab as f32 * 4. } else { 0. },
-                    y + 28.,
-                );
+            slint::platform::update_timers_and_animations();
+            let _ = ui.window().take_snapshot();
+            for (tab, current) in [(2, 1), (0, 2), (3, 0), (1, 3)] {
+                // The Usage tab narrows the top notch to 360px, so the strip moves.
+                let shift = if side { 0. } else { (620. - ui.get_open_width()) / 2. };
+                click(x + shift + icon_x(tab, current), y + 28.);
+                slint::platform::update_timers_and_animations();
+                let _ = ui.window().take_snapshot();
                 assert_eq!(
                     ui.get_tab(),
                     tab,
@@ -1250,6 +1370,34 @@ fn request_controls_deliver_the_first_click() {
     assert_eq!(choice.get(), 0);
     ui.hide().unwrap();
 }
+#[test]
+fn compact_request_badges_render_at_four_scales() {
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    slint::platform::set_platform(Box::new(Offscreen(window.clone()))).unwrap();
+    let ui = NotchWindow::new().unwrap();
+    ui.set_ready(true);
+    ui.global::<Theme>().set_dark(true);
+    ui.show().unwrap();
+    for (edge, side) in [(0, false), (2, true)] {
+        ui.set_edge(edge);
+        ui.set_along(if side { 122. } else { 145. });
+        ui.set_depth(if side { 46. } else { 44. });
+        for count in [1, 12] {
+            ui.global::<NotchData>().set_pending_count(count);
+            for percent in [100, 125, 150, 175] {
+                capture(
+                    &window,
+                    &ui,
+                    &format!("compact-badge-{edge}-{count}-{percent}"),
+                    percent as f32 / 100.,
+                    side,
+                );
+            }
+        }
+    }
+    ui.hide().unwrap();
+}
+
 fn capture(window: &MinimalSoftwareWindow, ui: &NotchWindow, name: &str, scale: f32, side: bool) {
     window.dispatch_event(WindowEvent::ScaleFactorChanged {
         scale_factor: scale,
@@ -1386,6 +1534,7 @@ fn live_notch_decisions_folding_edges_and_physical_renders() {
         }
     });
     let ui = NotchWindow::new().unwrap();
+    ui.set_desk_available(true);
     let notch = Notch::connect(&ui, host.clone());
     ui.set_ready(true);
     ui.show().unwrap();
@@ -1871,6 +2020,21 @@ fn source_fixture_typography_and_dimensions() {
             assert_eq!(ui.get_compact_width(), 151.);
             first.text = "32%".into();
             providers.set_row_data(0, first);
+            let provider_model = notch.borrow().providers.clone();
+            let second = provider_model.row_data(1).unwrap();
+            provider_model.remove(1);
+            ui.set_view_mode(1);
+            let single_width = ui.get_compact_width();
+            assert!(
+                (65. ..100.).contains(&single_width),
+                "one provider should fit its own content: {single_width}px"
+            );
+            ui.set_along(single_width);
+            ui.set_depth(44.);
+            capture(&window, &ui, &format!("single-{theme}-{percent}"), scale, false);
+            provider_model.push(second);
+            ui.window().take_snapshot().unwrap();
+            assert_eq!(ui.get_compact_width(), 145.);
             // Use the same populated source fixture for narrow side-edge rows.
             for edge in [2, 3] {
                 ui.set_edge(edge);

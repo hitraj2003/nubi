@@ -82,7 +82,9 @@ impl NativeHost {
         if dnd {
             return;
         }
-        let fullscreen = settings.toast_when_fullscreen && nubi_core::winutil::fullscreen_active();
+        let fullscreen = !settings.notifications_inside_notch
+            && settings.toast_when_fullscreen
+            && nubi_core::winutil::fullscreen_active();
         if fullscreen {
             if settings.sounds {
                 nubi_core::winutil::beep(&alert.kind);
@@ -101,7 +103,7 @@ impl NativeHost {
                 eprintln!("[nubi] toast: {error}");
             }
         } else {
-            let event = if settings.edge == "top" {
+            let event = if settings.notifications_inside_notch || settings.edge == "top" {
                 UiEvent::Alert(alert)
             } else {
                 UiEvent::OverlayAlert(alert)
@@ -117,11 +119,14 @@ pub fn dnd_active(state: &Inner) -> bool {
     }
     if let (Some(start), Some(end)) = (state.settings.quiet_start, state.settings.quiet_end) {
         use chrono::Timelike;
-        let hour = chrono::Local::now().hour() as u8;
+        let now = chrono::Local::now();
+        let now = now.hour() * 60 + now.minute();
+        let start = start as u32 * 60 + state.settings.quiet_start_min as u32;
+        let end = end as u32 * 60 + state.settings.quiet_end_min as u32;
         if if start <= end {
-            hour >= start && hour < end
+            now >= start && now < end
         } else {
-            hour >= start || hour < end
+            now >= start || now < end
         } {
             return true;
         }
@@ -311,11 +316,15 @@ mod alert_routing_tests {
     use nubi_core::settings::Settings;
     #[test]
     fn ordinary_alerts_use_notch_or_overlay_and_dnd_only_queues() {
-        for edge in ["top", "bottom", "left", "right"] {
+        for (edge, inside) in ["top", "bottom", "left", "right"]
+            .into_iter()
+            .flat_map(|edge| [(edge, false), (edge, true)])
+        {
             let settings = Settings {
                 edge: edge.into(),
                 sounds: false,
                 toast_when_fullscreen: false,
+                notifications_inside_notch: inside,
                 follow_quiet_time: false,
                 quiet_start: None,
                 quiet_end: None,
@@ -333,8 +342,8 @@ mod alert_routing_tests {
             };
             host.alert(alert.clone());
             match events.try_recv().unwrap() {
-                UiEvent::Alert(_) => assert_eq!(edge, "top"),
-                UiEvent::OverlayAlert(_) => assert_ne!(edge, "top"),
+                UiEvent::Alert(_) => assert!(inside || edge == "top"),
+                UiEvent::OverlayAlert(_) => assert!(!inside && edge != "top"),
                 _ => panic!("wrong ordinary alert event"),
             }
             assert!(events.try_recv().is_err());

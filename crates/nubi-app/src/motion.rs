@@ -261,7 +261,8 @@ mod tests {
                 current != previous && (current * 1.25).round() == (previous * 1.25).round(),
             );
         }
-        assert!(changed > 110);
+        // The quicker 2026-11-28 open curve settles at about frame 110 of 120.
+        assert!(changed > 100);
         assert!(
             rounded_duplicates > 40,
             "physical-pixel rounding hides the slow spring tail"

@@ -26,6 +26,7 @@ impl ContentImages {
             scale,
             ui.window().size().width,
             ui.get_natural_width(),
+            ui.get_natural_height(),
         ))
         .map_err(|error| error.to_string())?;
         if self.cache.as_ref().is_none_or(|cache| cache.key != key) {
@@ -167,10 +168,13 @@ mod tests {
         slint::platform::set_platform(Box::new(Offscreen(window.clone()))).unwrap();
         let ui = NativeAlert::new().unwrap();
         ui.set_heading("Claude · Task complete".into());
+        let title_only_height = ui.get_natural_height();
         ui.set_message("Typography comparison".into());
         ui.set_kind("done".into());
+        assert!(ui.get_natural_width() < 320.);
+        assert!(ui.get_natural_height() > title_only_height);
         ui.set_pill_width(ui.get_natural_width());
-        ui.set_pill_height(56.);
+        ui.set_pill_height(ui.get_natural_height());
         ui.set_pill_scale(1.);
         ui.set_pill_opacity(1.);
         ui.set_content_opacity(1.);

@@ -15,7 +15,9 @@ component RuntimeAction inherits Rectangle {
     height: 34px;
     border-radius: 12px;
     opacity: root.enabled ? 1 : 0.5;
-    background: root.quiet ? transparent : root.primary ? (touch.has-hover ? Theme.notch-action-hover : Theme.notch-action) : touch.has-hover ? Theme.row-hover : Theme.row;
+    background: root.quiet ? transparent : root.primary ? (touch.pressed ? Theme.notch-action.darker(0.12) : touch.has-hover ? Theme.notch-action-hover : Theme.notch-action)
+        : touch.pressed ? Theme.notch-ink-14 : touch.has-hover ? Theme.row-hover : Theme.row;
+    animate background { duration: Theme.reduced ? 0ms : 150ms; easing: ease-out; }
     border-width: root.selected ? 1.5px : 0px;
     border-color: Theme.notch-action;
     accessible-role: button;

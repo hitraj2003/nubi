@@ -156,6 +156,30 @@ pub fn install_shim() -> std::io::Result<PathBuf> {
     install_shim_from(&std::env::current_exe()?, dst)
 }
 
+/// Refresh the stable helper after an app update, so installed hooks run the new build.
+/// Does nothing unless hooks are enabled for a provider and the copy is out of date.
+pub fn refresh_shim() {
+    if crate::isolation::development() || !["claude", "codex"].iter().any(|p| is_enabled(p)) {
+        return;
+    }
+    let (Some(dst), Ok(exe)) = (shim_path(), std::env::current_exe()) else {
+        return;
+    };
+    let packaged = exe.parent().map(|dir| dir.join("helpers").join(HOOK_EXE));
+    let Some(src) = packaged.filter(|path| path.is_file()) else {
+        return;
+    };
+    let same = match (std::fs::read(&src), std::fs::read(&dst)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if !same {
+        if let Err(e) = install_shim_from(&exe, dst) {
+            eprintln!("[nubi] shim refresh failed: {e}");
+        }
+    }
+}
+
 fn install_shim_from(app_exe: &Path, dst: PathBuf) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(dst.parent().unwrap())?;
     // The default install folder and stable shim folder differ only in case on Windows.

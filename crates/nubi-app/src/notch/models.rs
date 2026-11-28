@@ -295,12 +295,14 @@ impl Notch {
                 ui.set_menu_key("".into());
             }
         });
-        let settings = with(&host, |state| state.settings.clone());
-        let cache = host
-            .desktime
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let snapshot = cache.snapshot(&settings, chrono::Local::now());
+        if !ui.get_desk_available() {
+            data.set_desk_visible(false);
+            data.set_desk_loading(false);
+            data.set_glance("".into());
+            if ui.get_tab() == 3 {
+                ui.set_tab(1);
+            }
+        }
         data.set_refresh_error(
             if ui.get_tab() == 2 {
                 self.refresh_error.as_str()
@@ -309,6 +311,15 @@ impl Notch {
             }
             .into(),
         );
+        if !ui.get_desk_available() {
+            return;
+        }
+        let settings = with(&host, |state| state.settings.clone());
+        let cache = host
+            .desktime
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let snapshot = cache.snapshot(&settings, chrono::Local::now());
         data.set_desk_visible(snapshot.show);
         data.set_desk_loading(snapshot.loading);
         data.set_desk_retry(
@@ -509,6 +520,8 @@ impl Notch {
             }
         }
         let settings = with(&self.host, |state| state.settings.clone());
+        ui.set_inline_notifications(settings.notifications_inside_notch);
+        ui.set_alert_active(self.alert.is_some());
         let data = ui.global::<NotchData>();
         let waiting = data.get_pending_count() + data.get_missed_count() > 0;
         if self.popup.is_some_and(|since| {
@@ -527,7 +540,7 @@ impl Notch {
             || (!data.get_focused_request().is_empty() && ui.get_opened())
         {
             3
-        } else if self.alert.is_some() && ui.get_edge() == 0 {
+        } else if self.alert.is_some() && (settings.notifications_inside_notch || ui.get_edge() == 0) {
             2
         } else if settings.notch_on_hover
             && !waiting
@@ -566,11 +579,19 @@ impl Notch {
         };
         let available =
             f64::from(ui.window().size().height) / f64::from(ui.window().scale_factor());
-        let open_height = (68. + pane.min(max)).min((available - 48.).max(100.));
+        let banner_space = if mode == 3 {
+            f64::from(ui.get_banner_space())
+        } else {
+            0.
+        };
+        let open_limit = (available - 48.)
+            .max(100.)
+            .min(if side { 812. } else { 676. });
+        let open_height = (68. + banner_space + pane.min(max)).min(open_limit);
         let open_height = if ui.get_menu_key().is_empty() {
             open_height
         } else {
-            open_height.max(240.).min((available - 48.).max(100.))
+            open_height.max(240.).min(open_limit)
         };
         ui.set_open_height(open_height as f32);
         // Match DOM offsetWidth: measure the laid-out content, then round logical pixels.
@@ -591,14 +612,20 @@ impl Notch {
                     [compact_width, 44., 16., 8.]
                 }
             }
+            2 if settings.notifications_inside_notch => {
+                let width = f64::from(ui.get_notice_width());
+                let height = f64::from(ui.get_notice_height());
+                let (along, depth) = if side { (height, width) } else { (width, height) };
+                [along, depth, 18., 12.]
+            }
             2 => [360., 56., 18., 12.],
             _ => {
                 if side {
-                    [open_height.min(812.), 360., 32., 20.]
+                    [open_height, f64::from(ui.get_open_width()), 32., 20.]
                 } else {
                     [
                         f64::from(ui.get_open_width()),
-                        open_height.min(676.),
+                        open_height,
                         32.,
                         20.,
                     ]

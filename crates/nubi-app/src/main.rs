@@ -5,6 +5,7 @@ mod alert_content_motion;
 mod alert_popup;
 mod alert_text;
 mod alerts;
+mod icon_frames;
 mod equalizer_motion;
 mod host;
 mod launcher;
@@ -72,6 +73,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {}
     }
+    std::thread::spawn(nubi_core::hooks_config::refresh_shim);
     let mut action = None;
     let mut exit_after = None;
     for argument in arguments.iter().skip(1) {

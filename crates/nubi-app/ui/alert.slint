@@ -25,16 +25,39 @@ export component NativeAlert inherits Window {
     in property <float> raster-offset-x;
     in property <float> raster-offset-y;
     private property <float> visual-width: capture-content ? natural-width : pill-width;
-    private property <float> visual-height: capture-content ? 56 : pill-height;
+    private property <float> visual-height: capture-content ? natural-height : pill-height;
     private property <float> visual-scale: capture-content ? 1 : pill-scale;
-    out property <float> natural-width: min(480px, 64px + max(title-measure.preferred-width, body-measure.preferred-width)) / 1px;
+    // Wrapped bodies shrink to the narrowest width that keeps the same line count, so the
+    // pill has no empty space after the longest line (owner, 2026-11-28).
+    private property <length> wrap-height: wrap-256.preferred-height;
+    private property <length> body-fit: body-width-measure.preferred-width <= 256px ? body-width-measure.preferred-width
+        : wrap-160.preferred-height <= root.wrap-height ? 160px : wrap-176.preferred-height <= root.wrap-height ? 176px
+        : wrap-192.preferred-height <= root.wrap-height ? 192px : wrap-208.preferred-height <= root.wrap-height ? 208px
+        : wrap-224.preferred-height <= root.wrap-height ? 224px : wrap-240.preferred-height <= root.wrap-height ? 240px : 256px;
+    out property <float> natural-width: min(320px, 64px + max(title-measure.preferred-width, root.body-fit)) / 1px;
+    private property <length> text-width: root.natural-width * 1px - 64px;
+    private property <int> body-lines: root.heading == "" ? 3 : 2;
+    private property <length> title-height: root.heading == "" ? 0px : title-measure.preferred-height;
+    private property <length> body-height: root.message == "" ? 0px : body-measure.preferred-height;
+    private property <length> text-gap: root.title-height > 0px && root.body-height > 0px ? 1px : 0px;
+    private property <length> text-height: root.title-height + root.text-gap + root.body-height;
+    out property <float> natural-height: (max(20px, root.text-height) + 22px) / 1px;
     out property <float> hit-x: pill.x / 1px;
     out property <float> hit-y: pill.y / 1px;
     out property <float> hit-width: pill.width / 1px;
     out property <float> hit-height: pill.height / 1px;
     callback open-settings();
     title-measure := Text { text: root.heading; font-size: 13px; font-weight: 600; opacity: 0; }
-    body-measure := Text { text: root.message; font-size: 11px; font-weight: 600; opacity: 0; }
+    body-width-measure := Text { text: root.message; font-size: 11px; font-weight: 600; opacity: 0; }
+    wrap-160 := Text { width: 160px; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap; opacity: 0; }
+    wrap-176 := Text { width: 176px; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap; opacity: 0; }
+    wrap-192 := Text { width: 192px; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap; opacity: 0; }
+    wrap-208 := Text { width: 208px; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap; opacity: 0; }
+    wrap-224 := Text { width: 224px; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap; opacity: 0; }
+    wrap-240 := Text { width: 240px; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap; opacity: 0; }
+    wrap-256 := Text { width: 256px; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap; opacity: 0; }
+    body-measure := Text { width: root.text-width; text: root.message; font-size: 11px; font-weight: 600; wrap: word-wrap;
+        max-lines: root.body-lines; overflow: elide; opacity: 0; }
     pill := Rectangle {
         width: root.visual-width * root.visual-scale * 1px;
         height: max(0, root.visual-height * root.visual-scale) * 1px;
@@ -55,7 +78,14 @@ export component NativeAlert inherits Window {
             }
         }
         }
-        if !root.capture-content : Rectangle { width: 100%; height: 100%; background: Theme.notch-bg; border-radius: 28px * root.visual-scale; }
+        if !root.capture-content : Rectangle {
+            width: 100%; height: 100%; background: Theme.notch-bg; border-radius: 28px * root.visual-scale;
+            Rectangle {
+                width: 100%; height: 100%; border-radius: parent.border-radius;
+                background: alert-touch.pressed ? Theme.notch-ink-14 : alert-touch.has-hover ? Theme.notch-ink-12 : transparent;
+                animate background { duration: Theme.reduced ? 0ms : 150ms; easing: ease-out; }
+            }
+        }
         if root.capture-content || !root.has-raster : Rectangle { x: 14px * root.visual-scale; width: max(0px, parent.width - 28px * root.visual-scale); height: parent.height;
             opacity: root.capture-content ? 1 : clamp(root.content-opacity, 0, 1);
             Image { x: 2px * root.visual-scale; y: (parent.height - self.height) / 2;
@@ -64,18 +94,18 @@ export component NativeAlert inherits Window {
                 colorize: root.kind == "done" ? Theme.ok : root.kind == "permission" ? Theme.warn : Theme.info;
             }
             Rectangle { x: 36px * root.visual-scale; y: (parent.height - self.height) / 2;
-                width: max(0px, parent.width - self.x); height: 29.8px * root.visual-scale;
-                Text { x: 0px; y: 0px; width: 100%; height: 15.6px * root.visual-scale; text: root.heading; color: Theme.ink;
-                    font-size: 13px * root.visual-scale; font-weight: 600; overflow: elide; vertical-alignment: center; }
-                Text { y: 16.6px * root.visual-scale; width: 100%; height: 13.2px * root.visual-scale; text: root.message; color: Theme.ink-2;
-                    font-size: 11px * root.visual-scale; font-weight: 600; overflow: elide; vertical-alignment: center; }
+                width: max(0px, parent.width - self.x); height: root.text-height * root.visual-scale;
+                Text { x: 0px; y: 0px; width: 100%; height: root.title-height * root.visual-scale; text: root.heading; color: Theme.ink;
+                    font-size: 13px * root.visual-scale; font-weight: 600; max-lines: 1; overflow: elide; }
+                Text { x: 0px; y: (root.title-height + root.text-gap) * root.visual-scale; width: 100%; height: root.body-height * root.visual-scale; text: root.message; color: Theme.ink-2;
+                    font-size: 11px * root.visual-scale; font-weight: 600; wrap: word-wrap; max-lines: root.body-lines; overflow: elide; }
             }
         }
         if root.has-raster && !root.capture-content : Rectangle {
             width: 100%; height: 100%; clip: true;
             Image {
                 x: (root.visual-width * (1 - root.content-scale) / 2 - root.raster-offset-x * root.content-scale) * root.visual-scale * 1px;
-                y: ((root.visual-height - 56 * root.content-scale) / 2 + root.content-y - root.raster-offset-y * root.content-scale) * root.visual-scale * 1px;
+                y: ((root.visual-height - root.natural-height * root.content-scale) / 2 + root.content-y - root.raster-offset-y * root.content-scale) * root.visual-scale * 1px;
                 width: root.raster-width * root.visual-scale * root.content-scale * 1px;
                 height: root.raster-height * root.visual-scale * root.content-scale * 1px;
                 source: root.content-image; image-fit: fill;
@@ -85,7 +115,7 @@ export component NativeAlert inherits Window {
             Image {
                 private property <float> pop: 0.8 + 0.2 * root.icon-progress;
                 x: (root.visual-width * (1 - root.content-scale) / 2 - root.raster-offset-x * root.content-scale * self.pop + 26 * root.content-scale * (1 - self.pop)) * root.visual-scale * 1px;
-                y: ((root.visual-height - 56 * root.content-scale) / 2 + root.content-y - root.raster-offset-y * root.content-scale * self.pop + 28 * root.content-scale * (1 - self.pop)) * root.visual-scale * 1px;
+                y: ((root.visual-height - root.natural-height * root.content-scale) / 2 + root.content-y - root.raster-offset-y * root.content-scale * self.pop + root.natural-height / 2 * root.content-scale * (1 - self.pop)) * root.visual-scale * 1px;
                 width: root.raster-width * root.visual-scale * root.content-scale * self.pop * 1px;
                 height: root.raster-height * root.visual-scale * root.content-scale * self.pop * 1px;
                 source: root.icon-image; image-fit: fill;
@@ -95,6 +125,6 @@ export component NativeAlert inherits Window {
         }
         accessible-role: button; accessible-label: root.heading + ". " + root.message;
         accessible-action-default => { root.open-settings(); }
-        TouchArea { mouse-cursor: pointer; clicked => { root.open-settings(); } }
+        alert-touch := TouchArea { mouse-cursor: pointer; clicked => { root.open-settings(); } }
     }
 }

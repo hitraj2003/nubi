@@ -2,14 +2,23 @@ use super::*;
 pub fn session_action(host: &NativeHost, key: &str, action: &str) -> Result<(), String> {
     match action {
         "jump" => {
-            let (window, pids) = with(host, |state| {
-                state
-                    .sessions
-                    .get(key)
-                    .map(|session| (session.window, session.pids.clone()))
+            let (window, pids, folder, name) = with(host, |state| {
+                state.sessions.get(key).map(|session| {
+                    let folder = session.cwd.as_deref().and_then(|cwd| {
+                        std::path::Path::new(cwd)
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                    });
+                    (session.window, session.pids.clone(), folder, session.name.clone())
+                })
             })
             .ok_or("unknown session")?;
-            if !nubi_core::winutil::focus_pids(window, &pids) {
+            if !nubi_core::winutil::focus_session_named(
+                window,
+                &pids,
+                folder.as_deref(),
+                Some(name.as_str()),
+            ) {
                 return Err("Terminal window not found".into());
             }
         }

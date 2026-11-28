@@ -3,7 +3,7 @@
 #[path = "panel_tests.rs"]
 mod tests;
 use crate::{
-    NotchData, NotchProvider, NotchRequest, NotchSession, PanelAlert, PanelData, PanelField,
+    CalendarDay, NotchData, NotchProvider, NotchRequest, NotchSession, PanelAlert, PanelData, PanelField,
     ParityPanel, Theme,
     host::NativeHost,
     notch::Notch,
@@ -95,6 +95,14 @@ impl Panel {
     ) {
         connect(panel);
         let data = panel.global::<PanelData>();
+        // LOCALE_ITIME reads the current user's Windows 12/24-hour override.
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetLocaleInfoEx(locale: *const u16, kind: u32, buffer: *mut u16, length: i32) -> i32;
+        }
+        let mut clock = [0u16; 2];
+        let read = unsafe { GetLocaleInfoEx(std::ptr::null(), 0x23, clock.as_mut_ptr(), 2) };
+        data.set_clock_24(read > 0 && clock[0] == u16::from(b'1'));
         data.set_development(nubi_core::isolation::development());
         panel.set_app_version(env!("CARGO_PKG_VERSION").into());
         {
@@ -113,6 +121,44 @@ impl Panel {
             panel
                 .global::<NotchData>()
                 .set_providers(this.providers.clone().into());
+        }
+        {
+            use chrono::Datelike;
+            let month = std::rc::Rc::new(std::cell::Cell::new(0i32));
+            let weak = panel.as_weak();
+            let shown = month.clone();
+            data.on_calendar_move(move |delta| {
+                let Some(panel) = weak.upgrade() else { return };
+                let today = chrono::Local::now().date_naive();
+                let current = today.year() * 12 + today.month0() as i32;
+                shown.set(if delta == 0 { current } else { shown.get() + delta });
+                let (year, month0) = (shown.get().div_euclid(12), shown.get().rem_euclid(12) as u32);
+                let Some(first) = chrono::NaiveDate::from_ymd_opt(year, month0 + 1, 1) else { return };
+                let lead = first.weekday().num_days_from_monday() as i64;
+                let days: Vec<CalendarDay> = (0..42)
+                    .map(|cell| {
+                        let date = first + chrono::Duration::days(cell - lead);
+                        if date.month0() == month0 {
+                            CalendarDay {
+                                label: date.day().to_string().into(),
+                                date: date.format("%Y-%m-%d").to_string().into(),
+                            }
+                        } else {
+                            CalendarDay::default()
+                        }
+                    })
+                    .collect();
+                let data = panel.global::<PanelData>();
+                data.set_calendar(std::rc::Rc::new(VecModel::from(days)).into());
+                data.set_calendar_title(first.format("%B %Y").to_string().into());
+            });
+            let weak = panel.as_weak();
+            data.on_calendar_pick(move |date| {
+                if let Some(panel) = weak.upgrade() {
+                    let data = panel.global::<PanelData>();
+                    data.invoke_edit(data.get_date_field(), date);
+                }
+            });
         }
         let weak = panel.as_weak();
         data.on_picked_date(move |key, year, month, day| {
@@ -151,8 +197,10 @@ impl Panel {
                     let mut this = captured.borrow_mut();
                     let result = this.edit(&key, &shortcut);
                     this.result(&panel, &key, result);
+                    return true;
                 }
             }
+            false
         });
         let weak = panel.as_weak();
         let panes = owner.clone();
@@ -198,6 +246,14 @@ impl Panel {
                 Ok(()) => {
                     this.sync_fields(&panel);
                     panel.set_status("Saved".into());
+                    let weak = panel.as_weak();
+                    slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+                        if let Some(panel) = weak.upgrade() {
+                            if panel.get_status() == "Saved" {
+                                panel.set_status("".into());
+                            }
+                        }
+                    });
                     true
                 }
                 Err(error) => {
@@ -259,6 +315,28 @@ impl Panel {
                 .format("%Y-%m-%d")
                 .to_string();
             return self.draft.date(key, &date, false);
+        }
+        if spec.kind == "hour" {
+            if let Some(time) = value.strip_prefix("time=") {
+                let (h,m) = time.split_once(':').ok_or("Enter a time as HH:MM")?;
+                let parse = |part: &str| part.len() <= 2 && !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+                if !parse(h) || !parse(m) { return Err("Enter a time as HH:MM".into()); }
+                let hour = h.parse::<u8>().unwrap();
+                let minute = m.parse::<u8>().unwrap();
+                if hour > 24 || minute > 59 || (hour == 24 && minute != 0) {
+                    return Err("Enter 00:00 through 23:59, or 24:00 for midnight".into());
+                }
+                self.draft.edit_text(key, &(hour % 24).to_string())?;
+                return self.draft.edit_text(&format!("{key}_min"), &minute.to_string());
+            }
+            if let Some(minute) = value.strip_prefix("m:") {
+                return self.draft.edit_text(&format!("{key}_min"), minute.trim_start_matches('0').parse::<u8>().unwrap_or(0).to_string().as_str());
+            }
+            if let Some(index) = value.strip_prefix("h:") {
+                let index = index.parse::<usize>().map_err(|_| "Invalid hour")?;
+                let hour = if index == 0 { String::new() } else { (index - 1).to_string() };
+                return self.draft.edit_text(key, &hour);
+            }
         }
         let mut value = value.to_string();
         if let Some(index) = value.strip_prefix('@') {
@@ -612,15 +690,9 @@ pub(crate) fn transaction(
     mut startup: impl FnMut(bool) -> Result<(), String>,
     mut persist: impl FnMut(&Settings) -> Result<(), String>,
 ) -> Result<(), String> {
-    if let Err(error) = shortcuts(next) {
-        let rollback = shortcuts(previous);
-        return Err(format!(
-            "{error}{}",
-            rollback
-                .err()
-                .map(|e| format!("; shortcut rollback failed: {e}"))
-                .unwrap_or_default()
-        ));
+    let keys_changed = crate::tray::parse_shortcuts(previous).ok() != Some(crate::tray::parse_shortcuts(next)?);
+    if keys_changed {
+        shortcuts(next)?;
     }
     let result = (if next.auto_start != previous.auto_start {
         startup(next.auto_start)
@@ -629,7 +701,7 @@ pub(crate) fn transaction(
     })
     .and_then(|_| persist(next));
     if let Err(error) = result {
-        let restore_shortcuts = shortcuts(previous);
+        let restore_shortcuts = if keys_changed { shortcuts(previous) } else { Ok(()) };
         let restore_start = if next.auto_start != previous.auto_start {
             startup(previous.auto_start)
         } else {

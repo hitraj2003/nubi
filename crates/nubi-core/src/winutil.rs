@@ -15,7 +15,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow, ShowWindow, GW_OWNER,
     MB_ICONASTERISK, MB_ICONEXCLAMATION, SW_RESTORE,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOTOWNER};
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    BringWindowToTop, GetAncestor, GetWindowTextW, GA_ROOTOWNER,
+};
 
 /// Session window candidates: visible console owner first, then parents nearest first.
 /// Excludes self and the desktop shell; a hidden console owner is a final fallback.
@@ -149,19 +152,121 @@ unsafe extern "system" fn collect(hwnd: HWND, lp: LPARAM) -> BOOL {
 /// Bring the first unambiguous session host to the front. Best effort: whole window, not tab.
 /// A bound console window wins over PID matching.
 pub fn focus_pids(window: u64, pids: &[u32]) -> bool {
+    focus_session(window, pids, None)
+}
+
+/// Like [`focus_pids`], but when one host process owns several windows (VS Code, a
+/// multi-window Windows Terminal), pick the single window whose title names `folder`.
+pub fn focus_session(window: u64, pids: &[u32], folder: Option<&str>) -> bool {
+    focus_session_named(window, pids, folder, None)
+}
+
+/// [`focus_session`] plus a last resort for terminals outside the process tree. Windows
+/// Terminal hosts Claude through a pseudoconsole, so neither the process ancestry nor the
+/// console window leads to it, but Claude names the window after the session.
+pub fn focus_session_named(
+    window: u64,
+    pids: &[u32],
+    folder: Option<&str>,
+    name: Option<&str>,
+) -> bool {
     let mut list: Vec<(HWND, u32)> = vec![];
     unsafe {
         EnumWindows(Some(collect), &mut list as *mut _ as LPARAM);
     }
-    if let Some(hwnd) = bound_window(window).or_else(|| nearest_host(pids, &list)) {
-        unsafe {
-            if IsIconic(hwnd) != 0 {
-                ShowWindow(hwnd, SW_RESTORE);
-            }
-            return SetForegroundWindow(hwnd) != 0;
-        }
+    let titled = || {
+        let folder = folder?.trim();
+        (!folder.is_empty()).then_some(())?;
+        titled_host(pids, &list, folder, |hwnd| window_title(hwnd))
+    };
+    let named = || {
+        let name = name?.trim();
+        (name.chars().count() >= 3).then_some(())?;
+        named_terminal(&list, name, |hwnd| window_title(hwnd), |pid| {
+            process_image(pid).is_some_and(|image| terminal_host(&image))
+        })
+    };
+    if let Some(hwnd) = bound_window(window)
+        .or_else(|| nearest_host(pids, &list))
+        .or_else(titled)
+        .or_else(named)
+    {
+        return bring_to_front(hwnd);
     }
     false
+}
+
+/// The single terminal-host window whose title names the session. Several matches pick none.
+fn named_terminal<T: Copy>(
+    windows: &[(T, u32)],
+    name: &str,
+    title: impl Fn(T) -> String,
+    is_terminal: impl Fn(u32) -> bool,
+) -> Option<T> {
+    let name = name.to_lowercase();
+    let mut matches = windows
+        .iter()
+        .filter(|(_, pid)| is_terminal(*pid))
+        .map(|(window, _)| *window)
+        .filter(|window| title(*window).to_lowercase().contains(&name));
+    let first = matches.next()?;
+    matches.next().is_none().then_some(first)
+}
+
+fn window_title(hwnd: HWND) -> String {
+    let mut buffer = [0u16; 512];
+    let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+    String::from_utf16_lossy(&buffer[..len.max(0) as usize])
+}
+
+/// The nearest PID with windows wins; among its windows, exactly one title must name
+/// the folder. Several matches stay ambiguous and pick nothing.
+fn titled_host<T: Copy>(
+    pids: &[u32],
+    windows: &[(T, u32)],
+    folder: &str,
+    title: impl Fn(T) -> String,
+) -> Option<T> {
+    let folder = folder.to_lowercase();
+    for pid in pids {
+        let owned: Vec<T> = windows
+            .iter()
+            .filter(|(_, owner)| owner == pid)
+            .map(|(window, _)| *window)
+            .collect();
+        if owned.is_empty() {
+            continue;
+        }
+        let mut matches = owned
+            .into_iter()
+            .filter(|window| title(*window).to_lowercase().contains(&folder));
+        let first = matches.next()?;
+        return matches.next().is_none().then_some(first);
+    }
+    None
+}
+
+/// SetForegroundWindow fails while another app holds the foreground lock (Nubi's notch
+/// never takes focus). Attaching to the foreground thread's input lifts the lock.
+fn bring_to_front(hwnd: HWND) -> bool {
+    unsafe {
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        if SetForegroundWindow(hwnd) != 0 {
+            return true;
+        }
+        let foreground = GetForegroundWindow();
+        let theirs = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+        let ours = GetCurrentThreadId();
+        let attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, 1) != 0;
+        BringWindowToTop(hwnd);
+        let focused = SetForegroundWindow(hwnd) != 0;
+        if attached {
+            AttachThreadInput(ours, theirs, 0);
+        }
+        focused || GetForegroundWindow() == hwnd
+    }
 }
 
 fn nearest_host<T: Copy>(pids: &[u32], windows: &[(T, u32)]) -> Option<T> {
@@ -323,7 +428,36 @@ pub fn monitor_names() -> HashMap<String, String> {
 
 #[cfg(test)]
 mod focus_tests {
-    use super::{add_console_host, focused_host, nearest_host, terminal_host};
+    use super::{add_console_host, focused_host, named_terminal, nearest_host, terminal_host, titled_host};
+
+    #[test]
+    fn named_terminal_needs_one_terminal_title_match() {
+        let titles = |w: usize| match w {
+            1 => "\u{25d1} Release build issues".to_string(),
+            2 => "Release build issues - Notes".to_string(),
+            _ => "Other".to_string(),
+        };
+        let terminal = |pid: u32| pid == 9;
+        let windows = [(1usize, 9u32), (2, 4), (3, 9)];
+        assert_eq!(named_terminal(&windows, "release build issues", titles, terminal), Some(1));
+        assert_eq!(named_terminal(&windows, "missing", titles, terminal), None);
+        let twice = [(1usize, 9u32), (1, 9)];
+        assert_eq!(named_terminal(&twice, "Release", titles, terminal), None);
+    }
+
+    #[test]
+    fn titled_host_resolves_shared_hosts_by_folder() {
+        let titles = |w: usize| match w {
+            1 => "nubi - Visual Studio Code".to_string(),
+            2 => "other - Visual Studio Code".to_string(),
+            _ => "Nubi notes".to_string(),
+        };
+        let windows = [(1usize, 7u32), (2, 7)];
+        assert_eq!(titled_host(&[5, 7], &windows, "Nubi", titles), Some(1));
+        assert_eq!(titled_host(&[7], &windows, "missing", titles), None);
+        let both = [(1usize, 7u32), (3, 7)];
+        assert_eq!(titled_host(&[7], &both, "nubi", titles), None);
+    }
 
     #[test]
     fn bound_visible_console_precedes_unrelated_ancestor_terminal() {

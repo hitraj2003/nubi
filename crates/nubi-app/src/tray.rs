@@ -76,16 +76,20 @@ impl Shortcuts {
     pub fn apply(&mut self, settings: &Settings) -> Result<(), String> {
         let (dnd, launch) = parse_shortcuts(settings)?;
         let next: Vec<_> = [dnd, launch].into_iter().flatten().collect();
-        if next == self.current {
-            return Ok(());
+        // Keep existing registrations while testing new combinations.
+        let mut added = Vec::new();
+        for key in next.iter().filter(|key| !self.current.contains(key)) {
+            if self.manager.register(*key).is_err() {
+                for registered in added {
+                    self.manager.unregister(registered).map_err(|e| e.to_string())?;
+                }
+                let shortcut = if Some(*key) == dnd { &settings.dnd_hotkey } else { &settings.launch_hotkey };
+                return Err(format!("Windows could not register {shortcut}. Choose another shortcut or disable it."));
+            }
+            added.push(*key);
         }
-        self.manager
-            .unregister_all(&self.current)
-            .map_err(|e| e.to_string())?;
-        if let Err(error) = self.manager.register_all(&next) {
-            let _ = self.manager.unregister_all(&next);
-            let _ = self.manager.register_all(&self.current);
-            return Err(error.to_string());
+        for key in self.current.iter().filter(|key| !next.contains(key)) {
+            self.manager.unregister(*key).map_err(|e| e.to_string())?;
         }
         self.current = next;
         self.launch = launch.map(|hotkey| hotkey.id());

@@ -1,9 +1,12 @@
 import { Theme } from "theme.slint";
 import { ProviderMark, SourceIcon, Hint } from "parity-widgets.slint";
+import { ControlGlyph } from "icons.slint";
 import { NotchData, NotchRequest, NotchSession } from "notch-data.slint";
 
 export component NotchButton inherits Rectangle {
     in property <string> text;
+    // Lucide glyph drawn instead of the text label (Kokonut icon set).
+    in property <string> glyph;
     in property <bool> primary;
     in property <bool> quiet;
     in property <bool> subtitle;
@@ -13,13 +16,16 @@ export component NotchButton inherits Rectangle {
     out property <bool> has-focus: keys.has-focus;
     callback clicked();
     width: label.preferred-width + (root.subtitle ? 0px : 32px); height: 28px; border-radius: 14px;
-    background: root.subtitle ? transparent : root.primary ? (touch.has-hover ? Theme.notch-action-hover : Theme.notch-action) : touch.has-hover ? Theme.row-hover : root.quiet ? transparent : Theme.notch-ink-12;
+    background: root.subtitle ? transparent : root.primary ? (touch.pressed ? Theme.notch-action.darker(0.12) : touch.has-hover ? Theme.notch-action-hover : Theme.notch-action)
+        : touch.pressed ? Theme.notch-ink-14 : touch.has-hover ? Theme.row-hover : root.quiet ? transparent : Theme.notch-ink-12;
+    animate background { duration: Theme.reduced ? 0ms : 150ms; easing: ease-out; }
     border-width: keys.has-focus ? Theme.pixel * 2 : Theme.high-contrast && !root.subtitle ? Theme.pixel : 0px; border-color: Theme.ink-3;
     accessible-role: button; accessible-label: root.hint == "" ? root.text : root.hint; accessible-description: root.hint;
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     opacity: root.enabled ? 1 : 0.5;
-    label := Text { x: root.subtitle ? Theme.align(0px, parent.absolute-position.x) : 0px; y: root.subtitle ? Theme.align(0px, parent.absolute-position.y) : 0px; width: 100%; height: 100%; text: root.text;
+    if root.glyph != "" : ControlGlyph { width: 12px; height: 12px; name: root.glyph; ink: touch.has-hover ? Theme.ink : Theme.ink-2; }
+    label := Text { visible: root.glyph == ""; x: root.subtitle ? Theme.align(0px, parent.absolute-position.x) : 0px; y: root.subtitle ? Theme.align(0px, parent.absolute-position.y) : 0px; width: 100%; height: 100%; text: root.text;
         color: root.subtitle ? (touch.has-hover ? Theme.ink : Theme.ink-3) : root.primary ? Theme.notch-action-ink : Theme.ink; font-family: root.subtitle ? Theme.font : Theme.semibold;
         font-size: Theme.snap(12px); font-weight: root.subtitle ? Theme.notch-body-weight : 600; letter-spacing: root.subtitle ? Theme.notch-body-spacing : 0px; overflow: elide; vertical-alignment: root.subtitle ? top : center; horizontal-alignment: root.subtitle ? left : center; }
     touch := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { NotchData.focus-input(); keys.focus(); root.clicked(); } }
@@ -80,8 +86,8 @@ export component LiveSessionRow inherits Rectangle {
         color: Theme.ink-3; font-family: Theme.num; font-size: Theme.snap(11px); font-weight: Theme.notch-small-number-weight; vertical-alignment: center; horizontal-alignment: right; }
     Text { x: Theme.align(root.width - (root.side ? 86px : 88px), parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); width: 52px; height: Theme.snap(40px); text: root.session.ago;
         color: Theme.ink-3; font-family: Theme.num; font-size: Theme.snap(11px); font-weight: Theme.notch-small-number-weight; vertical-alignment: center; horizontal-alignment: right; }
-    Text { x: Theme.align(root.width - 24px, parent.absolute-position.x); y: Theme.align(0px, parent.absolute-position.y); width: 14px; height: Theme.snap(40px); text: "›"; font-size: 16px;
-        color: Theme.ink-3; vertical-alignment: center; opacity: touch.has-hover ? 1 : 0; }
+    ControlGlyph { x: Theme.align(root.width - 24px, parent.absolute-position.x); y: Theme.align((Theme.snap(40px) - 14px) / 2, parent.absolute-position.y);
+        name: "next"; ink: Theme.ink-3; opacity: touch.has-hover ? 1 : 0; animate opacity { duration: Theme.reduced ? 0ms : 150ms; easing: ease-out; } }
     if root.session.error != "" : Text { x: Theme.align(8px, parent.absolute-position.x); y: Theme.align(40px, parent.absolute-position.y); width: parent.width - 16px; height: Theme.snap(32px);
         text: root.session.error; color: Theme.bad; font-size: 12px; wrap: word-wrap; }
     touch := TouchArea { mouse-cursor: pointer;
@@ -96,7 +102,9 @@ export component LiveSessionRow inherits Rectangle {
     forward-focus: keys;
     accessible-role: button; accessible-label: root.session.name + ", " + root.session.state;
     accessible-action-default => { NotchData.terminal(root.session.key); }
-    Hint { x: 38px; y: 8px; active: touch.has-hover || keys.has-focus; text: "Open terminal"; }
+    // No hover tooltip: it covered the session title (owner, 2026-11-28). The hover
+    // chevron and the accessible description say the row opens the terminal.
+    accessible-description: "Open terminal";
 }
 
 export component QuestionBody inherits Rectangle {

@@ -9,7 +9,21 @@ export struct PanelField {
 export struct PanelAlert { time: string, provider: string, text: string, queued: bool, count: int }
 export struct PanelRelease { title: string, date: string, notes: string, download: string, current: bool }
 export struct CalendarDay { label: string, date: string }
+// Page-switch choreography (owner, 2026-11-28; LottieFiles motion-design rules): the heading
+// reveals out of a mask, card surfaces fade fast, then row contents cascade top to bottom.
+// `live` keeps animation-tick() out of idle frames.
+export global PageMotion {
+    in-out property <bool> live;
+    in-out property <bool> reduced;
+    in-out property <duration> started;
+    out property <float> elapsed: live && !reduced ? (animation-tick() - started) / 1ms : 4000;
+    // Progress 0..1 for an element whose own delay grows with its y (0.35 ms/px, capped).
+    public pure function reveal(y: length, base: float, span: float) -> float {
+        return 1 - pow(1 - clamp((elapsed - base - min(max(y, 0px) / 1px * 0.35, 200)) / span, 0, 1), 4);
+    }
+}
 export global PanelData {
+    in property <bool> clock-24;
     in-out property <[PanelField]> fields;
     in-out property <[PanelAlert]> alerts;
     in-out property <[PanelRelease]> releases;
@@ -44,6 +58,6 @@ export global PanelData {
     callback remove-date(string, string);
     callback calendar-move(int);
     callback calendar-pick(string);
-    callback capture(string, string, bool, bool, bool, bool);
+    callback capture(string, string, bool, bool, bool, bool) -> bool;
     callback action(string, string);
 }

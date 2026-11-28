@@ -151,12 +151,12 @@ html[data-theme=dark] .switch input:checked + i::after{background:var(--rail)}
 .swatches input:checked + i{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--c)}
 
 /* Dropdown */
-.dd{position:relative;flex:none}
-.dd>button{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:220px;height:32px;padding:0 12px;border-radius:10px;background:var(--card-2);box-shadow:inset 0 0 0 1px var(--line);font-size:13px;text-align:left}
+.dd{position:relative;flex:0 1 auto;width:fit-content;max-width:100%;min-width:0}
+.dd>button{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:100%;height:32px;padding:0 12px;border-radius:10px;background:var(--card-2);box-shadow:inset 0 0 0 1px var(--line);font-size:13px;text-align:left}
 .dd>button:hover{box-shadow:inset 0 0 0 1px var(--line-2)}
-.dd>button svg{width:14px;height:14px;color:var(--t3);transition:transform .25s var(--ease)}
+.dd>button svg{flex:none;width:14px;height:14px;color:var(--t3);transition:transform .25s var(--ease)}
 .dd.open>button svg{transform:rotate(180deg)}
-.dd ul{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:100%;margin:0;padding:5px;list-style:none;background:var(--card);border-radius:14px;box-shadow:var(--sh-pop);
+.dd ul{position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:max-content;min-width:100%;margin:0;padding:5px;list-style:none;background:var(--card);border-radius:14px;box-shadow:var(--sh-pop);
   opacity:0;transform:translateY(-4px) scale(.97);transform-origin:top right;pointer-events:none;visibility:hidden;transition:opacity .15s,transform .25s var(--spring),visibility 0s .25s}
 .dd.open ul{opacity:1;transform:none;pointer-events:auto;visibility:visible;transition-delay:0s}
 /* Cards can hold a transform from the stagger animation, which traps the menu below the next card. */
@@ -168,8 +168,8 @@ html[data-theme=dark] .switch input:checked + i::after{background:var(--rail)}
 .dd>button:disabled{opacity:.5;cursor:default;box-shadow:inset 0 0 0 1px var(--line)}
 .dt-note:empty{display:none}
 .dd.open .pop{opacity:1;transform:none;pointer-events:auto;visibility:visible;transition-delay:0s}
-.unit .dd>button{min-width:104px;color:var(--t1)}
-.dd.tp>button,.dd.dp>button{min-width:168px;font:12px var(--num);font-variant-numeric:tabular-nums}
+.unit .dd>button{color:var(--t1)}
+.dd.tp>button,.dd.dp>button{font:12px var(--num);font-variant-numeric:tabular-nums}
 .dd.dp>button{font-family:var(--font)}
 .tp-cols{display:flex;gap:4px}
 .tp-col{display:flex;flex-direction:column;gap:2px;height:200px;overflow-y:auto;padding-right:2px}

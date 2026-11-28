@@ -11,6 +11,7 @@ Full licence texts are in [`third_party/`](third_party/).
 | [yonathanamir/claude-usage-meter](https://github.com/yonathanamir/claude-usage-meter) | MIT, © 2026 Claude Usage Meter Contributors | 260e4f2 | Floating ring and tooltip layout, sizes, snap-to-edge motion (recreated from Python/Qt); colours now the shared Nubi usage scale | `ui/ring.*`, `ui/ringtip.*`, `src-tauri/src/ring.rs` |
 | [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) | MIT, © 2026 Code Zeno Pty Ltd | dea72c9 | Taskbar strip layout, duration format; taskbar discovery, tray-relative placement, child embedding, full-screen rule | `ui/taskbar.*`, `src-tauri/src/taskbar.rs` |
 | [Affirm/navi](https://github.com/Affirm/navi) | BSD-3-Clause | — | Ideas only (session list, inline approvals); no code copied | — |
+| [Kokonut UI](https://github.com/kokonut-labs/kokonutui) | MIT, © 2025 kokonutUI | Bell Button 1.0.0, Tool Dock 2.0.0 | Bell SVG paths and pendulum motion, Tool Dock hover and selection behavior | `crates/nubi-app/src/icon_frames.rs`, `crates/nubi-app/ui/` |
 
 ## Changes from the originals
 

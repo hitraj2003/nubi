@@ -38,6 +38,129 @@ fn click(window: &MinimalSoftwareWindow, x: f32, y: f32) {
     });
     slint::platform::update_timers_and_animations();
 }
+
+#[test]
+fn settings_dropdown_accepts_popup_click_and_keyboard_selection() {
+    let windows = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(Offscreen(windows.clone()))).unwrap();
+    let panel = ParityPanel::new().unwrap();
+    panel.set_page(4);
+    panel.global::<Theme>().set_reduced(true);
+    let data = panel.global::<PanelData>();
+    let draft = Draft::new(&Settings::default());
+    let fields = settings::SPECS
+        .iter()
+        .filter(|spec| spec.key == "providers")
+        .map(|spec| settings::row(spec, &draft, &[]))
+        .collect::<Vec<_>>();
+    data.set_fields(Rc::new(VecModel::from(fields)).into());
+    let selection = Rc::new(RefCell::new(Vec::new()));
+    let selected = selection.clone();
+    data.on_edit(move |key, value| selected.borrow_mut().push((key, value)));
+    panel.show().unwrap();
+    let window = windows.borrow()[0].clone();
+    render(&window, 1., 1100, 760, None);
+
+    click(&window, 1000., 100.);
+    click(&window, 1000., 176.);
+    assert_eq!(
+        selection.borrow().as_slice(),
+        &[("providers".into(), "@1".into())],
+    );
+    click(&window, 1000., 100.);
+    key(&window, Key::End.into());
+    key(&window, "\n".into());
+    assert_eq!(selection.borrow()[1], ("providers".into(), "@2".into()));
+    click(&window, 1000., 100.);
+    key(&window, Key::Escape.into());
+    assert_eq!(selection.borrow().len(), 2);
+    assert!(panel.window().is_visible());
+    panel.hide().unwrap();
+}
+
+#[test]
+fn kokonut_bell_hover_and_activation_render_distinct_frames() {
+    let windows = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(Offscreen(windows.clone()))).unwrap();
+    let panel = ParityPanel::new().unwrap();
+    panel.global::<crate::IconFrames>().on_bell(crate::icon_frames::bell);
+    panel.set_page(3);
+    panel.show().unwrap();
+    let window = windows.borrow()[0].clone();
+    window.set_size(slint::PhysicalSize::new(1100, 760));
+    let bell_pixels = || {
+        slint::platform::update_timers_and_animations();
+        let snapshot = panel.window().take_snapshot().unwrap();
+        let width = snapshot.width() as usize;
+        (224..248)
+            .flat_map(|y| (32..56).map(move |x| y * width + x))
+            .map(|offset| snapshot.as_slice()[offset])
+            .collect::<Vec<_>>()
+    };
+    let idle = bell_pixels();
+    window.dispatch_event(WindowEvent::PointerMoved {
+        position: slint::LogicalPosition::new(44., 236.),
+    });
+    let _ = bell_pixels();
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    let hover = bell_pixels();
+    assert_ne!(hover, idle);
+
+    click(&window, 44., 236.);
+    let _ = bell_pixels();
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    let ring = bell_pixels();
+    assert_ne!(ring, idle);
+    assert_ne!(ring, hover);
+    panel.hide().unwrap();
+}
+
+#[test]
+fn rail_icon_press_changes_button_color_and_release_restores_it() {
+    let windows = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(Offscreen(windows.clone()))).unwrap();
+    let panel = ParityPanel::new().unwrap();
+    panel.set_page(4);
+    let theme = panel.global::<Theme>();
+    theme.set_dark(true);
+    theme.set_panel_accent("yellow".into());
+    panel.show().unwrap();
+    let window = windows.borrow()[0].clone();
+    window.set_size(slint::PhysicalSize::new(1100, 760));
+    let position = slint::LogicalPosition::new(44., 712.);
+    let button_pixel = || {
+        slint::platform::update_timers_and_animations();
+        let snapshot = panel.window().take_snapshot().unwrap();
+        let width = snapshot.width() as usize;
+        snapshot.as_slice()[712 * width + 30].r
+    };
+    window.dispatch_event(WindowEvent::PointerMoved { position });
+    let before = button_pixel();
+    assert!(before > 200);
+    let press = WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    };
+    let release = WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    };
+    window.dispatch_event(press.clone());
+    let _ = button_pixel();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    assert!(button_pixel() < before);
+    window.dispatch_event(release.clone());
+    let _ = button_pixel();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    assert_eq!(button_pixel(), before);
+
+    theme.set_reduced(true);
+    window.dispatch_event(press);
+    assert!(button_pixel() < before);
+    window.dispatch_event(release);
+    panel.hide().unwrap();
+}
+
 fn render(
     window: &MinimalSoftwareWindow,
     scale: f32,
@@ -231,13 +354,13 @@ fn compiled_workflows(check_escape: bool) {
                 .upgrade()
         );
         assert!(panel.get_leave_open());
-        // Popup traversal wraps inside its three actions, in both directions.
+        // Popup traversal wraps inside its two actions (Discard, Save), in both directions.
         key(&window, Key::Tab.into());
         let first = slint::private_unstable_api::re_exports::WindowInner::from_pub(panel.window())
             .focus_item
             .borrow()
             .clone();
-        for _ in 0..3 {
+        for _ in 0..2 {
             key(&window, Key::Tab.into());
         }
         assert_eq!(
@@ -250,7 +373,7 @@ fn compiled_workflows(check_escape: bool) {
         window.dispatch_event(WindowEvent::KeyPressed {
             text: Key::Shift.into(),
         });
-        for _ in 0..3 {
+        for _ in 0..2 {
             key(&window, Key::Tab.into());
         }
         window.dispatch_event(WindowEvent::KeyReleased {
@@ -564,14 +687,14 @@ fn compiled_panel_dialog_traversal_and_opener_restore() {
     key(&window, Key::Tab.into());
     let first = focus();
     assert!(first.is_some());
-    for _ in 0..3 {
+    for _ in 0..2 {
         key(&window, Key::Tab.into());
     }
-    assert_eq!(focus(), first, "Tab stays inside three-action dialog");
+    assert_eq!(focus(), first, "Tab stays inside two-action dialog");
     window.dispatch_event(WindowEvent::KeyPressed {
         text: Key::Shift.into(),
     });
-    for _ in 0..3 {
+    for _ in 0..2 {
         key(&window, Key::Tab.into());
     }
     window.dispatch_event(WindowEvent::KeyReleased {
@@ -691,7 +814,7 @@ fn render_matrix(
         });
         for &scale in scales {
             for &(width, height) in sizes {
-                for view in (0..12).filter(|view| *view != 9) {
+                for view in [0, 1, 2, 3, 4, 5, 8, 10, 11] {
                     let (page, pane) = if view < 4 { (view, 0) } else { (4, view - 4) };
                     panel.set_page(page);
                     panel.set_pane(pane);
@@ -708,12 +831,19 @@ fn render_matrix(
             }
         }
     }
+    panel.set_dirty(true);
+    render(window, 1., 1100, 760, Some(&folder.join("draft-bar.png")));
+    panel.invoke_request_close();
+    assert!(panel.get_leave_open());
+    render(window, 1., 1100, 760, Some(&folder.join("save-changes.png")));
+    panel.invoke_cancel_modal();
+    panel.set_dirty(false);
     panel.global::<PanelData>().set_report_open(true);
     slint::platform::update_timers_and_animations();
     render(window, 1., 1100, 760, Some(&folder.join("report-form.png")));
     panel.invoke_cancel_modal();
     panel.hide().unwrap();
-    assert_eq!(count, if focused { 22 } else { 264 });
+    assert_eq!(count, if focused { 18 } else { 216 });
 }
 
 #[test]
@@ -740,9 +870,10 @@ fn save_transaction_rolls_back_registration_and_startup_without_publishing() {
     assert_eq!(result.unwrap_err(), "disk full");
     assert_eq!(
         *events.borrow(),
-        ["keys:true", "start:true", "keys:false", "start:false"]
+        ["start:true", "start:false"]
     );
     events.borrow_mut().clear();
+    let next = Settings { dnd_hotkey: "Ctrl+Alt+J".into(), ..next };
     let result = transaction(
         &before,
         &next,
@@ -758,7 +889,7 @@ fn save_transaction_rolls_back_registration_and_startup_without_publishing() {
         |_| panic!("published failed registration"),
     );
     assert_eq!(result.unwrap_err(), "hotkey busy");
-    assert_eq!(*events.borrow(), ["true", "false"]);
+    assert_eq!(*events.borrow(), ["true"]);
 }
 
 #[test]
@@ -768,6 +899,18 @@ fn legacy_one_sided_quiet_hours_and_shortcut_capture_remain_valid() {
         quiet_end: None,
         ..Default::default()
     };
+    let panel = Panel::new(&settings);
+    let mut state = panel.borrow_mut();
+    for (input, hour, minute) in [("time=00:01", 0, 1), ("time=23:59", 23, 59), ("time=24:00", 0, 0)] {
+        state.edit("quiet_start", input).unwrap();
+        assert_eq!(state.draft.value("quiet_start"), hour);
+        assert_eq!(state.draft.value("quiet_start_min"), minute);
+    }
+    for invalid in ["time=24:01", "time=12:60", "time=abc", "time=:30"] {
+        assert!(state.edit("quiet_start", invalid).is_err());
+        assert_eq!(state.draft.value("quiet_start"), 0);
+        assert_eq!(state.draft.value("quiet_start_min"), 0);
+    }
     let mut draft = Draft::new(&settings);
     draft.edit("sounds", json!(false));
     assert!(draft.merged(&settings).is_ok());

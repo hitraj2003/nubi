@@ -1,14 +1,17 @@
 import { Theme } from "theme.slint";
-import { PanelData } from "panel-data.slint";
+import { ControlGlyph } from "icons.slint";
+import { PanelData, PageMotion } from "panel-data.slint";
 import { CssShadow, Toggle, Tile, Action } from "parity-widgets.slint";
-import { DatePickerPopup } from "std-widgets.slint";
 export component PanelInk inherits Text {
     font-family: Theme.font; font-size: 13px; color: Theme.t1; vertical-alignment: center;
 }
 export component PanelCard inherits Rectangle {
-    CssShadow { width: 100%; height: 100%; }
-    Rectangle { width: 100%; height: 100%; background: Theme.card; border-radius: 18px; border-width: Theme.high-contrast ? 1px : 0px; border-color: Theme.line; }
-    @children
+    // Cards rise 14px with the page cascade; a card-colored veil fades their contents.
+    private property <float> enter: PageMotion.reveal(self.y, 160, 320);
+    CssShadow { y: 6px * (1 - root.enter); width: 100%; height: 100%; }
+    Rectangle { y: 6px * (1 - root.enter); width: 100%; height: 100%; background: Theme.card; border-radius: 18px; border-width: Theme.high-contrast ? 1px : 0px; border-color: Theme.line; }
+    Rectangle { y: 6px * (1 - root.enter); width: 100%; height: 100%; @children }
+    if root.enter < 1 : Rectangle { y: 6px * (1 - root.enter); width: 100%; height: 100%; border-radius: 18px; background: Theme.card.transparentize(root.enter); }
 }
 export component PanelToggle inherits Rectangle {
     out property <bool> has-focus: toggle.has-focus;
@@ -23,11 +26,46 @@ export component PanelTile inherits Rectangle {
     width: 28px; height: 28px;
     Tile { provider: root.provider; }
 }
+component CalButton inherits Rectangle {
+    in property <bool> next; in property <string> label; callback clicked();
+    width: 28px; height: 28px; border-radius: 8px;
+    background: t.pressed ? Theme.card-3 : t.has-hover ? Theme.card-2 : transparent;
+    animate background { duration: Theme.reduced ? 0ms : 150ms; easing: ease-out; }
+    ControlGlyph { name: root.next ? "next" : "previous"; ink: t.has-hover || t.pressed ? Theme.t1 : Theme.t2; }
+    t := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    accessible-role: button; accessible-label: root.label; accessible-action-default => { root.clicked(); }
+}
 export component PanelDate inherits Rectangle {
     out property <bool> has-focus: action.has-focus;
     in property <string> field;
     in property <string> label;
     height: 32px;
-    action := Action { text: "Add a date"; accessible-label: "Add a date: " + root.label; clicked => { picker.show(); } }
-    picker := DatePickerPopup { title: root.label; accepted(date) => { PanelData.picked-date(root.field,date.year,date.month,date.day); } }
+    action := Action { text: "Add a date"; accessible-label: "Add a date: " + root.label; clicked => { PanelData.date-field = root.field; PanelData.calendar-move(0); picker.show(); } }
+    picker := PopupWindow { y: root.height + 6px; width: 252px; close-policy: close-on-click-outside;
+        Rectangle { height: cal.preferred-height; border-radius: 14px; background: Theme.card;
+            border-width: 1px; border-color: Theme.dark ? Theme.line-2 : Theme.line;
+            drop-shadow-blur: Theme.high-contrast ? 0px : 28px; drop-shadow-offset-y: 16px; drop-shadow-color: Theme.dark ? #000000cc : #281e0a47;
+            private property <bool> shown; init => { self.shown = true; }
+            opacity: self.shown ? 1 : 0; transform-scale: self.shown ? 1 : 0.97;
+            animate opacity { duration: Theme.reduced ? 0ms : 150ms; }
+            animate transform-scale { duration: Theme.reduced ? 0ms : 250ms; easing: cubic-bezier(0.2,0.9,0.25,1); }
+            cal := VerticalLayout { padding: 10px; spacing: 6px;
+                HorizontalLayout { height: 28px;
+                    CalButton { label: "Previous month"; clicked => { PanelData.calendar-move(-1); } }
+                    PanelInk { horizontal-stretch: 1; text: PanelData.calendar-title; horizontal-alignment: center; font-weight: 500; }
+                    CalButton { next: true; label: "Next month"; clicked => { PanelData.calendar-move(1); } }
+                }
+                HorizontalLayout { height: 20px; for d in ["Mo","Tu","We","Th","Fr","Sa","Su"] : PanelInk { width: 32px; text: d; font-size: 11px; color: Theme.t3; horizontal-alignment: center; } }
+                Rectangle { height: 6 * 32px;
+                    for day[i] in PanelData.calendar : Rectangle { x: mod(i, 7) * 32px; y: floor(i / 7) * 32px; width: 32px; height: 32px; border-radius: 8px;
+                        background: cell.pressed ? Theme.card-3 : day.label != "" && cell.has-hover ? Theme.card-2 : transparent;
+                        animate background { duration: Theme.reduced ? 0ms : 150ms; }
+                        PanelInk { width: 100%; height: 100%; text: day.label; horizontal-alignment: center; font-family: Theme.num; font-size: 12px; }
+                        cell := TouchArea { enabled: day.label != ""; mouse-cursor: pointer; clicked => { PanelData.calendar-pick(day.date); picker.close(); } }
+                        accessible-role: button; accessible-label: day.date;
+                    }
+                }
+            }
+        }
+    }
 }

@@ -36,9 +36,14 @@ pub struct Settings {
     /// Quiet hours, local hour 0-23. Both set = active.
     pub quiet_start: Option<u8>,
     pub quiet_end: Option<u8>,
+    /// Minute past the quiet hour, 0-59.
+    pub quiet_start_min: u8,
+    pub quiet_end_min: u8,
     pub follow_quiet_time: bool,
     pub sounds: bool,
     pub toast_when_fullscreen: bool,
+    /// Keep notifications in the notch on every edge, including in full screen.
+    pub notifications_inside_notch: bool,
     /// Install at idle startup; later checks offer updates. Off still checks and notifies.
     pub auto_update: bool,
     /// Start Nubi at Windows sign-in (HKCU Run key).
@@ -101,9 +106,12 @@ impl Default for Settings {
             launcher_enabled: true,
             quiet_start: None,
             quiet_end: None,
+            quiet_start_min: 0,
+            quiet_end_min: 0,
             follow_quiet_time: true,
             sounds: true,
             toast_when_fullscreen: true,
+            notifications_inside_notch: false,
             auto_update: true,
             auto_start: false,
             theme: "system".into(),

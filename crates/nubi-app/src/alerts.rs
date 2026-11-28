@@ -160,7 +160,12 @@ impl Alerts {
         for (spring, target) in
             self.shape
                 .iter_mut()
-                .zip([f64::from(ui.get_natural_width()), 56., 1., 1.])
+                .zip([
+                    f64::from(ui.get_natural_width()),
+                    f64::from(ui.get_natural_height()),
+                    1.,
+                    1.,
+                ])
         {
             spring.to(target, spring::OPEN);
         }
@@ -228,6 +233,7 @@ impl Alerts {
                     .window()
                     .set_size(slint::PhysicalSize::new(width, height));
                 self.shape[0].to(f64::from(surface.ui.get_natural_width()), spring::OPEN);
+                self.shape[1].to(f64::from(surface.ui.get_natural_height()), spring::OPEN);
                 surface.popup = Some(popup);
                 self.last = Instant::now();
             }
@@ -386,18 +392,14 @@ mod render_tests {
         assert_eq!(manager.surface.as_ref().unwrap().ui.get_pill_opacity(), 0.);
     }
     #[test]
-    fn ordinary_alert_card_renders_source_geometry_at_four_scales() {
+    fn ordinary_alert_card_wraps_at_four_scales() {
         let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
         slint::platform::set_platform(Box::new(Offscreen(window.clone()))).unwrap();
         let ui = NativeAlert::new().unwrap();
         ui.set_heading("Claude · Task complete".into());
-        ui.set_message(
-            "The native alert card is ready for comparison against the original app notification. This deliberately long message exercises the original maximum width and text ellipsis."
-                .into(),
-        );
+        let message = "The native alert card is ready for comparison. This deliberately long message exercises content wrapping within the toast's maximum width.";
+        ui.set_message(message.into());
         ui.set_kind("done".into());
-        ui.set_pill_width(480.);
-        ui.set_pill_height(56.);
         ui.set_pill_scale(1.);
         ui.set_pill_opacity(1.);
         ui.set_content_opacity(1.);
@@ -415,11 +417,18 @@ mod render_tests {
                 ui.global::<Theme>().set_scale(scale);
                 let (width, height) = ((720. * scale) as u32, (160. * scale) as u32);
                 window.set_size(slint::PhysicalSize::new(width, height));
-                assert_eq!(ui.get_natural_width(), 480.);
-                assert_eq!(ui.get_hit_x(), 120.);
+                let natural_height = ui.get_natural_height();
+                assert_eq!(ui.get_natural_width(), 320.);
+                assert!(natural_height > 56., "long alert must grow when text wraps");
+                ui.set_message(format!("{message}\nExtra lines must be elided.\nThis line must also be elided.").into());
+                assert_eq!(ui.get_natural_height(), natural_height);
+                ui.set_message(message.into());
+                ui.set_pill_width(ui.get_natural_width());
+                ui.set_pill_height(natural_height);
+                assert_eq!(ui.get_hit_x(), 200.);
                 assert_eq!(ui.get_hit_y(), 12.);
-                assert_eq!(ui.get_hit_width(), 480.);
-                assert_eq!(ui.get_hit_height(), 56.);
+                assert_eq!(ui.get_hit_width(), 320.);
+                assert_eq!(ui.get_hit_height(), natural_height);
                 let mut pixels =
                     vec![PremultipliedRgbaColor::default(); width as usize * height as usize];
                 window.request_redraw();
@@ -441,7 +450,7 @@ mod render_tests {
                         ]),
                     );
                 }
-                assert!(opaque > (20000. * scale * scale) as usize);
+                assert!(opaque > (320. * natural_height * scale * scale * 0.7) as usize);
                 use image::ImageEncoder;
                 let file = std::fs::File::create(folder.join(format!(
                     "{}-{percent}.png",

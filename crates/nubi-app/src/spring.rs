@@ -7,18 +7,21 @@ pub struct Preset {
     pub damping: f64,
 }
 
+// Notch curves retuned 2026-11-28 (owner: notch felt laggy). Open is quicker with a
+// small settle (about 2% overshoot); close and content are critically damped so
+// nothing wobbles on the way in or out.
 pub const OPEN: Preset = Preset {
-    response: 0.5,
-    damping: 0.75,
+    response: 0.38,
+    damping: 0.78,
 };
 pub const CLOSE: Preset = Preset {
-    response: 0.42,
-    damping: 0.9,
+    response: 0.3,
+    damping: 1.0,
 };
 
 pub const CONTENT: Preset = Preset {
-    response: 0.5,
-    damping: 0.7,
+    response: 0.3,
+    damping: 1.0,
 };
 
 // Existing tab-highlight preset from ui/motion.js.

@@ -10,7 +10,7 @@ use crate::{
 };
 use nubi_core::host::with;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+use slint::winit_030::winit::platform::windows::{WindowAttributesExtWindows, WindowExtWindows};
 use slint::winit_030::{EventResult, WinitWindowAccessor, winit::event::WindowEvent};
 use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
 use std::{
@@ -59,9 +59,26 @@ fn present_settings(weak: slint::Weak<ParityPanel>, retries: u8) {
             }
         }
         panel.window().request_redraw();
-        panel
-            .window()
-            .with_winit_window(|window| window.request_redraw());
+        panel.window().with_winit_window(|window| {
+            // Set both the caption and large icons on the actual Windows window.
+            let set_icon = || -> Result<(), Box<dyn std::error::Error>> {
+                let pixels = image::load_from_memory(include_bytes!("../assets/nubi-logo.png"))?
+                    .into_rgba8();
+                let (width, height) = pixels.dimensions();
+                let icon = slint::winit_030::winit::window::Icon::from_rgba(
+                    pixels.into_raw(),
+                    width,
+                    height,
+                )?;
+                window.set_window_icon(Some(icon.clone()));
+                window.set_taskbar_icon(Some(icon));
+                Ok(())
+            };
+            if let Err(error) = set_icon() {
+                eprintln!("[nubi] panel icon: {error}");
+            }
+            window.request_redraw();
+        });
     });
 }
 
@@ -378,6 +395,8 @@ impl Surfaces {
     fn settings(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.panel.is_none() {
             let panel = ParityPanel::new()?;
+            panel.global::<crate::IconFrames>().on_rotated(crate::icon_frames::rotated);
+            panel.global::<crate::IconFrames>().on_bell(crate::icon_frames::bell);
             let state = self
                 .panel_state
                 .get_or_insert_with(|| {
@@ -559,6 +578,8 @@ pub fn run(
         })
         .select()?;
     let ui = NotchWindow::new()?;
+    ui.global::<crate::IconFrames>().on_rotated(crate::icon_frames::rotated);
+    ui.global::<crate::IconFrames>().on_bell(crate::icon_frames::bell);
     let settings = with(&host, |state| state.settings.clone());
     apply_theme(ui.global::<Theme>(), &settings.notch_theme);
     let reduced = settings.reduce_motion || native::system_reduced_motion();
@@ -624,6 +645,14 @@ pub fn run(
             let due = now >= next_frame;
             let mut motion = frame_motion.borrow_mut();
             let loops = frame_animated.get() && !ui.global::<Theme>().get_reduced();
+            // Ambient loops (rings, equalizer, refresh spin) cap at 60 Hz. Springs
+            // keep the monitor rate. Full-rate software redraws of the whole notch
+            // on 120-165 Hz screens starved the event loop and felt laggy.
+            let interval = if motion.active() || !loops {
+                interval
+            } else {
+                interval.max(Duration::from_micros(16_667))
+            };
             if due {
                 let following = next_frame + interval;
                 next_frame = if following > now {

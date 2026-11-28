@@ -45,7 +45,7 @@ impl Draft {
     }
     pub fn edit_text(&mut self, key: &str, text: &str) -> Result<(), String> {
         let value = match key {
-            "takeover_secs" | "request_popup_secs" | "monitor" => {
+            "takeover_secs" | "request_popup_secs" | "monitor" | "quiet_start_min" | "quiet_end_min" => {
                 json!(text.parse::<u32>().map_err(|_| "Enter a whole number")?)
             }
             "quiet_start" | "quiet_end" => {
@@ -159,26 +159,26 @@ pub const SPECS: &[Spec] = &[
     field!(0,"auto_start","Start with Windows","Opens Nubi when you sign in","","bool", &[]),
     field!(0,"auto_update","Update automatically","Downloads updates in the background, then asks when to install. When off, asks before downloading.","","bool", &[]),
     field!(0,"launcher_enabled","Open Claude or Codex from Explorer","Press the shortcut in a File Explorer window to open a terminal in that folder","Launcher","bool", &[]),
-    field!(0,"launch_hotkey","Launcher shortcut","Click the box and press the keys. Backspace clears.","","shortcut", &[]),
+    field!(0,"launch_hotkey","Launcher shortcut","Select Record, then press a key combination.","","shortcut", &[]),
+    field!(1,"monitor","Monitor","Choose which display shows the notch.","Notch placement","monitor", &[]),
+    field!(1,"edge","Edge","Where the notch sits on the screen","","select", &[("top","Top"),("right","Right"),("left","Left"),("bottom","Bottom")]),
+    field!(1,"notch_on_hover","Shrink when not in use","The notch becomes a thin line until you point at it","","bool", &[]),
     field!(1,"theme","Theme","","Panel","theme", THEMES),
     field!(1,"accent","Accent","Color of buttons, switches and the selected item","","accent", ACCENTS),
     field!(1,"notch_theme","Theme","","Notch & notifications","theme", THEMES),
     field!(1,"notch_accent","Accent","Color of buttons, switches and the selected item","","accent", ACCENTS),
     field!(1,"reduce_motion","Reduce motion","Simple fades instead of bouncy animations. Also on when Windows asks for less motion.","","bool", &[]),
-    field!(2,"display_mode","Style","Notch","","readonly", &[]),
-    field!(2,"monitor","Monitor","","","monitor", &[]),
-    field!(2,"edge","Edge","Where the notch sits on the screen","","select", &[("top","Top"),("right","Right"),("left","Left"),("bottom","Bottom")]),
-    field!(2,"notch_on_hover","Shrink when not in use","The notch becomes a thin line until you point at it","","bool", &[]),
-    field!(3,"questions_mode","Claude questions","Choices only shows the prompt's options. Full also lets you type an answer.","","select", &[("off","Off"),("system","Choices only"),("full","Full")]),
-    field!(3,"request_layout","Request cards","How multiple requests appear","","select", &[("stack","Stacked"),("list","Side by side")]),
-    field!(3,"takeover_secs","Move to terminal after","Time to answer in Nubi before the terminal asks instead","","number", &[]),
-    field!(3,"request_popup_secs","Keep cards open","0 keeps cards open until answered","","number", &[]),
     field!(4,"sounds","Sounds","Play a short sound for each alert","","bool", &[]),
-    field!(4,"toast_when_fullscreen","Use Windows notifications in full screen","When a game or video covers the notch","","bool", &[]),
-    field!(4,"dnd_hotkey","Keyboard shortcut","Turns Do not disturb on or off. Click the box and press the keys.","Do not disturb","shortcut", &[]),
+    field!(4,"notifications_inside_notch","Keep notifications inside the notch","Show toasts and request cards inside the notch on every edge. Overrides Windows notifications in full screen.","","bool", &[]),
+    field!(4,"toast_when_fullscreen","Use Windows notifications in full screen","Applies when Keep notifications inside the notch is off","","bool", &[]),
+    field!(4,"dnd_hotkey","Keyboard shortcut","Turns Do not disturb on or off.","Do not disturb","shortcut", &[]),
     field!(4,"quiet_start","Quiet hours from","Stay quiet between these hours","","hour", &[]),
     field!(4,"quiet_end","Quiet hours to","Quiet hours can cross midnight","","hour", &[]),
     field!(4,"follow_quiet_time","Follow Windows Focus","Stay quiet while Windows Focus or Do not disturb is on","","bool", &[]),
+    field!(4,"questions_mode","Agent questions","Choices only shows the prompt's options. Full also lets you type an answer.","Questions & approvals","select", &[("off","Off"),("system","Choices only"),("full","Full")]),
+    field!(4,"request_layout","Request cards","How multiple requests appear","","select", &[("stack","Stacked"),("list","Side by side")]),
+    field!(4,"takeover_secs","Move to terminal after","Time to answer in Nubi before the terminal asks instead","","number", &[]),
+    field!(4,"request_popup_secs","Keep cards open","0 keeps cards open until answered","","number", &[]),
     field!(5,"dt_views","Sections","Which cards appear in the notch's DeskTime tab","Notch tab","multi", &[("day","Today"),("week","Week"),("month","Month")]),
     field!(5,"dt_rows_day","Today rows","Values shown on the Today card","","multi", &[("done","Done"),("finish","Finish at"),("target","Target"),("late","Late arrival"),("nonprod","Non-productive")]),
     field!(5,"dt_rows_week","Week rows","Values shown on the Week card","","multi", PERIOD),
@@ -251,10 +251,15 @@ pub fn row(spec: &Spec, draft: &Draft, monitors: &[String]) -> PanelField {
             })
             .collect()
     };
-    let (hour, minute) = string
+    let (hour, minute) = if spec.kind == "hour" {
+        (
+            value.as_i64().map_or(0, |v| v as i32 + 1),
+            draft.value(&format!("{}_min", spec.key)).as_i64().unwrap_or(0) as i32,
+        )
+    } else { string
         .split_once(':')
         .and_then(|(h, m)| Some((h.parse().ok()?, m.parse().ok()?)))
-        .unwrap_or((0, 0));
+        .unwrap_or((0, 0)) };
     let mut minutes: Vec<_> = (0..60).step_by(5).collect();
     if !minutes.contains(&minute) {
         minutes.push(minute);
@@ -285,7 +290,13 @@ pub fn row(spec: &Spec, draft: &Draft, monitors: &[String]) -> PanelField {
         error: SharedString::default(),
         first: false,
         last: false,
-        hours: model((0..24).map(|h| format!("{h:02}").into()).collect()),
+        hours: model(
+            (spec.kind == "hour")
+                .then(|| "Off".into())
+                .into_iter()
+                .chain((0..24).map(|h| format!("{h:02}").into()))
+                .collect(),
+        ),
         minutes: model(
             minutes
                 .into_iter()
@@ -301,9 +312,11 @@ mod tests {
     use super::*;
     #[test]
     fn draft_patches_preserve_untouched_and_concurrent_host_updates() {
-        let original = Settings::default();
+        let original: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!original.notifications_inside_notch);
         let mut draft = Draft::new(&original);
         draft.edit("sounds", json!(false));
+        draft.edit_text("notifications_inside_notch", "true").unwrap();
         let mut concurrent = original.clone();
         concurrent.notch_along = 0.73;
         concurrent.day_targets.insert(1, "06:25".into());
@@ -311,6 +324,7 @@ mod tests {
         concurrent.launch_hotkey = "ctrl+shift+y".into();
         let merged = draft.merged(&concurrent).unwrap();
         assert!(!merged.sounds);
+        assert!(merged.notifications_inside_notch);
         assert_eq!(merged.notch_along, 0.73);
         assert_eq!(merged.day_targets[&1], "06:25");
         assert!(merged.desktime_enabled);

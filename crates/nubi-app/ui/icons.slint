@@ -1,5 +1,82 @@
-export component SourceIcon inherits Image {
+import { Theme } from "theme.slint";
+export global IconFrames {
+ pure callback rotated(string, int) -> image;
+ pure callback bell(bool, int) -> image;
+}
+
+// Lucide's 24-unit control glyphs share the toolbar's color transition.
+export component ControlGlyph inherits Path {
+    in property <string> name;
+    in property <brush> ink;
+    width: 14px;
+    height: 14px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: transparent;
+    stroke: ink;
+    stroke-width: 2px;
+    commands: name == "previous" ? "M15 18l-6-6 6-6"
+        : name == "next" ? "M9 18l6-6-6-6"
+        : name == "up" ? "M18 15l-6-6-6 6"
+        : name == "down" ? "M6 9l6 6 6-6"
+        : name == "plus" ? "M12 5v14M5 12h14"
+        : name == "minus" ? "M5 12h14"
+        : name == "close" ? "M18 6 6 18M6 6l12 12"
+        : "M20 6 9 17l-5-5";
+    animate stroke { duration: Theme.reduced ? 0ms : 150ms; easing: ease-out; }
+}
+
+export component SourceIcon inherits Rectangle {
  in property <string> name;
+ in property <string> artwork: name;
+ in property <brush> colorize;
+ // Bell Button v1.0.0 by Kokonut UI (MIT).
+ in property <bool> hot;
+ in property <bool> spinning;
+ in property <angle> spin-angle;
+ private property <bool> bell: name == "alerts" || name == "notify";
+ private property <duration> started: -4000ms;
+ private property <duration> last-hover: -700ms;
+ private property <bool> ringing;
+ // Read animation-tick() only while a ring plays. An unconditional read keeps the
+ // window redrawing every frame forever, which made the notch and panel lag.
+ private property <bool> live;
+ private property <float> elapsed: self.live ? (animation-tick() - self.started) / 1ms : 4000;
+ Timer { interval: 250ms; running: root.live; triggered => { if (animation-tick() - root.started) / 1ms >= 4000 { root.live = false; } } }
+ changed hot => {
+     if self.hot && self.bell && !Theme.reduced && animation-tick() - self.last-hover >= 700ms
+        && (!self.ringing || self.elapsed >= 700) {
+         self.last-hover = animation-tick();
+         self.started = self.last-hover;
+         self.ringing = false;
+         self.live = true;
+     }
+ }
+ public function activate() {
+     if self.bell && !Theme.reduced {
+         self.started = animation-tick();
+         self.ringing = true;
+         self.live = true;
+     }
+ }
  width: 18px; height: 18px;
- source: name == "inbox" ? @image-url("../assets/icon-inbox.svg") : name == "sessions" ? @image-url("../assets/icon-sessions.svg") : name == "usage" ? @image-url("../assets/icon-usage.svg") : name == "alerts" ? @image-url("../assets/icon-alerts.svg") : name == "settings" ? @image-url("../assets/icon-settings.svg") : name == "general" ? @image-url("../assets/icon-general.svg") : name == "appearance" ? @image-url("../assets/icon-appearance.svg") : name == "display" ? @image-url("../assets/icon-display.svg") : name == "requests" ? @image-url("../assets/icon-requests.svg") : name == "notify" ? @image-url("../assets/icon-notify.svg") : name == "desktime" ? @image-url("../assets/icon-desktime.svg") : name == "hooks" ? @image-url("../assets/icon-hooks.svg") : name == "about" ? @image-url("../assets/icon-about.svg") : name == "refresh-usage" ? @image-url("../assets/icon-refresh-usage.svg") : name == "dnd" ? @image-url("../assets/icon-dnd.svg") : name == "open-panel" ? @image-url("../assets/icon-open-panel.svg") : @image-url("../assets/moon.svg");
+ private property <image> still: artwork == "notch-refresh-usage" ? @image-url("../assets/notch-refresh-usage.svg")
+     : artwork == "notch-dnd" ? @image-url("../assets/notch-dnd.svg") : artwork == "notch-dnd-on" ? @image-url("../assets/notch-dnd-on.svg")
+     : artwork == "notch-open-panel" ? @image-url("../assets/notch-open-panel.svg")
+     : name == "inbox" ? @image-url("../assets/icon-inbox.svg") : name == "sessions" ? @image-url("../assets/icon-sessions.svg") : name == "usage" ? @image-url("../assets/icon-usage.svg") : name == "alerts" ? @image-url("../assets/icon-alerts.svg") : name == "settings" ? @image-url("../assets/icon-settings.svg") : name == "general" ? @image-url("../assets/icon-general.svg") : name == "appearance" ? @image-url("../assets/icon-appearance.svg") : name == "display" ? @image-url("../assets/icon-display.svg") : name == "requests" ? @image-url("../assets/icon-requests.svg") : name == "notify" ? @image-url("../assets/icon-notify.svg") : name == "desktime" ? @image-url("../assets/icon-desktime.svg") : name == "hooks" ? @image-url("../assets/icon-hooks.svg") : name == "about" ? @image-url("../assets/icon-about.svg") : name == "refresh-usage" ? @image-url("../assets/icon-refresh-usage.svg") : name == "dnd" ? @image-url("../assets/icon-dnd.svg") : name == "open-panel" ? @image-url("../assets/icon-open-panel.svg") : @image-url("../assets/moon.svg");
+ private property <int> spin-frame: mod(round(self.spin-angle / 2deg), 180);
+ private property <image> empty;
+ private property <image> rotated: Theme.reduced ? self.empty
+     : self.bell && self.elapsed < 4000 ? IconFrames.bell(self.ringing, floor(self.elapsed * 0.06))
+     : self.spinning && self.spin-frame != 0 ? IconFrames.rotated(self.artwork, self.spin-frame)
+     : self.empty;
+ Image {
+     private property <bool> framed: root.rotated.width > 0;
+     width: root.width * (self.framed ? 4 / 3 : 1);
+     height: root.height * (self.framed ? 4 / 3 : 1);
+     x: (root.width - self.width) / 2;
+     y: (root.height - self.height) / 2;
+     source: self.framed ? root.rotated : root.still;
+     colorize: root.colorize;
+ }
 }
